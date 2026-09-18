@@ -1,3 +1,21 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Isto NÃO é uma biblioteca. O agente corre-se da sua própria pasta
+# (`python agente.py --painel`), e os módulos de lib/ são importados pelo nome
+# graças ao sys.path que o agente prepara — é o que permite instalá-lo num posto
+# municipal sem passar por um instalador.
+#
+# O pyproject existe para declarar as dependências e configurar as ferramentas
+# (pytest, ruff, mypy) num só sítio. Sem estas duas linhas, o setuptools tenta
+# adivinhar o que empacotar, encontra lib/, assets/, entrada/, arquivo/ e
+# servico/ na raiz, e recusa-se a continuar — que foi exatamente o que partiu a
+# integração contínua na primeira vez que ela correu a sério.
+py-modules = ["agente"]
+packages = []
+
 [project]
 name = "agente-editais"
 version = "0.12.0"
@@ -23,10 +41,16 @@ testpaths = ["tests"]
 # como o agente faz em execução. Sem isto os testes teriam de conhecer a
 # estrutura de pastas, e passariam a testar o sys.path em vez do código.
 pythonpath = ["lib", "."]
-addopts = "-q --strict-markers"
+# Sem -q aqui: a integração contínua já corre `pytest` e um -q duplicado
+# esconde a linha do resumo, que é justamente o que se quer ler no registo da CI.
+addopts = "--strict-markers"
 
 [tool.mypy]
-python_version = "3.10"
+# Sem python_version fixo, de propósito: cada versão da matriz verifica-se a si
+# própria. Com "3.10" fixo, o mypy lia os stubs do numpy instalado em 3.12 — que
+# usam `type X = ...`, sintaxe de 3.12 — como se fossem 3.10, e recusava-os.
+# A compatibilidade com 3.10 fica garantida pelo trabalho que corre EM 3.10, que
+# é onde ela pode ser verificada a sério.
 mypy_path = "lib"
 # Estratégia deliberada: rigor nos módulos NOVOS, tolerância nos que vieram de
 # trás. Exigir anotações em tudo de uma vez obrigaria a um retrofit de 4000
