@@ -36,11 +36,10 @@ from pathlib import Path
 from urllib.parse import urlparse
 
 import certidao as cert_mod
+import diario
 import prazos as pr_mod
 import registo as reg_mod
 import utilizadores as utl
-
-import diario
 
 # Cabeçalho próprio que o painel envia em todos os pedidos de escrita. É metade
 # da defesa contra CSRF: um <form> de outro sítio consegue enviar um POST com as

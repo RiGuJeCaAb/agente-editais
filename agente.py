@@ -50,14 +50,13 @@ sys.path.insert(0, os.path.join(BASE, "lib"))
 import armazenamento as arm  # escrita durável (atómica, com gerações)
 import diario  # registo técnico (níveis, rotação, ficheiro)
 import documentos as doc
+import originais as orig  # arquivo imutável dos documentos
 import painel as painel_mod  # servidor do painel de gestão
 import prazos as pr  # tipos de documento e janelas legais
 import registo as reg_mod  # registo de entrada (fluxo de estados)
 import tratamento as trat
 import utilizadores as utl  # contas, senhas derivadas e sessões
 from PIL import Image
-
-import originais as orig  # arquivo imutável dos documentos
 
 # Registadores, um por subsistema. Os nomes são os prefixos que já se liam nas
 # linhas do agente — [AGENTE], [PAINEL], [TV] — agora com significado para a
