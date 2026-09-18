@@ -28,5 +28,7 @@ jobs:
           pip install -e ".[dev]"
       - name: Análise estática
         run: ruff check .
+      - name: Verificação de tipos
+        run: mypy lib/ agente.py
       - name: Testes
         run: pytest
