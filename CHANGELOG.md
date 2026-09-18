@@ -106,3 +106,32 @@ pergunte «e provam isso?».
 | testes | 109 | 207 |
 | módulos em `lib/` | 5 | 10 |
 | verificação de tipos | — | `mypy` limpo |
+
+## 0.13.0 — Onda 3 (1/4): ecrãs conforme a orientação
+
+### Corrigido
+- **Documentos horizontais ocupavam 10 % do ecrã.** Havia uma caixa-folha só,
+  vertical, e tudo era encaixado nela. Um printscreen ou um A4 deitado ficava
+  numa faixa fina no meio de muito branco — numa televisão vista a seis ou dez
+  metros, texto que não existe. Passam a ter ecrã próprio, com ~60 % da área.
+
+  | documento | antes | agora |
+  |---|---|---|
+  | A4 vertical | 24 % | 24 % (igual) |
+  | A4 deitado | 12 % | 48 % |
+  | printscreen 16:9 | 10 % | 60 % |
+  | panorama 21:9 | 7 % | 69 % |
+
+### Acrescentado
+- `tratamento.agrupar_ecras()`: distribui as páginas por ecrãs respeitando a
+  orientação, em vez da divisão cega em blocos de três. Substitui `_chunk()`,
+  que foi removido.
+- A caixa larga herda as margens do trio de folhas verticais, e a folha é do
+  tamanho exato do que leva dentro — preenchê-la a branco até à caixa toda
+  deixava quase 700 píxeis que se liam como defeito.
+- 27 testes de orientação.
+
+### Garantido
+A composição dos documentos verticais é **idêntica ao píxel** à da versão
+anterior: 100 % dos píxeis iguais em 1, 2 e 3 folhas. A esmagadora maioria dos
+editais é vertical, e uma melhoria que estragasse esses seria mau negócio.
