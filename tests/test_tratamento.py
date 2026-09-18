@@ -105,9 +105,9 @@ def test_encaixe_nao_corta_nada(largura, altura, descricao):
 
     A versão anterior escalava sempre pela altura e amputava as laterais de
     qualquer coisa mais larga que a caixa — um printscreen perdia o texto das
-    margens. Continua a valer que a caixa vertical dá pouca área a documentos
-    horizontais (10% do ecrã 4K), mas isso é desenho e resolve-se na Onda 3;
-    o que este teste garante é que não se corta.
+    margens. A área que a caixa vertical dava a um documento horizontal foi
+    resolvida à parte, dando-lhe ecrã próprio (ver test_orientacao.py); este
+    teste continua a garantir o que sempre garantiu: que não se corta nada.
     """
     origem = Image.new("RGB", (largura, altura), (255, 255, 255))
     encaixada = trat._fit_sheet(origem)

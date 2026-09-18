@@ -41,7 +41,7 @@ from datetime import date, datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.12.0"
+VERSAO = "0.13.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -373,20 +373,6 @@ def nome_saida(indice, slug, parte=None, total=None):
     sufixo = f"_p{parte}de{total}" if (parte and total and total > 1) else ""
     return f"{ts}_{indice:02d}_{slug}{sufixo}_16x9_3d_CLD.png"
 
-def _chunk(lst, k):
-    """Parte uma lista em blocos de no máximo k elementos (3, 3, ..., resto).
-
-    É o que implementa a regra "encher até 3 folhas por ecrã".
-
-    Args:
-        lst (list): itens a dividir.
-        k (int): tamanho máximo de cada bloco.
-
-    Returns:
-        list[list]: lista de blocos.
-    """
-    return [lst[i:i + k] for i in range(0, len(lst), k)]
-
 def ativos_hoje(cfg, registo):
     """Devolve os ecrãs que devem estar visíveis hoje (retirada ainda não passou).
 
@@ -547,7 +533,12 @@ def varrer(cfg, registo, estado, logo_im):
         meta = g["meta"]
         itens = g["itens"]
         slug = doc.slugify(meta["assunto"] or doc._humanize(itens[0][2]))
-        blocos = _chunk(itens, trat.MAX_POR_ECRA)   # ex.: 5 folhas → [3, 2]
+        # Os itens são tuplos (página, hash, nome); agrupa-se pelas páginas e
+        # reconstroem-se os tuplos, para o caminho antigo seguir a mesma regra
+        # de orientação do caminho do painel.
+        _por_pagina = {id(it[0]): it for it in itens}
+        blocos = [[_por_pagina[id(pg)] for pg in bloco]
+                  for bloco in trat.agrupar_ecras([it[0] for it in itens])]
         total = len(blocos)
         for bi, bloco in enumerate(blocos, start=1):
             indice = proximo_indice(registo)
@@ -870,7 +861,10 @@ def _compor_edital(cfg, r, logo_im, reg=None):
         _agente.warning(f"falha a compor o registo #{r['id']} ({r['ficheiro_origem']}): {ex}")
         return []
     slug = doc.slugify(r["assunto"] or doc._humanize(r["ficheiro_origem"]))
-    blocos = _chunk(pages, trat.MAX_POR_ECRA)
+    # Agrupamento por orientação, e não divisão cega em três: um documento
+    # horizontal leva um ecrã só para si, onde ocupa ~60% da área em vez dos
+    # 10% que lhe sobravam encaixado na caixa vertical.
+    blocos = trat.agrupar_ecras(pages)
     total = len(blocos)
     nomes = []
     for bi, bloco in enumerate(blocos, start=1):

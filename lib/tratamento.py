@@ -63,7 +63,79 @@ CANVAS_W, CANVAS_H = 3840, 2160
 SHEET_W, SHEET_H = 1201, 1678   # largura/altura de cada folha no canvas
 SHEET_TOP = 248                 # topo das folhas (deixa faixa verde p/ o logótipo)
 SHEET_GAP = 37                  # intervalo horizontal entre folhas
-MAX_POR_ECRA = 3                # nunca mais de 3 folhas por ecrã
+MAX_POR_ECRA = 3                # nunca mais de 3 folhas VERTICAIS por ecrã
+
+# ---------------------------------------------------------------------------
+# Caixa dos documentos horizontais.
+# ---------------------------------------------------------------------------
+# A caixa-folha acima é vertical, e era a única que havia. Um documento
+# horizontal — um printscreen, um A4 deitado, um mapa — era encaixado nela e
+# sobrava-lhe uma faixa fina no meio de muito branco. Medido num ecrã 4K: um
+# printscreen Full HD ocupava 10% da área, contra 24% de um A4 vertical. Numa
+# televisão vista a seis ou dez metros, esse texto não existe.
+#
+# A correção é dar-lhe o ecrã inteiro. As margens NÃO são inventadas: herdam-se
+# das que o trio de folhas verticais já produz, para os dois tipos de ecrã
+# parecerem do mesmo sistema em vez de dois desenhos a alternar.
+MARGEM_LATERAL = (CANVAS_W - (MAX_POR_ECRA * SHEET_W
+                              + (MAX_POR_ECRA - 1) * SHEET_GAP)) // 2
+LARGA_W = CANVAS_W - 2 * MARGEM_LATERAL    # 3678
+LARGA_H = SHEET_H                          # 1678, a mesma altura das verticais
+
+# Acima deste rácio largura/altura o documento vai sozinho para a caixa larga.
+# 1.0 — isto é, mais largo do que alto — e não um valor mais exigente: mesmo um
+# documento quase quadrado ganha o dobro da área na caixa larga, porque na
+# vertical é a largura que o limita e na larga é a altura.
+RACIO_HORIZONTAL = 1.0
+
+
+def e_horizontal(pagina) -> bool:
+    """Indica se uma página deve ir sozinha para a caixa larga.
+
+    Args:
+        pagina (PIL.Image.Image): página já rasterizada.
+
+    Returns:
+        bool: True se for mais larga do que alta.
+    """
+    largura, altura = pagina.size
+    return altura > 0 and (largura / altura) >= RACIO_HORIZONTAL
+
+
+def agrupar_ecras(paginas):
+    """Distribui as páginas por ecrãs, respeitando a orientação de cada uma.
+
+    Substitui a divisão cega em blocos de três. As regras:
+
+      - páginas VERTICAIS juntam-se, até três por ecrã, como sempre;
+      - uma página HORIZONTAL leva um ecrã só para si, porque é isso que lhe dá
+        a área de que precisa para se ler ao longe;
+      - a ordem das páginas é preservada, para um documento não sair baralhado.
+
+    Um documento misto — um ofício com um mapa deitado no meio, que acontece —
+    fica com os verticais agrupados e o horizontal isolado, na sua vez.
+
+    Args:
+        paginas (list[PIL.Image.Image]): páginas na ordem do documento.
+
+    Returns:
+        list[list[PIL.Image.Image]]: um bloco por ecrã.
+    """
+    ecras, atual = [], []
+    for pagina in paginas:
+        if e_horizontal(pagina):
+            if atual:
+                ecras.append(atual)
+                atual = []
+            ecras.append([pagina])          # ecrã só para ela
+            continue
+        atual.append(pagina)
+        if len(atual) == MAX_POR_ECRA:
+            ecras.append(atual)
+            atual = []
+    if atual:
+        ecras.append(atual)
+    return ecras
 
 
 def sheet_positions(n):
@@ -589,6 +661,36 @@ def _fit_sheet(page_img, target_w=SHEET_W, target_h=SHEET_H):
     return canvas
 
 
+def _caixa_justa(pagina, x, y, caixa_w, caixa_h):
+    """Encolhe uma caixa ao tamanho exato da página encaixada, e recentra-a.
+
+    A caixa-folha vertical é de tamanho FIXO de propósito: uma folha sozinha tem
+    de ter o mesmo tamanho das de um trio, senão a rotação no ecrã parece saltar.
+    A folha A4 enche-a quase toda (0,707 contra 0,716 de rácio), por isso o
+    branco que sobra não se vê.
+
+    Na caixa larga isso deixa de valer. Ela tem rácio 2,19:1 e um printscreen
+    tem 1,78:1, pelo que sobravam quase 700 píxeis de branco repartidos pelos
+    lados — e uma folha mais larga do que o seu conteúdo lê-se como defeito, não
+    como desenho. Aqui não há trio com que manter consistência: é sempre uma
+    página só. Então a folha passa a ser do tamanho do que leva dentro, e o
+    verde do fundo aparece dos lados, que é o que se quer ver.
+
+    Args:
+        pagina (PIL.Image.Image): página a encaixar.
+        x (int), y (int): canto superior esquerdo da caixa disponível.
+        caixa_w (int), caixa_h (int): dimensões da caixa disponível.
+
+    Returns:
+        tuple[int, int, int, int]: (x, y, largura, altura) já ajustados.
+    """
+    largura, altura = pagina.size
+    escala = min(caixa_w / largura, caixa_h / altura)
+    nova_w = max(1, round(largura * escala))
+    nova_h = max(1, round(altura * escala))
+    return (x + (caixa_w - nova_w) // 2, y + (caixa_h - nova_h) // 2, nova_w, nova_h)
+
+
 def compose_sheets(pages, seed=7, logo_im=None,
                    logo_width_frac=0.150, logo_margin_frac=0.032, cache_fundos=None):
     """Compõe 1..3 páginas lado a lado, ao mesmo tamanho, sobre o fundo metálico.
@@ -596,6 +698,9 @@ def compose_sheets(pages, seed=7, logo_im=None,
     É a função central do módulo. Gera o fundo, coloca as folhas nas posições
     uniformes, projeta-lhes uma sombra de duplo nível (para "pairarem") e, se
     houver espaço verde no canto, aplica o logótipo gravado.
+
+    Uma página horizontal sozinha recebe a caixa larga (ver LARGA_W/LARGA_H);
+    tudo o resto usa a grelha vertical de sempre.
 
     Args:
         pages (list[PIL.Image.Image]): 1 a 3 páginas (excedente é ignorado).
@@ -610,20 +715,28 @@ def compose_sheets(pages, seed=7, logo_im=None,
         PIL.Image.Image: composição final RGB (CANVAS_W × CANVAS_H).
     """
     pages = pages[:MAX_POR_ECRA]
-    n = len(pages)
     bg = obter_fundo(seed, cache_fundos).astype(REAL)
-    xs = sheet_positions(n)
-    y0 = SHEET_TOP
+
+    # Uma página horizontal sozinha usa a caixa larga; tudo o resto usa a grelha
+    # vertical de sempre. A decisão fica aqui, e não em quem chama, para que
+    # mesmo uma chamada avulsa — um teste, um script de recurso — faça a coisa
+    # certa sem ter de saber destas regras.
+    if len(pages) == 1 and e_horizontal(pages[0]):
+        caixas = [_caixa_justa(pages[0], MARGEM_LATERAL, SHEET_TOP, LARGA_W, LARGA_H)]
+    else:
+        caixas = [(x, SHEET_TOP, SHEET_W, SHEET_H)
+                  for x in sheet_positions(len(pages))]
 
     # Máscara conjunta de todas as folhas: é a partir dela que se calcula a sombra.
     m = np.zeros((CANVAS_H, CANVAS_W), REAL)
     fitted = []
-    # strict=True: xs vem de sheet_positions(len(pages)), portanto os comprimentos
-    # batem por construção. Se um dia deixarem de bater, é melhor saber-se aqui.
-    for x0, pg in zip(xs, pages, strict=True):
-        sheet = _fit_sheet(pg)
-        fitted.append((x0, sheet))
-        m[y0:y0 + SHEET_H, x0:x0 + SHEET_W] = 1.0
+    # strict=True: as caixas são geradas a partir de len(pages), portanto os
+    # comprimentos batem por construção. Se um dia deixarem de bater, é melhor
+    # saber-se aqui.
+    for (x0, y0, cw, ch), pg in zip(caixas, pages, strict=True):
+        sheet = _fit_sheet(pg, cw, ch)
+        fitted.append((x0, y0, sheet))
+        m[y0:y0 + ch, x0:x0 + cw] = 1.0
 
     # Sombra de duplo nível para dar a ilusão de "flutuar":
     #  - sombra próxima (sigma 18, deslocada pouco): contacto suave sob a folha;
@@ -637,8 +750,9 @@ def compose_sheets(pages, seed=7, logo_im=None,
     del bg, sh_near, sh_far, shadow   # libertar já: são ~100 MB cada
 
     # Assenta cada folha por cima da sombra.
-    for x0, sheet in fitted:
-        out[y0:y0 + SHEET_H, x0:x0 + SHEET_W, :] = np.array(sheet, dtype=REAL)
+    for x0, y0, sheet in fitted:
+        largura, altura = sheet.size
+        out[y0:y0 + altura, x0:x0 + largura, :] = np.array(sheet, dtype=REAL)
 
     img = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
     _paste_logo(img, m, logo_im, logo_width_frac, logo_margin_frac)
