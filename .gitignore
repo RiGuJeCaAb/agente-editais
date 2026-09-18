@@ -10,13 +10,21 @@ retiradas.txt
 *.bak.[0-9]
 *.tmp
 
+# Contas do painel. As senhas estão derivadas e não em claro, mas este ficheiro
+# não tem nada que fazer num repositório: é do posto, e versioná-lo levaria as
+# contas reais de um município para dentro do histórico do Git.
+utilizadores.json
+
 # Pastas de trabalho e saída.
+diario/
 entrada/*
 !entrada/_COLOCAR_DOCUMENTOS_AQUI.txt
 saida/
 previas/
 trabalho/
 fundos/
+originais/
+diario/
 arquivo/*
 !arquivo/_ARQUIVO.txt
 
