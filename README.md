@@ -12,7 +12,10 @@ TV abre num URL — mais um ZIP de arquivo.
 1. **Lê** a pasta `entrada/` (PDF, imagens, Word/.docx/.odt/.rtf) — **todas as páginas**.
 2. **Extrai** assunto, número e data de publicação do texto do documento.
 3. **Agrupa** folhas do mesmo documento **e** documentos com o mesmo assunto, e
-   distribui-as por **ecrãs de até 3 folhas** (todas ao mesmo tamanho), aproveitando o 16:9.
+   distribui-as por ecrãs **conforme a orientação**: folhas verticais juntam-se
+   até 3 por ecrã, todas ao mesmo tamanho; um documento **horizontal**
+   (printscreen, A4 deitado, mapa) leva um ecrã só para si, onde ocupa ~60 % da
+   área em vez dos 10 % que lhe sobravam encaixado na caixa vertical.
 4. **Trata** visualmente e **converte** para PNG 16:9 (3840×2160).
 5. **Numera**: `AAAAMMDDHHMM_nn_assunto_p1de2_16x9_3d_CLD.png`.
 6. **Datas de saída**: ficheiro de texto simples `retiradas.txt` (ver secção 5).
@@ -236,7 +239,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 207 testes
+pytest          # 234 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -613,3 +616,34 @@ curl -s http://127.0.0.1:8770/saude
 Devolve `"ok": true` quando a vigia correu há pouco e há espaço em disco. É a
 única rota sem sessão, e por isso só devolve números e instantes — nunca o
 conteúdo de editais por validar.
+
+---
+
+## 18. Ecrãs conforme a orientação do documento — NOVO
+
+Havia uma caixa-folha só, vertical, e tudo era encaixado nela. Para um edital em
+A4 isso está certo — enche-a quase toda. Para um documento **horizontal** não
+estava: sobrava-lhe uma faixa fina no meio de muito branco.
+
+Medido num ecrã 4K:
+
+| documento | antes | agora |
+|---|---|---|
+| A4 vertical | 24 % | 24 % (igual) |
+| A4 deitado | 12 % | 48 % |
+| printscreen 16:9 | 10 % | 60 % |
+| panorama 21:9 | 7 % | 69 % |
+
+Numa televisão vista a seis ou dez metros, 10 % da área é texto que não existe.
+
+**A regra:** um documento mais largo do que alto vai sozinho para um ecrã, numa
+caixa larga que herda as margens do trio de folhas verticais — para os dois
+tipos de ecrã parecerem do mesmo sistema. A folha larga é do tamanho exato do
+que leva dentro, e o verde do fundo aparece dos lados; preenchê-la a branco até
+à caixa toda lia-se como defeito.
+
+Um documento misto (um ofício com um mapa deitado no meio) fica com os verticais
+agrupados e o horizontal isolado, na sua vez, sem perder a ordem.
+
+**O que NÃO mudou:** a composição dos documentos verticais é idêntica ao píxel —
+verificado contra a versão anterior, 100 % dos píxeis iguais em 1, 2 e 3 folhas.
