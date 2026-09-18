@@ -202,7 +202,7 @@ VARIANTES_DE_FUNDO = 8
 # publicação compõe vários ecrãs seguidos e reencontra as mesmas variantes;
 # descodificar o PNG de 3840x2160 custava 0,6 s de cada vez. Limita-se a três
 # entradas (~75 MB) para não trocar tempo por memória sem limite.
-_FUNDOS_EM_MEMORIA = {}
+_FUNDOS_EM_MEMORIA: dict[int, np.ndarray] = {}
 _MAX_FUNDOS_EM_MEMORIA = 3
 
 

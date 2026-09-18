@@ -32,15 +32,19 @@ from __future__ import annotations
 import json
 import os
 import tempfile
-from typing import Any
+from typing import IO, Any
+
+import diario
 
 # Quantas gerações anteriores se guardam ao lado do ficheiro (ficheiro.bak.1, .2, ...).
 # Três chega: cobre o erro que se nota no próprio dia e o que só se nota no seguinte,
 # sem encher a pasta de cópias que ninguém vai ler.
+_armazem = diario.obter("ARMAZEM")
+
 GERACOES_POR_OMISSAO = 3
 
 
-def _forcar_ao_disco(f) -> None:
+def _forcar_ao_disco(f: IO[Any]) -> None:
     """Garante que o que foi escrito chegou mesmo ao disco, e não só ao buffer do SO.
 
     Sem isto, o os.replace() pode trocar um ficheiro cujo conteúdo ainda está em
@@ -155,11 +159,11 @@ def ler_json(caminho: str, omissao: Any = None) -> Any:
             with open(alvo, encoding="utf-8") as f:
                 dados = json.load(f)
             if i > 0:
-                print(f"[ARMAZEM] AVISO: '{os.path.basename(caminho)}' estava ilegível; "
+                _armazem.warning(f"AVISO: '{os.path.basename(caminho)}' estava ilegível; "
                       f"recuperado da cópia .bak.{i}. Verifique o que se perdeu entretanto.")
             return dados
         except (json.JSONDecodeError, UnicodeDecodeError, OSError) as e:
-            print(f"[ARMAZEM] '{os.path.basename(alvo)}' não é JSON válido ({e}). "
+            _armazem.warning(f"'{os.path.basename(alvo)}' não é JSON válido ({e}). "
                   f"A tentar a cópia seguinte.")
     return omissao
 

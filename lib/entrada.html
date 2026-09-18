@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="pt-PT">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Entrar · Registo de Editais</title>
+<style>
+  :root{
+    --verde-selo:#0D4D33; --verde-escuro:#06271a;
+    --ouro:#C8A84B; --ouro-claro:#e6cf8d; --ouro-escuro:#8e7228;
+    --papel:#f4f1e8; --papel-ficha:#fffdf7;
+    --tinta:#23291f; --tinta-suave:#64675c; --linha:#ddd6c4;
+    --alerta:#926823; --alerta-fundo:#fbf3e2;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,"Times New Roman",serif;
+    --sans:"Segoe UI",system-ui,-apple-system,Roboto,Helvetica,Arial,sans-serif;
+  }
+  *{margin:0;padding:0;box-sizing:border-box}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+  body{font-family:var(--sans);font-size:15.5px;color:var(--tinta);min-height:100vh;
+    display:flex;align-items:center;justify-content:center;padding:24px;
+    background:linear-gradient(168deg,var(--verde-selo),var(--verde-escuro))}
+  .cartao{background:var(--papel-ficha);border-radius:16px;width:100%;max-width:392px;
+    padding:36px 34px 30px;box-shadow:0 2px 6px rgba(0,0,0,.14),0 24px 60px rgba(0,0,0,.34);
+    border-top:3px solid var(--ouro)}
+  .marca{display:flex;align-items:center;gap:13px;margin-bottom:26px}
+  .marca svg{width:42px;height:42px;flex:0 0 42px}
+  .marca h1{font-family:var(--serif);font-size:19px;font-weight:600;line-height:1.15}
+  .marca .sub{font-size:10.5px;color:var(--ouro-escuro);letter-spacing:.1em;
+    text-transform:uppercase;margin-top:2px;font-weight:700}
+  .campo{margin-bottom:16px}
+  .campo label{display:block;font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;
+    color:var(--tinta-suave);margin-bottom:6px;font-weight:700}
+  .campo input{width:100%;padding:12px 13px;border:1px solid var(--linha);border-radius:9px;
+    font-family:var(--sans);font-size:15px;background:var(--papel);color:var(--tinta);transition:.15s}
+  .campo input:focus{outline:none;border-color:var(--ouro);background:var(--papel-ficha);
+    box-shadow:0 0 0 3px rgba(200,168,75,.18)}
+  button{width:100%;border:none;border-radius:10px;padding:13px;font-family:var(--sans);
+    font-size:15px;font-weight:600;cursor:pointer;background:var(--verde-selo);color:#fff;
+    transition:.15s;margin-top:6px}
+  button:hover:not(:disabled){filter:brightness(1.14)}
+  button:focus-visible{outline:2px solid var(--ouro);outline-offset:2px}
+  button:disabled{opacity:.55;cursor:not-allowed}
+  .erro{display:none;margin-top:16px;padding:11px 13px;border-radius:9px;font-size:13.5px;
+    background:var(--alerta-fundo);border:1px solid #e9d3a3;color:var(--alerta);font-weight:600}
+  .erro.ver{display:block}
+  .nota{margin-top:22px;padding-top:16px;border-top:1px solid var(--linha);
+    font-size:12px;color:var(--tinta-suave);line-height:1.5}
+</style>
+</head>
+<body>
+  <main class="cartao">
+    <div class="marca">
+      <svg viewBox="0 0 100 100" fill="none" aria-hidden="true">
+        <g stroke="#C8A84B" stroke-width="5" stroke-linejoin="round" stroke-linecap="round">
+          <path d="M34 14 L40 40 L46 14 L52 40 L58 14"/><path d="M16 56 L22 82 L28 56 L34 82 L40 56"/>
+          <path d="M52 56 L58 82 L64 56 L70 82 L76 56"/></g>
+      </svg>
+      <div><h1>Registo de Editais</h1><div class="sub">Moimenta da Beira</div></div>
+    </div>
+
+    <form id="forma" autocomplete="on">
+      <div class="campo">
+        <label for="utilizador">Utilizador</label>
+        <input id="utilizador" name="username" autocomplete="username" required
+               autocapitalize="none" spellcheck="false" autofocus>
+      </div>
+      <div class="campo">
+        <label for="senha">Senha</label>
+        <input id="senha" name="password" type="password" autocomplete="current-password" required>
+      </div>
+      <button type="submit" id="botao">Entrar</button>
+      <!-- role=alert para um leitor de ecrã anunciar a recusa sem ser preciso
+           procurar a mensagem; aria-live é redundante com role=alert mas cobre
+           leitores antigos que só honram um dos dois. -->
+      <div class="erro" id="erro" role="alert" aria-live="assertive"></div>
+    </form>
+
+    <p class="nota">Cada pessoa entra com a sua própria conta. É esse nome que fica
+      no histórico de cada edital e na certidão de afixação.</p>
+  </main>
+
+<script>
+  "use strict";
+  const forma = document.getElementById('forma');
+  const botao = document.getElementById('botao');
+  const caixaErro = document.getElementById('erro');
+
+  function mostrarErro(texto){
+    caixaErro.textContent = texto;
+    caixaErro.classList.add('ver');
+  }
+
+  forma.addEventListener('submit', async e => {
+    e.preventDefault();
+    caixaErro.classList.remove('ver');
+    botao.disabled = true;
+    // A derivação da senha demora ~165 ms de propósito (scrypt), e com a rede
+    // pelo meio dá para se notar. Sem este texto, parece que o botão não fez nada.
+    botao.textContent = 'A verificar…';
+    try{
+      const r = await fetch('/api/entrar', {
+        method:'POST',
+        // O mesmo par que protege as restantes escritas contra pedidos nascidos
+        // noutro sítio. Também aqui: um formulário de terceiros não deve poder
+        // usar este painel para tentar senhas.
+        headers:{'Content-Type':'application/json','X-Painel-Pedido':'1'},
+        body: JSON.stringify({
+          utilizador: document.getElementById('utilizador').value,
+          senha: document.getElementById('senha').value
+        })
+      });
+      const d = await r.json().catch(() => ({}));
+      if (r.ok && d.ok){ window.location.href = '/'; return; }
+      mostrarErro(d.erro || 'Não foi possível entrar.');
+    }catch(err){
+      mostrarErro('Sem ligação ao servidor.');
+    }
+    document.getElementById('senha').value = '';
+    document.getElementById('senha').focus();
+    botao.disabled = false;
+    botao.textContent = 'Entrar';
+  });
+</script>
+</body>
+</html>

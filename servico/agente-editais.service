@@ -1,0 +1,59 @@
+# Unidade systemd do agente de editais.
+#
+# Instalação:
+#   sudo cp servico/agente-editais.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now agente-editais
+#   systemctl status agente-editais
+#   journalctl -u agente-editais -f          (o registo também vai para diario/)
+#
+# Ajuste User, Group e os caminhos antes de instalar.
+
+[Unit]
+Description=Agente de editais do expositor municipal
+Documentation=file:/opt/agente-editais/README.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=editais
+Group=editais
+WorkingDirectory=/opt/agente-editais
+ExecStart=/opt/agente-editais/.venv/bin/python /opt/agente-editais/agente.py --painel
+
+# Reiniciar sempre, com espera entre tentativas. O agente é um serviço de
+# apresentação: se morrer às três da manhã, ninguém o vai levantar à mão, e a
+# televisão fica a mostrar editais velhos sem que ninguém perceba porquê.
+Restart=always
+RestartSec=10s
+
+# A composição de imagens 4K é o que mais consome; este tecto é folgado para o
+# trabalho normal e evita que uma fuga de memória leve a máquina inteira.
+MemoryMax=2G
+
+# --- Restrições de superfície ---
+# A minimização de privilégios que o DL n.º 125/2025 (NIS2) espera de quem opera
+# um serviço público. Nenhuma destas linhas muda o que o agente faz; todas
+# reduzem o que ele conseguiria fazer se fosse comprometido.
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictRealtime=true
+LockPersonality=true
+# Só estas pastas são escrevíveis. Se um dia o agente passar a escrever noutro
+# sítio, é aqui que se declara — e a falha será clara em vez de silenciosa.
+ReadWritePaths=/opt/agente-editais/entrada /opt/agente-editais/saida \
+               /opt/agente-editais/previas /opt/agente-editais/originais \
+               /opt/agente-editais/arquivo /opt/agente-editais/fundos \
+               /opt/agente-editais/trabalho /opt/agente-editais/diario
+# O painel não precisa de rede para lá de IPv4/IPv6 locais.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+
+[Install]
+WantedBy=multi-user.target

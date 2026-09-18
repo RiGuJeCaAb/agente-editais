@@ -39,16 +39,34 @@ import sys
 import time
 from datetime import date, datetime
 
+# Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
+# para se saber qual a versão que está a correr num posto sem abrir ficheiros.
+VERSAO = "0.12.0"
+
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(BASE, "lib"))
 import armazenamento as arm  # escrita durável (atómica, com gerações)
+import diario  # registo técnico (níveis, rotação, ficheiro)
 import documentos as doc
+import originais as orig  # arquivo imutável dos documentos
 import painel as painel_mod  # servidor do painel de gestão
+import prazos as pr  # tipos de documento e janelas legais
 import registo as reg_mod  # registo de entrada (fluxo de estados)
 import tratamento as trat
+import utilizadores as utl  # contas, senhas derivadas e sessões
 from PIL import Image
+
+# Registadores, um por subsistema. Os nomes são os prefixos que já se liam nas
+# linhas do agente — [AGENTE], [PAINEL], [TV] — agora com significado para a
+# biblioteca de registo em vez de serem texto colado à frente da mensagem.
+_agente = diario.obter("AGENTE")
+_config = diario.obter("CONFIG")
+_painel = diario.obter("PAINEL")
+_arquivo = diario.obter("ARQUIVO")
+_fundos = diario.obter("FUNDOS")
+_tv = diario.obter("TV")
 
 # Configuração por omissão. Pode ser sobreposta por um 'config.json' na raiz —
 # assim o utilizador altera tempos, título e limites sem tocar no código.
@@ -57,12 +75,16 @@ CONFIG = {
     "saida":    os.path.join(BASE, "saida"),
     "arquivo":  os.path.join(BASE, "arquivo"),   # ZIP permanente dos retirados
     "previas":  os.path.join(BASE, "previas"),   # pré-visualizações leves p/ o painel
+    "originais": os.path.join(BASE, "originais"), # arquivo imutável dos documentos
     "fundos":   os.path.join(BASE, "fundos"),    # cache dos fundos metálicos pré-desenhados
     "trabalho": os.path.join(BASE, "trabalho"),
     "estado":   os.path.join(BASE, "estado.json"),
     "registo":  os.path.join(BASE, "editais.json"),
     "retiradas": os.path.join(BASE, "retiradas.txt"),
     "registo_entrada": os.path.join(BASE, "registo_entrada.json"),  # fluxo de estados
+    "utilizadores": os.path.join(BASE, "utilizadores.json"),        # contas do painel
+    "diario":   os.path.join(BASE, "diario", "agente.log"),         # registo técnico
+    "nivel_diario": "INFO",
     "logo_sym": os.path.join(BASE, "assets", "sym_ok.png"),
     "logo_txt": os.path.join(BASE, "assets", "txt_ok.png"),
     "intervalo_watch": 30,
@@ -76,7 +98,15 @@ CONFIG = {
     "usar_registo_entrada": True,
     "painel_host": "127.0.0.1",     # "0.0.0.0" para expor à rede (dentro da VLAN)
     "painel_porta": 8770,
-    "painel_senha": "",             # OBRIGATÓRIO definir em config.json p/ usar o painel
+    # --- Identificação para a certidão de afixação ---
+    # Aparecem no cabeçalho e no corpo do documento que a aplicação emite, por
+    # isso convém estarem certos antes de a primeira certidão sair para um processo.
+    "municipio": "Município de Moimenta da Beira",
+    "servico": "",
+    "local_do_expositor": "Expositor eletrónico do Município",
+    # Tipos de documento com prazos próprios do município, que se somam ou
+    # sobrepõem aos de origem. Ver lib/prazos.py.
+    "tipos_de_documento": {},
 }
 
 def load_config():
@@ -95,6 +125,11 @@ def load_config():
         dict: configuração efetiva a usar nesta execução.
     """
     cfg = dict(CONFIG)
+    # O registo técnico arranca ANTES de se ler o config.json, com os valores por
+    # omissão. Parece redundante, mas não é: os avisos sobre o próprio
+    # config.json — aspas curvas, erro de sintaxe — são dos mais importantes que
+    # o agente emite, e sem isto seriam os únicos a não ficar em lado nenhum.
+    diario.configurar(cfg["diario"], nivel=cfg["nivel_diario"])
     p = os.path.join(BASE, "config.json")
     if os.path.exists(p):
         try:
@@ -103,32 +138,33 @@ def load_config():
             # Deteta o erro mais traiçoeiro: aspas "curvas" (tipográficas) que o
             # Notepad/Word inserem e que invalidam o JSON.
             if "\u201c" in conteudo or "\u201d" in conteudo:
-                print("=" * 60)
-                print("[CONFIG] AVISO: o config.json tem aspas curvas (\u201c \u201d).")
-                print("  Foi provavelmente guardado no Word ou Notepad com")
-                print("  formatação. Use aspas retas (\") num editor simples.")
-                print("  A configuração desse ficheiro foi IGNORADA.")
-                print("=" * 60)
+                _config.warning(
+                    "O config.json tem aspas curvas (\u201c \u201d) e foi IGNORADO. "
+                    "Foi provavelmente guardado no Word ou no Notepad com "
+                    "formatação; use aspas retas (\") num editor de texto simples.")
             else:
                 cfg.update(json.loads(conteudo))
         except json.JSONDecodeError as e:
             # JSON malformado: avisa e continua com defaults, mas deixa claro.
-            print("=" * 60)
-            print(f"[CONFIG] ERRO de sintaxe no config.json: {e}")
-            print("  A configuração desse ficheiro foi IGNORADA — o agente vai")
-            print("  usar os valores por defeito (incluindo SENHA VAZIA, que")
-            print("  impede o painel de arrancar). Corrija o config.json.")
-            print("=" * 60)
-    for k in ("entrada", "saida", "arquivo", "previas", "fundos", "trabalho"):
+            _config.error(
+                f"Erro de sintaxe no config.json: {e}. O ficheiro foi IGNORADO e o "
+                f"agente vai usar os valores por omissão. Corrija-o e reinicie.")
+    for k in ("entrada", "saida", "arquivo", "previas", "fundos", "originais", "trabalho"):
         os.makedirs(cfg[k], exist_ok=True)
 
-    # Deteta espaços acidentais à volta da senha (causa comum de "pass não bate").
-    senha = cfg.get("painel_senha", "")
-    if senha and senha != senha.strip():
-        print("[CONFIG] AVISO: a 'painel_senha' tem espaços no início/fim. "
-              "Isto costuma ser acidental e faz o login falhar. A remover os espaços.")
-        cfg["painel_senha"] = senha.strip()
+    # A senha partilhada foi retirada na Onda 2. Se ainda estiver no config,
+    # avisa-se em vez de a ignorar em silêncio — quem a lá tem julga que está a
+    # proteger o painel com ela.
+    if cfg.get("painel_senha"):
+        _config.warning(
+            "A chave 'painel_senha' do config.json já não é usada e pode ser "
+            "retirada. O painel passou a ter contas individuais, para a certidão "
+            "de afixação poder dizer quem afixou cada edital. Crie contas com: "
+            "python agente.py --criar-utilizador NOME --administrador")
 
+    # Carrega a tabela de tipos de documento (os de origem, mais os do município).
+    pr.carregar_tipos(cfg)
+    _agente.debug(f"agente de editais {VERSAO} | registo em {cfg['diario']}")
     return cfg
 
 def _load_json(path, default):
@@ -435,7 +471,7 @@ def _rodar_zips(cfg):
     for velho in zips[manter:]:
         try:
             os.remove(velho)
-            print(f"[LIMP] zip antigo removido: {os.path.basename(velho)}")
+            _agente.info(f"LIMP zip antigo removido: {os.path.basename(velho)}")
         except OSError:
             pass
 
@@ -485,10 +521,10 @@ def varrer(cfg, registo, estado, logo_im):
             novos_hashes.setdefault(h, {"ficheiro": nome, "paginas": len(pages),
                                         "em": datetime.now().isoformat(timespec="seconds"),
                                         "ecras": []})
-            print(f"[LER] {nome}: {len(pages)} pág | assunto: {meta['assunto'] or '(n/d)'}")
+            _agente.info(f"LER {nome}: {len(pages)} pág | assunto: {meta['assunto'] or '(n/d)'}")
         except Exception as ex:
             # Um documento problemático não deve derrubar o lote inteiro.
-            print(f"[ERRO] {nome}: {ex}")
+            _agente.error(f"{nome}: {ex}")
 
     if not pendentes:
         return 0
@@ -531,7 +567,7 @@ def varrer(cfg, registo, estado, logo_im):
             for (_pg, h, _nome) in bloco:
                 if h in novos_hashes:
                     novos_hashes[h]["ecras"].append(out_name)
-        print(f"[OK]  assunto '{meta['assunto'] or slug}': "
+        _agente.info(f"OK  assunto '{meta['assunto'] or slug}': "
               f"{len(itens)} folha(s) -> {total} ecr\u00e3(s)")
         novos += 1
 
@@ -553,8 +589,8 @@ def reconstruir_saidas(cfg, registo):
     garantir_retiradas(cfg, registo)
     web, n = gerar_pagina_web(cfg, registo)
     zp = gerar_zip(cfg, registo)
-    print(f"[WEB] {web}  ({n} ecr\u00e3(s) ativos)")
-    print(f"[ZIP] {zp}")
+    _agente.info(f"WEB {web}  ({n} ecr\u00e3(s) ativos)")
+    _agente.info(f"ZIP {zp}")
 
 
 # ===========================================================================
@@ -594,6 +630,12 @@ def varrer_para_registo(cfg, reg, logo_im):
             pages = doc_lido["pages"]
             meta = doc.extract_metadata(doc_lido["text"], fallback_name=nome,
                                         fonte_ocr=doc_lido["ocr"])
+            # O original vai para o arquivo imutável ANTES de o registo existir.
+            # A ordem importa: se falhasse ao contrário, ficaria um edital no
+            # registo a apontar para um documento que nunca foi guardado, e é
+            # exatamente esse o estado que este arquivo existe para impedir.
+            sha256, _caminho = orig.arquivar(cfg["originais"], path)
+            meta = dict(meta, sha256=sha256)
             r = reg.criar_rascunho(ficheiro_origem=nome, hash_ficheiro=h,
                                    num_paginas=len(pages), meta=meta)
             # Gera pré-visualizações LEVES (a página crua, sem o tratamento verde/4K)
@@ -608,7 +650,7 @@ def varrer_para_registo(cfg, reg, logo_im):
                   f"assunto: {meta['assunto'] or '(n/d)'} | a confirmar: {duv}")
             novos += 1
         except Exception as ex:
-            print(f"[ERRO] {nome}: {ex}")
+            _agente.error(f"{nome}: {ex}")
     return novos
 
 
@@ -666,7 +708,7 @@ def publicar_registos(cfg, reg, logo_im):
     # Aplica primeiro as retiradas automáticas por data (publicado → retirado).
     retirados = reg.aplicar_retiradas_automaticas()
     if retirados:
-        print(f"[AUTO] retirados por data: {retirados}")
+        _agente.info(f"AUTO retirados por data: {retirados}")
 
     # Arruma a pasta: PNG de retirados vão para o arquivo e saem de saida/.
     arquivar_retirados(cfg, reg)
@@ -678,7 +720,7 @@ def publicar_registos(cfg, reg, logo_im):
         # Grava-se por definir_pngs() e não por mutação do dicionário: desde que
         # por_estado() devolve cópias, escrever no resultado não chega ao registo.
         if not r.get("ficheiros_png"):
-            r["ficheiros_png"] = _compor_edital(cfg, r, logo_im)
+            r["ficheiros_png"] = _compor_edital(cfg, r, logo_im, reg)
             reg.definir_pngs(r["id"], r["ficheiros_png"])
         # Caso 2: tem nome de PNG registado mas o ficheiro não está na pasta
         # (foi arquivado quando esteve retirado) — recupera-o do ZIP de arquivo.
@@ -689,14 +731,21 @@ def publicar_registos(cfg, reg, logo_im):
                 recuperados = recuperar_do_arquivo(cfg, faltam)
                 # Se algum não estava no arquivo (arquivo perdido?), recompõe tudo.
                 if len(recuperados) != len(faltam):
-                    print(f"[ARQUIVO] recomposição de recurso para #{r['id']} "
+                    _arquivo.info(f"recomposição de recurso para #{r['id']} "
                           f"(nem tudo estava arquivado)")
-                    r["ficheiros_png"] = _compor_edital(cfg, r, logo_im)
+                    r["ficheiros_png"] = _compor_edital(cfg, r, logo_im, reg)
                     reg.definir_pngs(r["id"], r["ficheiros_png"])
         # Cada ecrã (PNG) do edital é um slide, com assunto + data de publicação.
         for png in r["ficheiros_png"]:
             slides.append({"src": png, "assunto": r["assunto"],
                            "pub": r["data_publicacao"] or ""})
+        # O edital entrou mesmo na rotação do expositor. É o registo de
+        # disponibilidade que acompanha a certidão em anexo — a confirmação
+        # material, distinta do instante oficial de afixação, que é o da
+        # publicação no painel. Só se marca se houve PNG: um edital publicado
+        # cujo ficheiro de origem desapareceu não chega a ficar visível.
+        if r["ficheiros_png"]:
+            reg.marcar_disponivel(r["id"])
 
     _escrever_pagina_tv(cfg, slides)
     _escrever_zip_publicados(cfg, reg, publicados)
@@ -743,7 +792,7 @@ def arquivar_retirados(cfg, reg):
             except OSError:
                 pass
     if movidos:
-        print(f"[ARQUIVO] {movidos} PNG de retirados movidos para o arquivo "
+        _arquivo.info(f"{movidos} PNG de retirados movidos para o arquivo "
               f"(libertados de saida/)")
 
 
@@ -773,11 +822,11 @@ def recuperar_do_arquivo(cfg, nomes):
                 z.extract(nome, cfg["saida"])
                 recuperados.append(nome)
     if recuperados:
-        print(f"[ARQUIVO] {len(recuperados)} PNG recuperados do arquivo para o ecrã")
+        _arquivo.info(f"{len(recuperados)} PNG recuperados do arquivo para o ecrã")
     return recuperados
 
 
-def _compor_edital(cfg, r, logo_im):
+def _compor_edital(cfg, r, logo_im, reg=None):
     """Rasteriza o documento de um registo e compõe os seus ecrãs (PNG).
 
     Relê o ficheiro de origem a partir da pasta de entrada, parte as páginas em
@@ -787,21 +836,38 @@ def _compor_edital(cfg, r, logo_im):
         cfg (dict): configuração.
         r (dict): registo de entrada (já publicado).
         logo_im: logótipo a aplicar (ou None).
+        reg (RegistoEntrada|None): registo, para gravar o sha256 quando um
+            original antigo é arquivado nesta passagem.
 
     Returns:
         list[str]: nomes dos PNG gerados (na pasta de saída).
     """
-    origem = os.path.join(cfg["entrada"], r["ficheiro_origem"])
-    # Robustez: se o ficheiro de origem já não existir (foi movido/apagado), não
-    # rebentar a publicação inteira — avisa e devolve sem PNG para este registo.
-    if not os.path.exists(origem):
-        print(f"[AVISO] origem em falta para o registo #{r['id']}: "
-              f"{r['ficheiro_origem']} — mantenha o ficheiro em entrada/ para publicar.")
+    # O arquivo imutável é a PRIMEIRA fonte, e a pasta de entrada só o recurso.
+    # Era ao contrário, e por isso limpar a pasta de entrada tornava impossível
+    # recompor um edital já publicado.
+    extensao = os.path.splitext(r["ficheiro_origem"])[1]
+    origem = orig.procurar(cfg["originais"], r.get("sha256", ""), extensao)
+    if not origem:
+        origem = os.path.join(cfg["entrada"], r["ficheiro_origem"])
+        if os.path.exists(origem):
+            # Registo anterior ao arquivo: aproveita-se esta passagem para o
+            # arquivar, de modo que a próxima já não dependa da pasta de entrada.
+            try:
+                sha256, _c = orig.arquivar(cfg["originais"], origem)
+                if not r.get("sha256") and reg is not None:
+                    _arquivo.info(f"original do registo #{r['id']} arquivado agora")
+                    reg.definir(r["id"], sha256=sha256)
+                    r["sha256"] = sha256
+            except OSError as ex:
+                _agente.warning(f"não foi possível arquivar o original de #{r['id']}: {ex}")
+    if not origem or not os.path.exists(origem):
+        _agente.warning(f"original em falta para o registo #{r['id']}: "
+              f"{r['ficheiro_origem']} — não está no arquivo nem na pasta de entrada.")
         return []
     try:
         pages, _ = doc.to_pages_and_text(origem, cfg["trabalho"])
     except Exception as ex:
-        print(f"[AVISO] falha a compor o registo #{r['id']} ({r['ficheiro_origem']}): {ex}")
+        _agente.warning(f"falha a compor o registo #{r['id']} ({r['ficheiro_origem']}): {ex}")
         return []
     slug = doc.slugify(r["assunto"] or doc._humanize(r["ficheiro_origem"]))
     blocos = _chunk(pages, trat.MAX_POR_ECRA)
@@ -911,23 +977,33 @@ def iniciar_painel(cfg):
         cfg (dict): configuração.
     """
     reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
+    contas = utl.Utilizadores(cfg["utilizadores"])
     logo_im = carregar_logo(cfg)
+    estado_do_agente = {"arranque": datetime.now().isoformat(timespec="seconds"),
+                        "ultima_varredura": None, "ultima_publicacao": None,
+                        "ecras_no_ar": 0}
 
     # Callback que o painel invoca após publicar/retirar: recompõe a TV.
     def republicar():
         n = publicar_registos(cfg, reg, logo_im)
-        print(f"[TV] atualizada: {n} ecr\u00e3(s) no ar")
+        estado_do_agente["ultima_publicacao"] = datetime.now().isoformat(timespec="seconds")
+        estado_do_agente["ecras_no_ar"] = n
+        _tv.info(f"atualizada: {n} ecr\u00e3(s) no ar")
 
     # Thread de fundo: lê documentos novos e cria rascunhos periodicamente.
     def vigiar():
         while True:
             try:
                 n = varrer_para_registo(cfg, reg, logo_im)
+                estado_do_agente["ultima_varredura"] = datetime.now().isoformat(timespec="seconds")
                 if n:
-                    print(f"[ENTRADA] {n} novo(s) documento(s) em rascunho")
+                    _agente.info(f"ENTRADA {n} novo(s) documento(s) em rascunho")
                 # Aplica retiradas automáticas mesmo sem novos documentos.
                 if reg.aplicar_retiradas_automaticas():
                     republicar()
+                # Deita fora os testemunhos de sessões já sem validade, para a
+                # memória não crescer com cada entrada que nunca é fechada.
+                contas.limpar_sessoes_expiradas()
             except Exception as ex:
                 print(f"[ERRO vigia] {ex}")
             time.sleep(int(cfg["intervalo_watch"]))
@@ -944,9 +1020,9 @@ def iniciar_painel(cfg):
             try:
                 trat.obter_fundo(seed=i, cache=cfg["fundos"])
             except Exception as ex:
-                print(f"[FUNDOS] falha a preparar a variante {i}: {ex}")
+                _fundos.info(f"falha a preparar a variante {i}: {ex}")
                 return
-        print(f"[FUNDOS] {trat.VARIANTES_DE_FUNDO} variantes prontas em {cfg['fundos']}")
+        _fundos.info(f"{trat.VARIANTES_DE_FUNDO} variantes prontas em {cfg['fundos']}")
 
     import threading
     threading.Thread(target=aquecer_fundos, daemon=True).start()
@@ -959,10 +1035,114 @@ def iniciar_painel(cfg):
 
     # Servidor do painel (bloqueante) — arranca já, sem esperar pela composição.
     html_path = os.path.join(BASE, "lib", "painel.html")
-    servidor = painel_mod.PainelServer(reg, cfg, republicar_callback=republicar,
-                                       painel_html_path=html_path)
+    servidor = painel_mod.PainelServer(
+        reg, cfg, republicar_callback=republicar, painel_html_path=html_path,
+        contas=contas,
+        saude_callback=lambda: estado_de_saude(cfg, reg, estado_do_agente))
     servidor.iniciar(host=cfg["painel_host"], porta=int(cfg["painel_porta"]),
                      bloquear=True)
+
+
+def estado_de_saude(cfg, reg, estado):
+    """Reúne o estado do agente para a rota /saude.
+
+    Serve para um supervisor de serviço (systemd, Nagios, Zabbix, um relógio de
+    parede) saber se isto está vivo SEM ter de entrar no painel — daí ser a
+    única rota que dispensa sessão. Por essa mesma razão só devolve números e
+    instantes: contagens por estado, sim; assuntos de editais por validar, não.
+    Um endereço sem autenticação não pode revelar o que ainda não é público.
+
+    Args:
+        cfg (dict): configuração.
+        reg (RegistoEntrada): registo de entrada.
+        estado (dict): marcadores vivos que o ciclo do painel vai atualizando.
+
+    Returns:
+        dict: estado, pronto a servir em JSON.
+    """
+    import shutil
+    contagens = {e: len(reg.por_estado(e)) for e in reg_mod.ESTADOS}
+    try:
+        uso = shutil.disk_usage(cfg["saida"])
+        disco = {"livre_mb": round(uso.free / 1e6), "total_mb": round(uso.total / 1e6)}
+    except OSError:
+        disco = None
+
+    # 'ok' é o que um supervisor lê sem interpretar o resto: a vigia tem de ter
+    # corrido há menos de três intervalos (dá folga a uma passagem demorada sem
+    # deixar passar um ciclo morto) e tem de haver espaço para escrever as
+    # imagens 4K, que é o que primeiro falha num disco cheio.
+    limite = int(cfg["intervalo_watch"]) * 3
+    fresco = True
+    if estado.get("ultima_varredura"):
+        idade = (datetime.now() - datetime.fromisoformat(estado["ultima_varredura"])).total_seconds()
+        fresco = idade < limite
+    espaco = disco is None or disco["livre_mb"] > 500
+
+    return {
+        "ok": bool(fresco and espaco),
+        "versao": VERSAO,
+        "arranque": estado.get("arranque"),
+        "ultima_varredura": estado.get("ultima_varredura"),
+        "ultima_publicacao": estado.get("ultima_publicacao"),
+        "ecras_no_ar": estado.get("ecras_no_ar", 0),
+        "editais": contagens,
+        "disco": disco,
+        "agora": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def comando_criar_utilizador(cfg, nome, administrador=False):
+    """Cria uma conta do painel a partir da linha de comandos.
+
+    É por aqui que nasce a primeira conta, quando ainda não há painel onde
+    entrar. A senha é pedida sem eco (getpass) e nunca passa por argumento da
+    linha de comandos — um argumento fica no histórico da consola e na lista de
+    processos, à vista de quem tiver acesso à máquina.
+
+    Args:
+        cfg (dict): configuração.
+        nome (str): nome de utilizador a criar.
+        administrador (bool): se True, a conta pode gerir contas.
+
+    Returns:
+        int: código de saída (0 = criada).
+    """
+    import getpass
+    contas = utl.Utilizadores(cfg["utilizadores"])
+    papel = utl.ADMINISTRADOR if administrador else utl.OPERADOR
+    print(f"A criar a conta '{nome}' com o papel de {utl.PAPEL_LABEL[papel].lower()}.")
+    nome_completo = input("Nome completo (como aparece na certidão): ").strip()
+    senha = getpass.getpass("Senha (mínimo 10 caracteres): ")
+    if senha != getpass.getpass("Repita a senha: "):
+        _agente.error("As senhas não coincidem. Nada foi criado.")
+        return 1
+    try:
+        conta = contas.criar(nome, senha, nome_completo=nome_completo, papel=papel,
+                             por="linha de comandos")
+    except utl.ErroDeUtilizador as e:
+        _agente.error(f"{e}")
+        return 1
+    print(f"Conta '{conta['nome']}' criada. Já pode entrar no painel.")
+    return 0
+
+
+def comando_listar_utilizadores(cfg):
+    """Mostra as contas do painel, para se saber quem tem acesso."""
+    contas = utl.Utilizadores(cfg["utilizadores"])
+    lista = contas.listar()
+    if not lista:
+        print("Ainda não há contas. Crie a primeira com:")
+        print("  python agente.py --criar-utilizador NOME --administrador")
+        return 0
+    print(f"{'utilizador':<18}{'nome completo':<26}{'papel':<16}{'estado':<10}última entrada")
+    print("-" * 92)
+    for c in lista:
+        print(f"{c['nome']:<18}{c['nome_completo'][:25]:<26}"
+              f"{utl.PAPEL_LABEL[c['papel']]:<16}"
+              f"{'activa' if c['activo'] else 'desactivada':<10}"
+              f"{c['ultima_entrada'] or 'nunca'}")
+    return 0
 
 
 def carregar_logo(cfg):
@@ -979,7 +1159,7 @@ def carregar_logo(cfg):
     """
     if os.path.exists(cfg["logo_sym"]) and os.path.exists(cfg["logo_txt"]):
         return trat.build_logo(cfg["logo_sym"], cfg["logo_txt"], out_h=160)
-    print("[AVISO] log\u00f3tipo n\u00e3o encontrado em assets/ \u2014 sa\u00edda sem logo.")
+    _agente.warning("log\u00f3tipo n\u00e3o encontrado em assets/ \u2014 sa\u00edda sem logo.")
     return None
 
 def main():
@@ -996,9 +1176,22 @@ def main():
                     help="só reconstrói página+ZIP (após editar retiradas.txt)")
     ap.add_argument("--painel", action="store_true",
                     help="arranca o painel de gestão (validação humana no browser)")
+    ap.add_argument("--criar-utilizador", metavar="NOME",
+                    help="cria uma conta de acesso ao painel (pede a senha sem eco)")
+    ap.add_argument("--administrador", action="store_true",
+                    help="com --criar-utilizador: dá-lhe também a gestão de contas")
+    ap.add_argument("--utilizadores", action="store_true",
+                    help="lista as contas de acesso ao painel")
+    ap.add_argument("--versao", action="version", version=f"agente de editais {VERSAO}")
     args = ap.parse_args()
 
     cfg = load_config()
+
+    # Gestão de contas: não arranca serviço nenhum, faz o que lhe pedem e sai.
+    if args.criar_utilizador:
+        return comando_criar_utilizador(cfg, args.criar_utilizador, args.administrador)
+    if args.utilizadores:
+        return comando_listar_utilizadores(cfg)
 
     # Modo PAINEL: fluxo com validação humana. Os documentos entram como rascunho
     # e só vão ao ecrã depois de validados/publicados no browser. É o modo
@@ -1007,13 +1200,11 @@ def main():
         try:
             iniciar_painel(cfg)
         except RuntimeError as e:
-            # Erro esperado e acionável (tipicamente: senha em falta). Mostra uma
-            # mensagem clara em vez de um traceback assustador.
-            print("\n" + "=" * 60)
-            print(f"[PAINEL] Não foi possível arrancar: {e}")
-            print("  Verifique o config.json: precisa de \"painel_senha\" com uma")
-            print("  senha entre aspas retas. Veja config.exemplo.json.")
-            print("=" * 60)
+            # Erro esperado e acionável (tipicamente: ainda não há contas). A
+            # mensagem da exceção já diz o que fazer, e é mostrada tal e qual em
+            # vez de um traceback que assusta sem informar.
+            _painel.error(str(e))
+            return 1
         return
 
     # Carrega estado persistente; na primeira execução, arranca de estruturas vazias.
@@ -1038,7 +1229,7 @@ def main():
 
     if args.watch:
         # Modo serviço: repete o ciclo com uma pausa entre passagens.
-        print(f"[WATCH] a vigiar {cfg['entrada']} (Ctrl+C para parar)")
+        _agente.info(f"WATCH a vigiar {cfg['entrada']} (Ctrl+C para parar)")
         try:
             while True:
                 ciclo()
@@ -1406,4 +1597,4 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 """
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

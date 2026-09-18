@@ -22,7 +22,9 @@ from pathlib import Path
 
 import pytest
 
-PAINEL = Path(__file__).resolve().parent.parent / "lib" / "painel.html"
+LIB = Path(__file__).resolve().parent.parent / "lib"
+PAINEL = LIB / "painel.html"
+ENTRADA = LIB / "entrada.html"
 
 # Rácio exigido por par. 4.5 é o mínimo das WCAG 2.1 AA para texto normal; 3.0
 # aplica-se a texto grande (>=18.66px a negrito ou >=24px), que é o caso dos
@@ -60,6 +62,18 @@ PARES = [
     ("título de secção",          "{--tinta}",        "{--papel}",        AA_GRANDE),
 ]
 
+# A página de entrada tem o seu próprio :root — é servida antes de haver sessão
+# e não partilha a folha de estilo do painel. Testa-se em separado, contra as
+# variáveis do seu próprio ficheiro.
+PARES_DA_ENTRADA = [
+    ("rótulo de campo",     "{--tinta-suave}",  "{--papel-ficha}",  AA_NORMAL),
+    ("texto do campo",      "{--tinta}",        "{--papel}",        AA_NORMAL),
+    ("botão Entrar",        "#ffffff",          "{--verde-selo}",   AA_NORMAL),
+    ("mensagem de recusa",  "{--alerta}",       "{--alerta-fundo}", AA_NORMAL),
+    ("nota do rodapé",      "{--tinta-suave}",  "{--papel-ficha}",  AA_NORMAL),
+    ("subtítulo da marca",  "{--ouro-escuro}",  "{--papel-ficha}",  AA_NORMAL),
+]
+
 
 def _canal(c: float) -> float:
     """Lineariza um canal sRGB de 0-255 para a escala de luminância das WCAG."""
@@ -82,14 +96,14 @@ def racio(frente: str, fundo: str) -> float:
     return (a + 0.05) / (b + 0.05)
 
 
-def variaveis_do_painel() -> dict[str, str]:
-    """Lê as variáveis de cor do bloco :root do painel.html.
+def variaveis_de(ficheiro: Path) -> dict[str, str]:
+    """Lê as variáveis de cor do bloco :root de uma página.
 
     Lê-se do ficheiro em vez de as repetir no teste: uma cópia no teste
-    dessincroniza-se do painel em silêncio, e o teste passa a garantir uma
+    dessincroniza-se da página em silêncio, e o teste passa a garantir uma
     paleta que já não existe.
     """
-    css = PAINEL.read_text(encoding="utf-8")
+    css = ficheiro.read_text(encoding="utf-8")
     bloco = re.search(r":root\s*\{(.*?)\}", css, re.S)
     assert bloco, "não encontrei o bloco :root em painel.html"
     return {n: v for n, v in re.findall(r"(--[\w-]+)\s*:\s*(#[0-9a-fA-F]{3,6})\s*;",
@@ -109,13 +123,43 @@ def resolver(cor: str, vars_: dict[str, str]) -> str:
                          ids=[p[0] for p in PARES])
 def test_par_tem_contraste_suficiente(descricao, frente, fundo, exigido):
     """Cada par de cores do painel cumpre o mínimo das WCAG 2.1 AA (critério 1.4.3)."""
-    vars_ = variaveis_do_painel()
+    vars_ = variaveis_de(PAINEL)
     f, b = resolver(frente, vars_), resolver(fundo, vars_)
     r = racio(f, b)
     assert r >= exigido, (
         f"{descricao}: {f} sobre {b} dá {r:.2f}:1, abaixo do mínimo {exigido}:1 "
         f"exigido pelas WCAG 2.1 AA. Escurece a tinta mantendo o matiz."
     )
+
+
+@pytest.mark.parametrize("descricao,frente,fundo,exigido", PARES_DA_ENTRADA,
+                         ids=[f"entrada: {p[0]}" for p in PARES_DA_ENTRADA])
+def test_entrada_tem_contraste_suficiente(descricao, frente, fundo, exigido):
+    """A página de entrada cumpre o mesmo mínimo.
+
+    É a primeira coisa que alguém vê, e a que mostra as mensagens de recusa —
+    justamente o texto que não pode ser difícil de ler.
+    """
+    vars_ = variaveis_de(ENTRADA)
+    f, b = resolver(frente, vars_), resolver(fundo, vars_)
+    r = racio(f, b)
+    assert r >= exigido, (
+        f"entrada, {descricao}: {f} sobre {b} dá {r:.2f}:1, abaixo do mínimo "
+        f"{exigido}:1 exigido pelas WCAG 2.1 AA."
+    )
+
+
+def test_as_duas_paginas_partilham_a_paleta():
+    """As variáveis com o mesmo nome têm o mesmo valor nas duas páginas.
+
+    São ficheiros separados por necessidade — a entrada é servida sem sessão e
+    não pode depender da folha do painel — mas a marca é uma só. Se alguém
+    corrigir um contraste num ficheiro e esquecer o outro, é aqui que se nota.
+    """
+    do_painel, da_entrada = variaveis_de(PAINEL), variaveis_de(ENTRADA)
+    divergem = {n: (do_painel[n], da_entrada[n]) for n in set(do_painel) & set(da_entrada)
+                if do_painel[n].lower() != da_entrada[n].lower()}
+    assert not divergem, f"a mesma variável com valores diferentes: {divergem}"
 
 
 def test_a_formula_de_contraste_esta_certa():

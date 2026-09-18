@@ -49,3 +49,60 @@ Medido em processo novo, na mesma máquina, com a cache em disco:
 
 O estrangulamento não era o que se supunha. O perfil mostrou que 3,1 s dos 5,2 s
 eram os dois desfoques gaussianos da *sombra*, não a geração do fundo.
+
+## 0.12.0 — Onda 2: tornar defensável
+
+A Onda 1 tornou o sistema seguro de mudar. Esta torna-o defensável perante quem
+pergunte «e provam isso?».
+
+### Acrescentado
+- **Certidão de afixação e desafixação em PDF** (`lib/certidao.py`). É o
+  documento que faltava: identifica o edital, o instante de afixação e quem a
+  ordenou, o de desafixação, a duração e a base legal. Decidido a 18/09/2026 que
+  o instante OFICIAL é o da publicação no painel — a afixação é um ato
+  administrativo, não um evento de infraestrutura, e confundi-los poria a
+  validade de um ato a depender do uptime de uma televisão. O registo de
+  disponibilidade no expositor vai em anexo, claramente distinto. Leva um selo
+  de conferência (SHA-256 dos factos) e diz no corpo que não é assinatura
+  eletrónica.
+- **Contas individuais** (`lib/utilizadores.py`), com senha derivada por scrypt,
+  sessão por cookie `HttpOnly` + `SameSite=Strict`, dois papéis e limite de
+  tentativas por endereço e por conta. A senha partilhada foi retirada: com ela,
+  o nome no trilho de auditoria era o que quem entrasse escrevesse, e uma
+  certidão que nomeia quem afixou não pode assentar nisso.
+- **Tipos de documento com prazo legal** (`lib/prazos.py`), ampliáveis em
+  `config.json`. O tipo principal cita o artigo 56.º do Anexo I da Lei
+  n.º 75/2013 e trata as duas partes da regra em separado: o mínimo são cinco
+  dias, e os 10 são a janela onde esses cinco têm de caber. O sistema propõe e
+  avisa; a decisão continua do posto.
+- **Arquivo imutável dos originais** (`lib/originais.py`), endereçado por
+  SHA-256. Limpar a pasta de entrada deixa de tornar impossível recompor um
+  edital publicado — e deixa de apagar o documento que a certidão afirma ter
+  sido afixado. Deteta adulteração de graça.
+- **Registo técnico** (`lib/diario.py`) com níveis, rotação e saída simultânea
+  para consola e ficheiro, em vez de 71 `print()`.
+- **Rota `/saude`** e **unidade systemd** (`servico/`), com restrições de
+  superfície. A única rota sem sessão, e por isso devolve números e instantes,
+  nunca conteúdo de editais por validar.
+- `mypy` na integração contínua, rigoroso nos módulos novos e tolerante nos
+  antigos.
+
+### Corrigido
+- **O PyMuPDF mede mal os acentos.** `get_text_length` trata os caracteres
+  acentuados dos tipos base do PDF como se não ocupassem largura: «AÇÃO» devolve
+  23,3 pt e desenha 30,9 pt. Numa certidão em português o erro é sistemático, e
+  a primeira versão transbordava a margem direita em 19,8 pt. Mede-se agora uma
+  cópia sem acentos — o glifo acentuado tem o mesmo avanço da letra de base.
+- Datas de retirada anteriores à afixação davam avisos com contagens negativas
+  («a afixação dura -79 dia(s)»).
+- `por_estado()` devolve cópias desde a Onda 1, e o agente continuava a gravar
+  o `sha256` por mutação do resultado. Os três métodos quase iguais que isso
+  gerou (`definir_previas`, `definir_pngs`, e o novo) deram lugar a um só,
+  `definir()`, com lista branca de campos de sistema.
+
+### Números
+| | Onda 1 | Onda 2 |
+|---|---|---|
+| testes | 109 | 207 |
+| módulos em `lib/` | 5 | 10 |
+| verificação de tipos | — | `mypy` limpo |

@@ -39,6 +39,7 @@ import threading
 from datetime import date, datetime
 
 import armazenamento as arm
+import prazos as pr
 
 # Os quatro estados do ciclo de vida. Usar constantes (e não strings soltas pelo
 # código) evita gralhas silenciosas do tipo "Publicado" vs "publicado".
@@ -99,8 +100,40 @@ class RegistoEntrada:
         raiz = os.path.splitext(path)[0].replace("registo_entrada", "registo")
         self.jornal = arm.JornalAuditoria(raiz + "_auditoria.jsonl")
         self._dados = self._carregar()
+        self._migrar()
 
     # ---- persistência -----------------------------------------------------
+    def _migrar(self):
+        """Dá aos registos antigos os campos que esta onda introduziu.
+
+        Corre uma vez, na abertura, e só grava se alguma coisa faltava — para
+        não reescrever o ficheiro a cada arranque sem motivo.
+
+        A afixação dos editais que já estavam publicados é reconstruída a partir
+        do histórico, que sempre registou a transição para 'publicado'. Não é
+        invenção: é ler o que já lá estava e pô-lo num campo próprio. Onde o
+        histórico não chegar, o campo fica a None e a certidão di-lo em vez de
+        adivinhar.
+        """
+        mudou = False
+        for reg in self._dados.get("editais", []):
+            for campo, valor in (("tipo", pr.TIPO_POR_OMISSAO), ("sha256", ""),
+                                 ("afixado_em", None),
+                                 ("afixado_por", None), ("desafixado_em", None),
+                                 ("desafixado_por", None), ("disponivel_em", None)):
+                if campo not in reg:
+                    reg[campo] = valor
+                    mudou = True
+            for ev in reg.get("historico", []):
+                if ev.get("para") == PUBLICADO and not reg.get("afixado_em"):
+                    reg["afixado_em"], reg["afixado_por"] = ev["em"], ev["utilizador"]
+                    mudou = True
+                if ev.get("para") == RETIRADO:
+                    reg["desafixado_em"], reg["desafixado_por"] = ev["em"], ev["utilizador"]
+                    mudou = True
+        if mudou:
+            self._guardar()
+
     def _carregar(self):
         """Lê o JSON do disco, ou devolve uma estrutura vazia se ainda não existe.
 
@@ -163,6 +196,10 @@ class RegistoEntrada:
                 "estado": RASCUNHO,
                 "ficheiro_origem": ficheiro_origem,
                 "hash": hash_ficheiro,
+                # Endereço do documento no arquivo imutável. É o que a certidão
+                # cita para identificar o que foi afixado, e o que permite
+                # recompor a imagem sem depender da pasta de entrada.
+                "sha256": meta.get("sha256", ""),
                 "num_paginas": num_paginas,
                 # Campos editáveis pelo utilizador no painel:
                 "assunto": meta.get("assunto", ""),
@@ -170,6 +207,20 @@ class RegistoEntrada:
                 "entidade": meta.get("entidade", ""),
                 "data_publicacao": meta.get("data_publicacao"),
                 "data_retirada": None,          # definida na validação/publicação
+                # Tipo de documento: decide o prazo proposto e a norma citada na
+                # certidão. Começa no tipo por omissão porque a leitura
+                # automática não o sabe adivinhar — quem valida é que o escolhe.
+                "tipo": meta.get("tipo") or pr.TIPO_POR_OMISSAO,
+                # Instantes de afixação e desafixação, com o seu autor. São o
+                # cerne da certidão, e por isso NÃO são editáveis: gravam-se
+                # quando a transição de estado acontece e mais ninguém lhes toca.
+                "afixado_em": None, "afixado_por": None,
+                "desafixado_em": None, "desafixado_por": None,
+                # Instante em que o edital apareceu pela primeira vez no
+                # slides.json, isto é, em que ficou disponível no expositor. Vai
+                # para a certidão como anexo — o instante OFICIAL é o da
+                # publicação no painel, esta é a confirmação material.
+                "disponivel_em": None,
                 # Metadados de apoio à decisão:
                 "confianca": conf,
                 "campos_duvidosos": self._campos_duvidosos(conf),
@@ -258,44 +309,47 @@ class RegistoEntrada:
         with self._lock:
             return any(e["hash"] == hash_ficheiro for e in self._dados["editais"])
 
-    def definir_previas(self, rid, nomes):
-        """Regista os nomes das pré-visualizações leves de um registo.
+    # Campos que o AGENTE produz, por oposição aos que o utilizador edita. Não
+    # passam por editar() (que tem a sua própria lista branca e gera evento de
+    # auditoria) porque não são decisões de ninguém: são resultados do
+    # processamento. Ter a lista explícita evita que uma chamada distraída a
+    # definir() escreva no estado ou no histórico por esta porta.
+    CAMPOS_DE_SISTEMA = {"ficheiros_previa", "ficheiros_png", "sha256"}
 
-        Método interno (não passa pela lista branca de editar), usado pelo agente
-        logo após gerar as pré-visualizações do documento.
+    def definir(self, rid, **campos):
+        """Grava campos produzidos pelo agente num registo.
+
+        Substitui os três métodos quase iguais que havia (previas, pngs, e o
+        sha256 que esta onda trouxe). A razão de existirem de todo é que
+        por_estado() e todos() devolvem CÓPIAS desde a Onda 1: escrever no
+        dicionário devolvido não chega ao registo, e o defeito que isso causa é
+        silencioso — nada falha, apenas o trabalho é refeito a cada ciclo.
 
         Args:
             rid (int): id do registo.
-            nomes (list[str]): nomes dos ficheiros de pré-visualização.
+            **campos: pares campo→valor, restritos a CAMPOS_DE_SISTEMA.
+
+        Raises:
+            KeyError: se algum campo não for de sistema. É erro de programação,
+                não do utilizador, por isso levanta em vez de ignorar.
         """
+        de_fora = set(campos) - self.CAMPOS_DE_SISTEMA
+        if de_fora:
+            raise KeyError(f"Não são campos de sistema: {sorted(de_fora)}")
         with self._lock:
             reg = self.por_id(rid)
-            if reg is not None:
-                reg["ficheiros_previa"] = nomes
-                self._guardar()
+            if reg is None:
+                return
+            reg.update(campos)
+            self._guardar()
+
+    def definir_previas(self, rid, nomes):
+        """Atalho legível para gravar os nomes das pré-visualizações."""
+        self.definir(rid, ficheiros_previa=list(nomes))
 
     def definir_pngs(self, rid, nomes):
-        """Regista os nomes dos PNG compostos de um edital.
-
-        Irmão de definir_previas, e pela mesma razão: são dados que o agente
-        produz, não campos que o utilizador edita, por isso não passam pela lista
-        branca de editar() nem geram evento de auditoria.
-
-        Passou a ser indispensável quando por_estado() deixou de devolver
-        referências vivas: o agente escrevia `r["ficheiros_png"] = ...` no
-        resultado e chamava _guardar(), o que a partir daí gravaria o estado
-        interno inalterado — os nomes perdiam-se e a imagem 4K era recomposta a
-        cada ciclo. O teste test_registo.py::test_definir_pngs_persiste cobre-o.
-
-        Args:
-            rid (int): id do registo.
-            nomes (list[str]): nomes dos PNG na pasta de saída.
-        """
-        with self._lock:
-            reg = self.por_id(rid)
-            if reg is not None:
-                reg["ficheiros_png"] = list(nomes)
-                self._guardar()
+        """Atalho legível para gravar os nomes dos PNG compostos."""
+        self.definir(rid, ficheiros_png=list(nomes))
 
     # ---- edição de campos -------------------------------------------------
     def editar(self, rid, campos, utilizador="painel"):
@@ -314,7 +368,7 @@ class RegistoEntrada:
             dict | None: o registo atualizado, ou None se não existir.
         """
         editaveis = {"assunto", "numero", "entidade",
-                     "data_publicacao", "data_retirada"}
+                     "data_publicacao", "data_retirada", "tipo"}
         with self._lock:
             reg = self.por_id(rid)
             if not reg:
@@ -369,10 +423,45 @@ class RegistoEntrada:
                 return {"ok": False,
                         "erro": "Falta a data de publicação (obrigatória).",
                         "registo": reg}
+            # Carimbar os instantes que a certidão vai citar. A primeira
+            # publicação é a afixação; as reposições seguintes não a reescrevem,
+            # porque o que a lei conta é quando o edital foi afixado, e um
+            # edital reposto depois de uma retirada indevida não passou a ser
+            # afixado de novo. A desafixação, essa, é sempre a última.
+            if novo_estado == PUBLICADO and not reg.get("afixado_em"):
+                reg["afixado_em"] = _agora()
+                reg["afixado_por"] = utilizador
+            if novo_estado == RETIRADO:
+                reg["desafixado_em"] = _agora()
+                reg["desafixado_por"] = utilizador
             reg["estado"] = novo_estado
             self._anotar(reg, utilizador, atual, novo_estado, nota or "Mudança de estado")
             self._guardar()
             return {"ok": True, "erro": None, "registo": copy.deepcopy(reg)}
+
+    def marcar_disponivel(self, rid, instante=None):
+        """Regista que o edital apareceu no expositor (entrou no slides.json).
+
+        É o «registo de disponibilidade» que acompanha a certidão em anexo. Não
+        substitui o instante oficial de afixação — esse é o da publicação no
+        painel, que é o ato administrativo — mas responde à outra pergunta, a
+        material: e esteve mesmo lá?
+
+        Só se grava a PRIMEIRA vez. As republicações seguintes do slides.json
+        não movem a data, senão o anexo passaria a dizer a hora do último ciclo
+        do agente em vez da hora em que o edital ficou visível.
+
+        Args:
+            rid (int): id do registo.
+            instante (str|None): ISO; por omissão, agora.
+        """
+        with self._lock:
+            reg = self.por_id(rid)
+            if reg is not None and not reg.get("disponivel_em"):
+                reg["disponivel_em"] = instante or _agora()
+                self._guardar()
+                return True
+        return False
 
     # ---- retirada automática por data ------------------------------------
     def aplicar_retiradas_automaticas(self, utilizador="sistema"):
@@ -399,6 +488,8 @@ class RegistoEntrada:
                 try:
                     if date.fromisoformat(dr) < hoje:
                         reg["estado"] = RETIRADO
+                        reg["desafixado_em"] = _agora()
+                        reg["desafixado_por"] = utilizador
                         self._anotar(reg, utilizador, PUBLICADO, RETIRADO,
                                      f"Retirada automática (data {dr})")
                         retirados.append(reg["id"])

@@ -51,6 +51,14 @@
   aside .rodape{margin-top:auto;padding:14px 10px 0;border-top:1px solid rgba(255,255,255,.1);
     font-size:12px;color:#a9c3b4}
   aside .rodape b{color:#fff;display:block;font-size:13px}
+  aside .rodape span{display:block;font-size:11px;color:var(--ouro-claro);
+    text-transform:uppercase;letter-spacing:.08em;margin-top:1px}
+  aside .rodape-acoes{display:flex;gap:14px;margin-top:10px;align-items:center}
+  aside .rodape-acoes a,aside .rodape-acoes button{color:#cfe0d6;font-size:12px;
+    text-decoration:none;border-bottom:1px solid rgba(207,224,214,.35);background:none;
+    border-top:none;border-left:none;border-right:none;padding:0;cursor:pointer;
+    font-family:var(--sans)}
+  aside .rodape-acoes a:hover,aside .rodape-acoes button:hover{color:#fff;border-bottom-color:var(--ouro)}
 
   main{padding:0;min-width:0}
   .barra{display:flex;align-items:center;gap:16px;padding:22px 34px 18px;
@@ -132,7 +140,25 @@
   .campo.duvidoso .nota-conf{display:flex}
   .campo .obrig{color:var(--ouro-escuro)}
 
+  .campo select{width:100%;padding:11px 13px;border:1px solid var(--linha);border-radius:9px;
+    font-family:var(--sans);font-size:14.5px;background:var(--papel);color:var(--tinta)}
+  .campo select:focus{outline:none;border-color:var(--ouro);box-shadow:0 0 0 3px rgba(200,168,75,.16)}
+  .campo .base-legal{font-size:11.5px;color:var(--tinta-suave);margin-top:5px;line-height:1.45}
+  .campo .base-legal b{color:var(--ouro-escuro);font-weight:700}
+
+  /* Avisos de prazo. Não travam nada — dizem o que a lei pede e deixam a
+     decisão a quem está ao teclado, com a norma à vista para se poder conferir. */
+  .prazos{margin-top:14px;display:flex;flex-direction:column;gap:8px}
+  .prazo{font-size:12.5px;line-height:1.45;padding:9px 12px;border-radius:9px;
+    border:1px solid var(--linha);background:var(--papel)}
+  .prazo--aviso{background:var(--alerta-fundo);border-color:#e9d3a3;color:var(--alerta)}
+  .prazo--aviso b{display:block;font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:2px}
+  .prazo--info{color:var(--tinta-suave)}
+  .prazo cite{display:block;font-style:normal;font-size:11px;margin-top:3px;opacity:.85}
+
   .acoes{display:flex;flex-wrap:wrap;gap:10px;margin-top:22px;padding-top:20px;border-top:1px solid var(--linha)}
+  .btn-certidao{background:var(--papel-2);color:var(--publicado);border:1px solid var(--publicado)}
+  .btn-certidao:hover{background:#e7f1eb}
   .btn{border:none;border-radius:10px;padding:11px 18px;font-family:var(--sans);font-size:14px;
     font-weight:600;cursor:pointer;transition:.15s;display:inline-flex;align-items:center;gap:7px}
   .btn:focus-visible{outline:2px solid var(--ouro);outline-offset:2px}
@@ -228,11 +254,21 @@
       <button data-sec="arquivo">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7M10 11h4"/></svg>
         <span class="txt">Arquivo</span><span class="badge" id="b-arquivo">0</span></button>
+      <button data-sec="contas" style="display:none">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
+        <span class="txt">Contas</span></button>
       <button data-sec="geral">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
         <span class="txt">Vista geral</span></button>
     </nav>
-    <div class="rodape">Sessão de<b id="quemSou">—</b></div>
+    <div class="rodape">
+      Sessão de<b id="quemSou">—</b>
+      <span id="papelSou"></span>
+      <div class="rodape-acoes">
+        <button type="button" id="btnSenha">Mudar senha</button>
+        <a href="/sair" id="btnSair">Sair</a>
+      </div>
+    </div>
   </aside>
 
   <main>
@@ -254,12 +290,14 @@
   <img id="lbImg" src="" alt="Pré-visualização ampliada">
 </div>
 <script>
-  let REGISTOS=[], LABELS={}, secAtual='ecra', focoIdx=0, termoBusca='', aCarregar=true;
+  let REGISTOS=[], LABELS={}, TIPOS=[], SESSAO=null,
+      secAtual='ecra', focoIdx=0, termoBusca='', aCarregar=true;
   const SEC={
     ecra:{titulo:'No ecrã',desc:'Editais publicados no expositor neste momento.',busca:false},
     validar:{titulo:'Por validar',desc:'Documentos recebidos à espera da sua validação.',busca:false},
     arquivo:{titulo:'Arquivo',desc:'Editais retirados do ecrã. Ficam guardados para consulta.',busca:true},
     geral:{titulo:'Vista geral',desc:'Todos os editais, por estado.',busca:false},
+    contas:{titulo:'Contas',desc:'Quem tem acesso ao painel. O nome de quem publica fica na certidão de afixação.',busca:false},
   };
   const fmtData=d=>{if(!d)return '—';const p=d.split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d;};
   const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -279,10 +317,23 @@
   async function carregar(){
     try{
       const r=await fetch('/api/registos');
-      if(!r.ok){toast('Sessão expirada — recarregue a página',true);return;}
-      const d=await r.json();REGISTOS=d.registos;LABELS=d.estados;aCarregar=false;
-      atualizarBadges();render();
+      // 401 quer dizer sessão terminada por inatividade. Reencaminha-se para a
+      // entrada em vez de mostrar um aviso que não leva a lado nenhum — quem
+      // voltou ao computador quer voltar ao trabalho, não ler um erro.
+      if(r.status===401){window.location.href='/entrar';return;}
+      if(!r.ok){toast('Não foi possível ler o registo',true);return;}
+      const d=await r.json();
+      REGISTOS=d.registos;LABELS=d.estados;TIPOS=d.tipos||[];SESSAO=d.sessao||null;
+      aCarregar=false;
+      mostrarSessao();atualizarBadges();render();
     }catch(e){toast('Sem ligação ao servidor',true);}
+  }
+  function mostrarSessao(){
+    if(!SESSAO)return;
+    document.getElementById('quemSou').textContent=SESSAO.nome_completo||SESSAO.nome;
+    document.getElementById('papelSou').textContent=SESSAO.papel;
+    document.querySelector('[data-sec="contas"]').style.display=
+      SESSAO.papel==='administrador'?'flex':'none';
   }
   function grupo(est){return REGISTOS.filter(r=>r.estado===est);}
   function atualizarBadges(){
@@ -308,6 +359,7 @@
     if(secAtual==='validar') return renderFoco();
     if(secAtual==='arquivo') return renderArquivo();
     if(secAtual==='geral') return renderKanban();
+    if(secAtual==='contas') return renderContas();
   }
   function renderLista(regs,vazioTit,vazioDesc){
     const c=document.getElementById('conteudo');
@@ -346,11 +398,13 @@
           <div class="campo ${duv('numero')}"><label>Número do edital</label>
             <input id="f-numero" value="${esc(r.numero)}">
             <div class="nota-conf">⚠ Confirme o número.</div></div>
+          ${campoTipoHTML(r)}
           <div class="campo ${duv('data_publicacao')}"><label>Data de publicação <span class="obrig">· obrigatória</span></label>
             <input id="f-data_publicacao" type="date" value="${r.data_publicacao||''}">
             <div class="nota-conf">⚠ Confirme a data de publicação.</div></div>
           <div class="campo"><label>Data de retirada de exposição <span style="color:var(--tinta-suave);font-weight:400;text-transform:none">(opcional)</span></label>
             <input id="f-data_retirada" type="date" value="${r.data_retirada||''}"></div>
+          <div class="prazos" id="prazos"></div>
           <div class="acoes">
             <button class="btn btn-neutro" data-acao="guardar">Guardar</button>
             <button class="btn btn-validar larga" data-acao="validado">✓ Validar edital</button>
@@ -360,7 +414,7 @@
       </div>`;
     document.getElementById('fPrev')?.addEventListener('click',()=>{focoIdx--;render();});
     document.getElementById('fNext')?.addEventListener('click',()=>{focoIdx++;render();});
-    ligarAcoesFoco(r);
+    ligarAcoesFoco(r);ligarPrazos();
   }
   function renderArquivo(){
     const c=document.getElementById('conteudo');
@@ -380,6 +434,83 @@
         ${regs.length?regs.map(fichaHTML).join(''):'<div style="color:var(--tinta-suave);font-size:12.5px;text-align:center;padding:16px;font-style:italic">Vazio</div>'}</div>`;
     }).join('')+'</div>';ligarFichas();
   }
+  // --- Contas (só administradores) ---------------------------------------
+  let CONTAS=[];
+  async function renderContas(){
+    const c=document.getElementById('conteudo');
+    c.innerHTML='<div class="skeleton" style="height:120px"></div>';
+    const r=await fetch('/api/utilizadores');
+    if(r.status===401){window.location.href='/entrar';return;}
+    if(!r.ok){c.innerHTML=estadoVazio('Sem acesso','Só um administrador pode ver as contas.');return;}
+    const d=await r.json(); CONTAS=d.utilizadores;
+    c.innerHTML=`
+      <div class="grelha">${CONTAS.map(fichaContaHTML).join('')}</div>
+      <div class="ficha-edicao" style="margin-top:24px;max-width:560px">
+        <div class="topo"><span class="reg-grande">Nova conta</span></div>
+        <div class="progresso">O nome completo é o que aparece na certidão de afixação.</div>
+        <div class="campo"><label>Utilizador</label>
+          <input id="n-nome" placeholder="ana.abreu" autocapitalize="none" spellcheck="false"></div>
+        <div class="campo"><label>Nome completo</label><input id="n-completo" placeholder="Ana Abreu"></div>
+        <div class="campo"><label>Senha <span class="obrig">· mínimo 10 caracteres</span></label>
+          <input id="n-senha" type="password" autocomplete="new-password"></div>
+        <div class="campo"><label>Papel</label><select id="n-papel">
+          <option value="operador">Operador — valida e publica editais</option>
+          <option value="administrador">Administrador — também gere contas</option>
+        </select></div>
+        <div class="acoes"><button class="btn btn-acao larga" id="n-criar">Criar conta</button></div>
+      </div>`;
+    document.getElementById('n-criar').addEventListener('click',criarConta);
+    document.querySelectorAll('[data-conta]').forEach(b=>
+      b.addEventListener('click',()=>alternarConta(b.dataset.conta,b.dataset.valor==='1')));
+  }
+
+  function fichaContaHTML(u){
+    const eu = SESSAO && u.nome===SESSAO.nome;
+    return `<div class="ficha e-${u.activo?'publicado':'retirado'}">
+      <div class="cab"><div class="reg">${esc(u.nome)}<small>${esc(u.nome_completo)}</small></div>
+        <span class="carimbo ${u.activo?'publicado':'retirado'}">${u.papel==='administrador'?'Administrador':'Operador'}</span></div>
+      <div class="meta">
+        <div class="l"><span>Estado</span><b>${u.activo?'Activa':'Desactivada'}</b></div>
+        <div class="l"><span>Última entrada</span><b>${u.ultima_entrada?u.ultima_entrada.replace('T',' ').slice(0,16):'nunca'}</b></div>
+        <div class="l"><span>Criada</span><b>${(u.criado_em||'').slice(0,10)}</b></div>
+      </div>
+      ${eu?'<div class="aviso">É a sua própria conta</div>':
+        `<div class="acoes" style="margin-top:12px;padding-top:12px">
+          <button class="btn ${u.activo?'btn-perigo':'btn-neutro'}" data-conta="${esc(u.nome)}"
+            data-valor="${u.activo?'0':'1'}">${u.activo?'Desativar':'Reativar'}</button></div>`}
+    </div>`;
+  }
+
+  async function criarConta(){
+    const corpo={acao:'criar',nome:document.getElementById('n-nome').value.trim(),
+      nome_completo:document.getElementById('n-completo').value.trim(),
+      senha:document.getElementById('n-senha').value,
+      papel:document.getElementById('n-papel').value};
+    const res=await(await fetch('/api/utilizadores',{method:'POST',headers:CAB_ESCRITA,
+      body:JSON.stringify(corpo)})).json();
+    if(!res.ok){toast(res.erro||'Não foi possível criar',true);return;}
+    toast(`Conta ${corpo.nome} criada`);renderContas();
+  }
+
+  async function alternarConta(nome,valor){
+    if(!valor && !confirm(`Desativar a conta "${nome}"?\n\nDeixa de poder entrar. O nome continua no histórico dos editais que publicou e nas certidões já emitidas — por isso a conta não é apagada.`))return;
+    const res=await(await fetch('/api/utilizadores',{method:'POST',headers:CAB_ESCRITA,
+      body:JSON.stringify({acao:'activo',nome,valor})})).json();
+    if(!res.ok){toast(res.erro||'Não foi possível',true);return;}
+    toast(valor?'Conta reativada':'Conta desativada');renderContas();
+  }
+
+  async function mudarSenha(){
+    const atual=prompt('Senha atual:'); if(atual===null)return;
+    const nova=prompt('Senha nova (mínimo 10 caracteres):'); if(nova===null)return;
+    const res=await(await fetch('/api/senha',{method:'POST',headers:CAB_ESCRITA,
+      body:JSON.stringify({atual,nova})})).json();
+    if(!res.ok){toast(res.erro||'Não foi possível mudar a senha',true);return;}
+    // Mudar a senha fecha todas as sessões da conta, incluindo esta.
+    alert('Senha alterada. Vai ter de entrar de novo.');
+    window.location.href='/entrar';
+  }
+
   function fichaHTML(r){
     const duv=(r.campos_duvidosos||[]).length;
     const aviso=duv?`<div class="aviso">⚠ ${duv} campo${duv>1?'s':''} a confirmar</div>`:'';
@@ -392,6 +523,22 @@
         <div class="l"><span>Retirada</span><b>${fmtData(r.data_retirada)}</b></div>
       </div>${aviso}</div>`;
   }
+  // Os instantes que a certidão vai citar, à vista de quem está a trabalhar.
+  // Não são editáveis: gravam-se quando a transição acontece, e é isso que lhes
+  // dá valor — um campo que se pode escrever não certifica nada.
+  function afixacaoHTML(r){
+    if(!r.afixado_em) return '';
+    const quando=d=>d?d.replace('T',' às ').slice(0,19):'—';
+    const disp=r.disponivel_em
+      ? `<div class="l"><span>No expositor desde</span><b>${quando(r.disponivel_em)}</b></div>` : '';
+    return `<div class="meta" style="margin-top:16px;padding-top:12px">
+      <div class="l"><span>Afixado em</span><b>${quando(r.afixado_em)}</b></div>
+      <div class="l"><span>Afixado por</span><b>${esc(r.afixado_por||'—')}</b></div>
+      ${r.desafixado_em?`<div class="l"><span>Desafixado em</span><b>${quando(r.desafixado_em)}</b></div>
+        <div class="l"><span>Desafixado por</span><b>${esc(r.desafixado_por||'—')}</b></div>`:''}
+      ${disp}</div>`;
+  }
+
   function historicoHTML(r){
     const evs=(r.historico||[]).slice().reverse().map(h=>{
       const de=h.de?(LABELS[h.de]||h.de):'entrada',para=LABELS[h.para]||h.para;
@@ -416,11 +563,16 @@
     const previa=imgSrc
       ? `<img src="${imgSrc}" alt="Documento" class="previa-img" data-full="${imgSrc}">`
       : `<div class="doc-vazio">Sem pré-visualização.</div>`;
+    // A certidão só existe depois de haver afixação para certificar. Antes
+    // disso o botão não aparece, em vez de aparecer e dar erro.
+    const certidao = r.afixado_em
+      ? `<a class="btn btn-certidao" href="/certidao/${r.id}" target="_blank" rel="noopener">Certidão de afixação</a>`
+      : '';
     const acoes = r.estado==='publicado'
-      ? `<button class="btn btn-neutro" data-acao="guardar">Guardar</button><button class="btn btn-perigo larga" data-acao="retirado">Retirar do ecrã</button>`
+      ? `<button class="btn btn-neutro" data-acao="guardar">Guardar</button>${certidao}<button class="btn btn-perigo larga" data-acao="retirado">Retirar do ecrã</button>`
       : r.estado==='validado'
       ? `<button class="btn btn-neutro" data-acao="guardar">Guardar</button><button class="btn btn-acao" data-acao="publicado">▲ Publicar no ecrã</button><button class="btn btn-neutro" data-acao="rascunho">Devolver</button>`
-      : `<button class="btn btn-acao larga" data-acao="publicado">Repor no ecrã</button>`;
+      : `${certidao}<button class="btn btn-acao larga" data-acao="publicado">Repor no ecrã</button>`;
     const c=document.getElementById('conteudo');
     c.innerHTML=`<div class="foco-nav"><button id="voltar" aria-label="Voltar">‹</button><span class="pos">Voltar a ${SEC[secAtual].titulo}</span></div>
       <div class="foco"><div class="doc">${previa}</div>
@@ -429,17 +581,87 @@
         <div class="progresso">${r.num_paginas} página(s) · registo #${r.id}</div>
         <div class="campo ${duv('assunto')}"><label>Assunto</label><textarea id="f-assunto" rows="2">${esc(r.assunto)}</textarea><div class="nota-conf">⚠ Confirme.</div></div>
         <div class="campo ${duv('numero')}"><label>Número do edital</label><input id="f-numero" value="${esc(r.numero)}"><div class="nota-conf">⚠ Confirme.</div></div>
+        ${campoTipoHTML(r)}
         <div class="campo ${duv('data_publicacao')}"><label>Data de publicação <span class="obrig">· obrigatória</span></label><input id="f-data_publicacao" type="date" value="${r.data_publicacao||''}"><div class="nota-conf">⚠ Confirme.</div></div>
         <div class="campo"><label>Data de retirada</label><input id="f-data_retirada" type="date" value="${r.data_retirada||''}"></div>
+        <div class="prazos" id="prazos"></div>
+        ${afixacaoHTML(r)}
         <div class="acoes">${acoes}</div>
         ${historicoHTML(r)}
       </div></div>`;
     document.getElementById('voltar').addEventListener('click',()=>render());
-    ligarAcoesFoco(r);
+    ligarAcoesFoco(r);ligarPrazos();
   }
+  // O tipo de documento decide o prazo proposto e a norma citada na certidão.
+  // Fica ANTES das datas de propósito: escolher o tipo é o que dá sentido ao
+  // que se escreve a seguir.
+  function campoTipoHTML(r){
+    const atual=r.tipo||'outro';
+    const opcoes=TIPOS.map(t=>
+      `<option value="${esc(t.id)}"${t.id===atual?' selected':''}>${esc(t.rotulo)}</option>`).join('');
+    return `<div class="campo"><label for="f-tipo">Tipo de documento</label>
+      <select id="f-tipo">${opcoes}</select>
+      <div class="base-legal" id="base-legal"></div></div>`;
+  }
+
+  function tipoDe(id){ return TIPOS.find(t=>t.id===id)||null; }
+
+  // Escreve a base legal do tipo escolhido e os avisos de prazo. Corre a cada
+  // alteração de tipo ou de data, para quem está a preencher ver a consequência
+  // do que acabou de escrever, e não depois de gravar.
+  function actualizarPrazos(){
+    const sel=document.getElementById('f-tipo'); if(!sel)return;
+    const t=tipoDe(sel.value); const bl=document.getElementById('base-legal');
+    if(bl) bl.innerHTML = t && t.base_legal
+      ? `<b>${esc(t.base_legal)}</b><br>${esc(t.nota||'')}`
+      : esc((t&&t.nota)||'');
+    const caixa=document.getElementById('prazos'); if(!caixa)return;
+    const pub=document.getElementById('f-data_publicacao')?.value||null;
+    const ret=document.getElementById('f-data_retirada')?.value||null;
+    caixa.innerHTML=avisosDePrazo(t,pub,ret).map(a=>
+      `<div class="prazo prazo--${a.grau}">${a.grau==='aviso'?'<b>Atenção ao prazo</b>':''}
+        ${esc(a.texto)}${a.base_legal?`<cite>${esc(a.base_legal)}</cite>`:''}</div>`).join('');
+  }
+
+  // Espelho das regras de lib/prazos.py, para o aviso aparecer ENQUANTO se
+  // escreve em vez de só depois de gravar. É duplicação assumida: perguntar ao
+  // servidor a cada tecla daria latência a um aviso que é conselho, não
+  // validação. O servidor continua a ser a fonte de verdade — se as duas
+  // discordarem, é a dele que vale, e é lá que se corrige primeiro.
+  function avisosDePrazo(t,afixacao,retirada){
+    const base=(t&&t.base_legal)||'';
+    const hoje=new Date().toISOString().slice(0,10);
+    // Datas ao contrário vêm antes de tudo: sem isto, os avisos seguintes saem
+    // com contagens negativas, que confundem em vez de avisarem.
+    if(afixacao&&retirada&&retirada<afixacao) return [{grau:'aviso',
+      texto:`A data de retirada (${retirada}) é anterior à da afixação (${afixacao}): o edital sai do ecrã assim que for publicado.`,
+      base_legal:base}];
+    if(retirada&&!afixacao&&retirada<hoje) return [{grau:'aviso',
+      texto:`A data de retirada (${retirada}) já passou: publicado agora, o edital sai do ecrã no ciclo seguinte.`,
+      base_legal:base}];
+    if(!t||!t.dias_minimos||!afixacao) return [];
+    if(!retirada) return [{grau:'info',
+      texto:`Sem data de retirada: fica no ecrã indefinidamente. O mínimo legal para este tipo é ${t.dias_minimos} dias.`,
+      base_legal:base}];
+    const dias=Math.round((new Date(retirada)-new Date(afixacao))/86400000);
+    if(dias<t.dias_minimos) return [{grau:'aviso',
+      texto:`A afixação dura ${dias} dia(s), abaixo do mínimo de ${t.dias_minimos} exigido para este tipo de documento.`,
+      base_legal:base}];
+    return [];
+  }
+
+  function ligarPrazos(){
+    ['f-tipo','f-data_publicacao','f-data_retirada'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.addEventListener('change',actualizarPrazos);
+    });
+    actualizarPrazos();
+  }
+
   function camposDe(){
     const g=id=>document.getElementById(id);
     return {assunto:g('f-assunto')?.value.trim(),numero:g('f-numero')?.value.trim(),
+      tipo:g('f-tipo')?.value||undefined,
       data_publicacao:g('f-data_publicacao')?.value||null,data_retirada:g('f-data_retirada')?.value||null};
   }
   // Cabeçalhos de escrita. O X-Painel-Pedido é o que distingue um pedido nascido
@@ -489,7 +711,7 @@
     if(e.target.id==='lightbox') fecharLightbox();  // clicar no fundo fecha
   });
   document.getElementById('busca').addEventListener('input',e=>{termoBusca=e.target.value;render();});
-  document.getElementById('quemSou').textContent=localStorage.getItem('cmmb_nome')||'utilizador';
+  document.getElementById('btnSenha').addEventListener('click',mudarSenha);
   // Atalhos de teclado. Ignora-se quando o foco está num campo de texto (senão
   // escrever "v" no assunto disparava a validação).
   document.addEventListener('keydown',e=>{

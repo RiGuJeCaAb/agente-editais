@@ -33,9 +33,16 @@ from PIL import Image
 # e só rebenta (com mensagem clara) quando alguém tentar processar um PDF. Isto
 # permite, por exemplo, correr testes que só usam imagens sem ter o fitz instalado.
 try:
-    import fitz  # PyMuPDF
+    # 'fitz' foi renomeado para 'pymupdf' e avisa a cada importação; tenta-se o
+    # nome novo primeiro para não encher os registos de avisos de depreciação.
+    try:
+        import pymupdf as fitz
+    except ImportError:
+        import fitz  # type: ignore[no-redef]
 except ImportError:
-    fitz = None
+    # None e não um módulo: o resto do ficheiro testa `if fitz is None` para dar
+    # uma mensagem útil em vez de um AttributeError a meio de uma conversão.
+    fitz = None  # type: ignore[assignment]
 
 # Conjuntos de extensões reconhecidas. SUPPORTED é a união e é o que o agente
 # consulta para decidir se pega ou ignora um ficheiro que aparece na pasta.

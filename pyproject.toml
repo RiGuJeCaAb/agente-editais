@@ -1,6 +1,24 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+# Isto NÃO é uma biblioteca. O agente corre-se da sua própria pasta
+# (`python agente.py --painel`), e os módulos de lib/ são importados pelo nome
+# graças ao sys.path que o agente prepara — é o que permite instalá-lo num posto
+# municipal sem passar por um instalador.
+#
+# O pyproject existe para declarar as dependências e configurar as ferramentas
+# (pytest, ruff, mypy) num só sítio. Sem estas duas linhas, o setuptools tenta
+# adivinhar o que empacotar, encontra lib/, assets/, entrada/, arquivo/ e
+# servico/ na raiz, e recusa-se a continuar — que foi exatamente o que partiu a
+# integração contínua na primeira vez que ela correu a sério.
+py-modules = ["agente"]
+packages = []
+
 [project]
 name = "agente-editais"
-version = "0.11.0"
+version = "0.12.0"
 description = "Agente de editais do expositor da Câmara Municipal de Moimenta da Beira"
 requires-python = ">=3.10"
 dependencies = [
@@ -15,7 +33,7 @@ dependencies = [
 # não lê texto de imagens. Obrigar a instalá-lo tornaria a instalação mais
 # frágil do que precisa de ser num posto municipal.
 ocr = ["pytesseract"]
-dev = ["pytest>=7.4", "ruff>=0.5"]
+dev = ["pytest>=7.4", "ruff>=0.5", "mypy>=1.10"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -23,7 +41,43 @@ testpaths = ["tests"]
 # como o agente faz em execução. Sem isto os testes teriam de conhecer a
 # estrutura de pastas, e passariam a testar o sys.path em vez do código.
 pythonpath = ["lib", "."]
-addopts = "-q --strict-markers"
+# Sem -q aqui: a integração contínua já corre `pytest` e um -q duplicado
+# esconde a linha do resumo, que é justamente o que se quer ler no registo da CI.
+addopts = "--strict-markers"
+
+[tool.mypy]
+# Sem python_version fixo, de propósito: cada versão da matriz verifica-se a si
+# própria. Com "3.10" fixo, o mypy lia os stubs do numpy instalado em 3.12 — que
+# usam `type X = ...`, sintaxe de 3.12 — como se fossem 3.10, e recusava-os.
+# A compatibilidade com 3.10 fica garantida pelo trabalho que corre EM 3.10, que
+# é onde ela pode ser verificada a sério.
+mypy_path = "lib"
+# Estratégia deliberada: rigor nos módulos NOVOS, tolerância nos que vieram de
+# trás. Exigir anotações em tudo de uma vez obrigaria a um retrofit de 4000
+# linhas que ninguém revê a sério, e o resultado seria anotações postas à
+# pressa — piores do que nenhumas, porque dão confiança falsa. Assim o
+# verificador é útil desde o primeiro dia e a cobertura sobe com o código novo.
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+
+[[tool.mypy.overrides]]
+# Os módulos desta onda nasceram com anotações; que continuem assim.
+module = ["utilizadores", "prazos", "originais", "diario", "armazenamento"]
+disallow_untyped_defs = true
+disallow_incomplete_defs = true
+
+[[tool.mypy.overrides]]
+# Os anteriores verificam-se pelo que se consegue inferir, sem exigir anotações.
+module = ["agente", "painel", "registo", "documentos", "tratamento", "certidao"]
+disallow_untyped_defs = false
+
+[[tool.mypy.overrides]]
+# Bibliotecas sem tipos publicados. Declarar aqui é melhor do que semear
+# `# type: ignore` pelo código, que depois ninguém sabe se ainda faz falta.
+module = ["scipy.*", "pymupdf.*", "fitz.*", "pytesseract.*"]
+ignore_missing_imports = true
 
 [tool.ruff]
 line-length = 100

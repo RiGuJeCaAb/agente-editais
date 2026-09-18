@@ -208,6 +208,10 @@ agente_editais/
 ├── assets/              # logótipo (sym_ok.png, txt_ok.png)
 ├── registo_entrada.json # registo de editais + histórico (gravação atómica)
 ├── registo_auditoria.jsonl # trilho de auditoria, apenas-acrescento
+├── utilizadores.json    # contas do painel (senhas derivadas, nunca em claro)
+├── originais/           # arquivo imutável dos documentos (endereçado por SHA-256)
+├── diario/              # registo técnico, com rotação
+├── servico/             # unidade systemd e instruções de serviço
 ├── entrada/             # <- pões aqui os documentos
 ├── saida/               # -> index.html + slides.json (TV) + PNGs + ZIP
 ├── previas/             # pré-visualizações leves para o painel
@@ -216,18 +220,25 @@ agente_editais/
 ├── tests/               # suite de testes (pytest)
 └── lib/
     ├── armazenamento.py # escrita durável e jornal de auditoria
+    ├── certidao.py      # certidão de afixação em PDF
+    ├── diario.py        # registo técnico (níveis, rotação)
     ├── documentos.py    # conversão + extração de metadados
+    ├── entrada.html     # página de início de sessão
+    ├── originais.py     # arquivo imutável dos documentos
     ├── painel.py        # servidor do painel + API
+    ├── prazos.py        # tipos de documento e janelas legais
     ├── registo.py       # máquina de estados do fluxo
-    └── tratamento.py    # tratamento visual (fundo, folha, logo)
+    ├── tratamento.py    # tratamento visual (fundo, folha, logo)
+    └── utilizadores.py  # contas, senhas derivadas e sessões
 ```
 
 ### Desenvolvimento
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 109 testes: máquina de estados, durabilidade, segurança, contraste
+pytest          # 207 testes
 ruff check .    # análise estática
+mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
 
 Os testes correm sem LibreOffice e sem Tesseract de propósito: ambos são
@@ -278,10 +289,10 @@ Cada mudança fica no **histórico de auditoria** (quem, quando, de→para).
 
 ### Arrancar o painel
 
-1. Defina uma senha de acesso num `config.json` (veja `config.exemplo.json`):
+1. Crie a primeira conta (a senha é pedida sem eco, não vai na linha de comandos):
 
-   ```json
-   { "painel_senha": "a-sua-senha", "painel_porta": 8770 }
+   ```bash
+   python agente.py --criar-utilizador ana.abreu --administrador
    ```
 
 2. Arranque:
@@ -290,22 +301,36 @@ Cada mudança fica no **histórico de auditoria** (quem, quando, de→para).
    python agente.py --painel
    ```
 
-3. Abra no browser: `http://127.0.0.1:8770/`. Ao entrar, o browser pede
-   utilizador e senha (Basic Auth). **O utilizador que escrever fica no registo
-   de auditoria** — use o seu nome (ex.: `ana.abreu`). A senha é a do config.
+3. Abra no browser: `http://127.0.0.1:8770/`. Cada pessoa entra com a **sua**
+   conta. É esse nome que fica no histórico de cada edital e na certidão de
+   afixação — por isso não se partilham contas.
+
+Para ver quem tem acesso: `python agente.py --utilizadores`.
 
 O agente fica a vigiar a pasta de entrada: documentos novos aparecem como
 rascunho no painel, prontos a validar.
 
-### Autenticação — nota honesta
+### Autenticação
 
-Esta é uma proteção **simples e honesta**: uma senha partilhada + registo de quem
-fez cada ação. **Não** é autenticação empresarial. Para "vários utilizadores com
-contas e permissões" a sério, o passo certo é ligar ao **Active Directory / Entra
-ID** da CMMB — o código já tem o gancho preparado (`_verificar_sessao` em
-`lib/painel.py`). Fazer SSO/LDAP exige integração testada com a vossa
-infraestrutura, e é exatamente o tipo de autenticação centralizada que a NIS2 /
-DL 125/2025 favorece face a contas dispersas por aplicações.
+Contas individuais, com senha derivada por **scrypt** (biblioteca padrão do
+Python — nenhuma dependência nova) e sessão por cookie `HttpOnly` +
+`SameSite=Strict`, com validade contada desde o último uso. Dois papéis:
+**operador** valida e publica; **administrador** gere também as contas.
+
+A senha partilhada que existia até à versão 0.11 foi retirada. Não era uma
+questão de higiene: o nome que ia para o trilho de auditoria era texto livre, e
+uma certidão que nomeia quem afixou o edital não pode assentar nisso.
+
+Há limite de tentativas por **endereço** e por **conta**. São defesas
+diferentes: o primeiro trava quem varre senhas de um sítio, o segundo trava quem
+varre a mesma conta a partir de vários.
+
+**O que continua por fazer**, e é honesto dizê-lo: isto não é autenticação
+centralizada. O passo seguinte é o **Active Directory / Entra ID** da CMMB, e o
+gancho está em `Utilizadores.autenticar()` — trocar a verificação local por uma
+consulta LDAP/OIDC não obriga a mexer em mais nada. É o tipo de autenticação que
+o **Decreto-Lei n.º 125/2025** (NIS2), em vigor desde 3 de abril de 2026,
+favorece face a contas dispersas por aplicações.
 
 ### Expor a outros postos (rede interna)
 
@@ -479,3 +504,112 @@ pip install pytesseract
 ```
 Se o Tesseract não estiver instalado, o agente continua a funcionar — apenas não
 lê texto de imagens (como antes), sem rebentar.
+
+---
+
+## 16. Certidão de afixação e prazos legais — NOVO
+
+### O documento que prova a afixação
+
+A aplicação passou a emitir a **certidão de afixação e desafixação** em PDF, a
+partir da ficha de qualquer edital já afixado. É o documento que se junta a um
+processo ou se mostra a quem audite, e diz:
+
+- que documento foi afixado (tipo, número, assunto, entidade, resumo do original);
+- **quando** foi afixado e **por quem**;
+- quando foi desafixado e por quem, e quantos dias durou;
+- a **base legal** aplicável, e uma observação se o prazo não tiver sido cumprido;
+- em **anexo**, o registo de disponibilidade no expositor.
+
+### Que instante conta como afixação
+
+O instante **oficial** é o da publicação no painel — o momento em que uma pessoa
+com competência para o fazer carregou em publicar.
+
+A razão: a afixação é um ato administrativo, não um evento de infraestrutura. Se
+o expositor estiver avariado, a deliberação foi afixada à mesma e o que falhou
+foi o meio de a mostrar. Fazer depender a validade de um ato administrativo do
+funcionamento de uma televisão seria trocar as voltas às duas coisas.
+
+Dito isto, a outra pergunta também aparece — «e esteve mesmo lá?» — e por isso a
+certidão leva em anexo o instante em que o edital entrou na rotação do expositor.
+Instante oficial no corpo, confirmação material no anexo, distinguidos em vez de
+misturados.
+
+### Selo de conferência
+
+Cada certidão leva um resumo criptográfico dos factos que afirma. **Não é
+assinatura digital**, e a própria certidão o diz. O que permite é confirmar mais
+tarde que um papel corresponde ao que o registo diz: recalcula-se o resumo a
+partir do registo e compara-se.
+
+### Prazos por tipo de documento
+
+Cada edital tem um **tipo**, e cada tipo traz a sua janela de afixação. O
+principal é a deliberação de órgão autárquico, regida pelo **artigo 56.º do
+Anexo I da Lei n.º 75/2013**: afixada nos lugares de estilo durante **cinco dos
+10 dias subsequentes** à deliberação.
+
+A redação engana, e o sistema trata as duas partes em separado:
+
+- o mínimo de afixação são **5 dias**, não 10;
+- os **10 dias** são a janela, contada da deliberação, onde esses cinco têm de
+  caber. Afixar ao oitavo dia e retirar ao décimo terceiro dá cinco dias de
+  afixação e mesmo assim não cumpre.
+
+O painel **propõe** a data de retirada e **avisa** quando o que está escrito fica
+aquém — com a norma ao lado, para ser verificável em vez de ter de se acreditar.
+O que não faz é impor: a data continua a ser do posto, que é quem sabe se aquele
+documento é mesmo do tipo que diz.
+
+Tipos com prazos próprios do município declaram-se em `config.json`, sem tocar
+no código:
+
+```json
+{
+  "tipos_de_documento": {
+    "postura_municipal": {
+      "rotulo": "Postura municipal",
+      "dias_minimos": 15,
+      "base_legal": "Regulamento municipal X, artigo 4.º"
+    }
+  }
+}
+```
+
+---
+
+## 17. Arquivo dos originais, registo técnico e serviço — NOVO
+
+### Os originais deixam de depender da pasta de entrada
+
+Cada documento é copiado, na ingestão, para `originais/`, num arquivo
+endereçado pelo **conteúdo** (SHA-256). Antes, a composição relia o ficheiro de
+`entrada/` — e quem limpasse essa pasta deixava os editais publicados sem forma
+de serem recompostos, e sem o documento que a certidão afirma ter sido afixado.
+
+Copia-se, não se move: a pasta de entrada continua a ser de quem a usa e pode ser
+limpa a qualquer momento. Como o endereço é o conteúdo, o mesmo documento largado
+duas vezes com nomes diferentes ocupa espaço uma vez, e um ficheiro adulterado
+deixa de corresponder ao endereço por onde é procurado.
+
+### Registo técnico
+
+`diario/agente.log`, com níveis, rotação (10 ficheiros de 2 MB) e saída
+simultânea para a consola. O ficheiro guarda mais do que a consola mostra — é no
+dia do incidente que a diferença se paga.
+
+### Correr como serviço
+
+`servico/agente-editais.service` está pronto a instalar, com restrições de
+superfície. Ver `servico/LEIAME.md`, que cobre também o Windows (NSSM).
+
+### Saber se está vivo
+
+```bash
+curl -s http://127.0.0.1:8770/saude
+```
+
+Devolve `"ok": true` quando a vigia correu há pouco e há espaço em disco. É a
+única rota sem sessão, e por isso só devolve números e instantes — nunca o
+conteúdo de editais por validar.

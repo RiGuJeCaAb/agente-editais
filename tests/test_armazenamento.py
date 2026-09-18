@@ -9,6 +9,7 @@ quê — que é precisamente o que um organismo público tem de conseguir mostra
 from __future__ import annotations
 
 import json
+import logging
 import os
 
 import armazenamento as arm
@@ -45,10 +46,13 @@ def test_guarda_as_geracoes_anteriores(tmp_path):
     assert not os.path.exists(f"{alvo}.bak.4")
 
 
-def test_recupera_de_um_ficheiro_truncado(tmp_path, capsys):
+def test_recupera_de_um_ficheiro_truncado(tmp_path, caplog):
     """Um principal cortado a meio faz recuar para a cópia, e avisa.
 
-    Esta é a reprodução exata da falha original.
+    Esta é a reprodução exata da falha original. O aviso é verificado no registo
+    técnico e já não na consola: desde a Onda 2 o agente usa logging, e um aviso
+    que não chegasse ao ficheiro seria um aviso que ninguém leria no dia em que
+    fizesse falta.
     """
     alvo = str(tmp_path / "registo.json")
     arm.gravar_json(alvo, {"editais": ["bom"], "seq": 1})
@@ -59,8 +63,9 @@ def test_recupera_de_um_ficheiro_truncado(tmp_path, capsys):
 
     with pytest.raises(json.JSONDecodeError):
         json.load(open(alvo, encoding="utf-8"))      # a leitura ingénua rebenta
-    assert arm.ler_json(alvo, {}) == {"editais": ["bom"], "seq": 1}   # a nossa, não
-    assert "ilegível" in capsys.readouterr().out
+    with caplog.at_level(logging.WARNING, logger="editais.ARMAZEM"):
+        assert arm.ler_json(alvo, {}) == {"editais": ["bom"], "seq": 1}   # a nossa, não
+    assert any("ilegível" in r.message for r in caplog.records)
 
 
 def test_ficheiro_ausente_devolve_a_omissao(tmp_path):
