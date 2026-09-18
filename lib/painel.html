@@ -442,9 +442,15 @@
     return {assunto:g('f-assunto')?.value.trim(),numero:g('f-numero')?.value.trim(),
       data_publicacao:g('f-data_publicacao')?.value||null,data_retirada:g('f-data_retirada')?.value||null};
   }
+  // Cabeçalhos de escrita. O X-Painel-Pedido é o que distingue um pedido nascido
+  // desta página de um POST forjado por outro sítio com as credenciais Basic em
+  // cache — um <form> de terceiros não consegue pôr cabeçalhos personalizados.
+  const CAB_ESCRITA={'Content-Type':'application/json','X-Painel-Pedido':'1'};
   async function guardar(id){
-    await fetch('/api/editar',{method:'POST',headers:{'Content-Type':'application/json'},
+    const r=await fetch('/api/editar',{method:'POST',headers:CAB_ESCRITA,
       body:JSON.stringify({id,campos:camposDe()})});
+    if(!r.ok){toast('Não foi possível guardar',true);return false;}
+    return true;
   }
   function ligarAcoesFoco(r){
     document.querySelectorAll('.acoes .btn').forEach(b=>b.addEventListener('click',()=>executarAcao(r,b.dataset.acao)));
@@ -460,7 +466,7 @@
       const assunto=(r.assunto||'este edital').slice(0,60);
       if(!confirm(`Retirar do ecrã?\n\n"${assunto}"\n\nDeixa de aparecer no expositor. O ficheiro fica guardado no arquivo e pode ser reposto depois.`)) return;
     }
-    const res=await(await fetch('/api/estado',{method:'POST',headers:{'Content-Type':'application/json'},
+    const res=await(await fetch('/api/estado',{method:'POST',headers:CAB_ESCRITA,
       body:JSON.stringify({id:r.id,estado:a})})).json();
     if(!res.ok){toast(res.erro||'Ação não permitida',true);return;}
     const nomes={validado:'Edital validado',publicado:'Publicado no ecrã',rascunho:'Devolvido a rascunho',retirado:'Retirado do ecrã'};
