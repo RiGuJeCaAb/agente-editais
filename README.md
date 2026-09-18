@@ -206,13 +206,39 @@ agente_editais/
 ├── editais.json         # metadados + data_retirada MANUAL
 ├── estado.json          # controlo do que já foi processado
 ├── assets/              # logótipo (sym_ok.png, txt_ok.png)
+├── registo_entrada.json # registo de editais + histórico (gravação atómica)
+├── registo_auditoria.jsonl # trilho de auditoria, apenas-acrescento
 ├── entrada/             # <- pões aqui os documentos
-├── saida/               # -> index.html (TV) + PNGs + ZIP
+├── saida/               # -> index.html + slides.json (TV) + PNGs + ZIP
+├── previas/             # pré-visualizações leves para o painel
+├── fundos/              # cache dos fundos metálicos (gerada sozinha)
 ├── trabalho/            # temporários (conversão Word)
+├── tests/               # suite de testes (pytest)
 └── lib/
+    ├── armazenamento.py # escrita durável e jornal de auditoria
     ├── documentos.py    # conversão + extração de metadados
+    ├── painel.py        # servidor do painel + API
+    ├── registo.py       # máquina de estados do fluxo
     └── tratamento.py    # tratamento visual (fundo, folha, logo)
 ```
+
+### Desenvolvimento
+
+```bash
+pip install -e ".[dev]"
+pytest          # 109 testes: máquina de estados, durabilidade, segurança, contraste
+ruff check .    # análise estática
+```
+
+Os testes correm sem LibreOffice e sem Tesseract de propósito: ambos são
+opcionais em execução, e a suite tem de provar que o agente funciona sem eles.
+
+### A pasta `fundos/`
+
+O tratamento visual desenha o fundo metálico uma vez por variante (oito ao todo,
+~70 MB) e reutiliza-as. É gerada sozinha e pode ser apagada à vontade — volta a
+nascer. O painel prepara-as em segundo plano ao arrancar, para a primeira
+publicação do dia não esperar por elas.
 
 ---
 
@@ -319,7 +345,7 @@ a composição das imagens 4K acontece em segundo plano, sem prender a interface
 
 ---
 
-## 11. Página da TV — carrossel infinito, atualização ao vivo e fundo animado
+## 12. Página da TV — carrossel infinito, atualização ao vivo e fundo animado
 
 A página do expositor foi reformulada em três pontos.
 
@@ -370,7 +396,7 @@ screensaver aparece. Se aparecer, é o momento de decidir o mini-PC.
 
 ---
 
-## 12. Correções e melhorias (arquivo, corte de margens, atalhos)
+## 13. Correções e melhorias (arquivo, corte de margens, atalhos)
 
 ### Corte de margens em printscreens — CORRIGIDO
 
@@ -407,7 +433,7 @@ servidas diretamente de dentro do ZIP, sem extrair para disco.
 
 ---
 
-## 13. Pré-visualização do documento no painel (com ampliação)
+## 14. Pré-visualização do documento no painel (com ampliação)
 
 Antes, na validação, o documento só aparecia **depois** de publicado — o que
 obrigava a preencher os campos (assunto, número, datas) às cegas. Corrigido.
@@ -423,7 +449,7 @@ Clicar na pré-visualização **amplia-a** (lightbox) para ler o texto todo. Fec
 
 ---
 
-## 14. OCR — ler tema e data de imagens e digitalizações
+## 15. OCR — ler tema e data de imagens e digitalizações
 
 Antes, quando um documento era uma **imagem** (printscreen, digitalização), não
 havia texto pesquisável: o assunto acabava por vir do nome do ficheiro e a data

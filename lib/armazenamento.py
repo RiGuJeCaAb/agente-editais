@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 armazenamento.py — Gravação durável de ficheiros de estado e trilho de auditoria.
 

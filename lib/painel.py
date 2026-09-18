@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 painel.py — Servidor web do painel de gestão dos editais (back-end).
 
@@ -20,6 +19,7 @@ infraestrutura, que não se fazem à séria num único passo. Melhor uma proteç
 simples e honesta do que uma complexa e furada.
 """
 from __future__ import annotations
+
 import base64
 import hmac
 import json
@@ -97,7 +97,8 @@ class PainelServer:
         with self._falhas_lock:
             falhas, _ate = self._falhas.get(ip, (0, 0.0))
             falhas += 1
-            ate = time.time() + SEGUNDOS_DE_BLOQUEIO if falhas >= TENTATIVAS_ANTES_DE_BLOQUEAR else 0.0
+            castigo = falhas >= TENTATIVAS_ANTES_DE_BLOQUEAR
+            ate = time.time() + SEGUNDOS_DE_BLOQUEIO if castigo else 0.0
             self._falhas[ip] = (falhas, ate)
             if ate:
                 print(f"[PAINEL] {falhas} senhas erradas de {ip} — bloqueado "
@@ -128,8 +129,8 @@ class PainelServer:
         """
         if not self.cfg.get("painel_senha"):
             raise RuntimeError(
-                "Sem 'painel_senha' em config.json — o painel não arranca sem senha. "
-                "Define uma senha de acesso antes de usar o painel.")
+                "Sem 'painel_senha' em config.json — o painel não arranca sem "
+                "senha. Define uma senha de acesso antes de usar o painel.")
         servidor = self  # capturado no closure do handler
 
         class Handler(BaseHTTPRequestHandler):
@@ -208,8 +209,8 @@ class PainelServer:
                 # strings que tenham caracteres fora de ASCII, e uma senha com
                 # cedilha ou acento é das coisas mais prováveis num município
                 # português. Codificar em UTF-8 resolve e mantém o tempo constante.
-                if not hmac.compare_digest(senha.encode("utf-8"),
-                                           str(servidor.cfg.get("painel_senha", "")).encode("utf-8")):
+                esperada = str(servidor.cfg.get("painel_senha", "")).encode("utf-8")
+                if not hmac.compare_digest(senha.encode("utf-8"), esperada):
                     servidor._falhou(ip)
                     return None
                 servidor._acertou(ip)

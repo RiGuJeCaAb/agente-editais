@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 registo.py — Registo de entrada dos editais, com fluxo de estados e auditoria.
 
@@ -33,9 +32,11 @@ em memória do processo. Para o volume de um município (dezenas de editais/mês
 isto chega e sobra; não se justifica uma base de dados.
 """
 from __future__ import annotations
+
 import copy
-import os, json, threading
-from datetime import datetime, date
+import os
+import threading
+from datetime import date, datetime
 
 import armazenamento as arm
 
@@ -95,8 +96,8 @@ class RegistoEntrada:
         # histórico que vive dentro de cada edital: aquele é reescrito por inteiro
         # a cada gravação (e portanto vulnerável a uma escrita interrompida), este
         # só cresce. É o que se entrega a quem audita.
-        raiz = os.path.splitext(path)[0]
-        self.jornal = arm.JornalAuditoria(raiz.replace("registo_entrada", "registo") + "_auditoria.jsonl")
+        raiz = os.path.splitext(path)[0].replace("registo_entrada", "registo")
+        self.jornal = arm.JornalAuditoria(raiz + "_auditoria.jsonl")
         self._dados = self._carregar()
 
     # ---- persistência -----------------------------------------------------

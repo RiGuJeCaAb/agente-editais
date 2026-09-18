@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 tratamento.py — Tratamento visual dos editais para o expositor da CMMB.
 
@@ -20,7 +19,7 @@ NumPy sobre matrizes de píxeis. É a razão de o código parecer "matemático" 
 é o que permite tratar imagens 4K em segundos em vez de percorrer píxel a píxel.
 """
 from __future__ import annotations
-import hashlib
+
 import os
 
 import numpy as np
@@ -167,7 +166,13 @@ def metallic_green_bg(w=CANVAS_W, h=CANVAS_H, seed=7):
 
     # (f) Pontos dourados ("poeira"): píxeis esparsos e aleatórios, ligeiramente
     # desfocados, que cintilam sobretudo nas zonas iluminadas.
-    glint = rng.random((h, w), dtype=REAL) > 0.9991   # ~0.09% dos píxeis
+    # O sorteio fica em float64 e só o resultado é convertido. Não é descuido: o
+    # gerador do NumPy produz uma SEQUÊNCIA DIFERENTE conforme o dtype pedido, e
+    # sortear em float32 mudava as posições da poeira dourada. A estrutura do
+    # fundo ficava igual, mas um edital recomposto deixava de sair idêntico ao
+    # PNG que está guardado no arquivo — e o arquivo é prova do que foi afixado.
+    # O custo de o manter em float64 é um temporário (h, w), não os de (h, w, 3).
+    glint = rng.random((h, w)) > 0.9991          # ~0.09% dos píxeis
     glint = ndimage.gaussian_filter(glint.astype(REAL), 0.8)
     base = base + GOLD_LIGHT[None, None, :] * glint[..., None] * 1.05 * (0.45 + spec[..., None])
 
@@ -613,7 +618,9 @@ def compose_sheets(pages, seed=7, logo_im=None,
     # Máscara conjunta de todas as folhas: é a partir dela que se calcula a sombra.
     m = np.zeros((CANVAS_H, CANVAS_W), REAL)
     fitted = []
-    for x0, pg in zip(xs, pages):
+    # strict=True: xs vem de sheet_positions(len(pages)), portanto os comprimentos
+    # batem por construção. Se um dia deixarem de bater, é melhor saber-se aqui.
+    for x0, pg in zip(xs, pages, strict=True):
         sheet = _fit_sheet(pg)
         fitted.append((x0, sheet))
         m[y0:y0 + SHEET_H, x0:x0 + SHEET_W] = 1.0

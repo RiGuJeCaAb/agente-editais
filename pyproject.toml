@@ -1,0 +1,57 @@
+[project]
+name = "agente-editais"
+version = "0.11.0"
+description = "Agente de editais do expositor da Câmara Municipal de Moimenta da Beira"
+requires-python = ">=3.10"
+dependencies = [
+    "pymupdf>=1.23",
+    "pillow>=10.0",
+    "scipy>=1.10",
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# O OCR é opcional de propósito: sem ele o agente continua a funcionar, apenas
+# não lê texto de imagens. Obrigar a instalá-lo tornaria a instalação mais
+# frágil do que precisa de ser num posto municipal.
+ocr = ["pytesseract"]
+dev = ["pytest>=7.4", "ruff>=0.5"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# Caminhos de importação: os módulos vivem em lib/ e são importados pelo nome,
+# como o agente faz em execução. Sem isto os testes teriam de conhecer a
+# estrutura de pastas, e passariam a testar o sys.path em vez do código.
+pythonpath = ["lib", "."]
+addopts = "-q --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = [
+    "E", "W",   # estilo (pycodestyle)
+    "F",        # erros reais (pyflakes): nomes por definir, imports por usar
+    "I",        # ordem dos imports
+    "B",        # armadilhas conhecidas (bugbear)
+    "UP",       # sintaxe já desatualizada para a versão-alvo
+]
+ignore = [
+    # O projeto usa `except Exception` de propósito em vários sítios: um
+    # documento problemático não pode derrubar o lote inteiro, e um OCR ausente
+    # não pode impedir o agente de arrancar. Está comentado em cada caso.
+    "B904",
+]
+
+[tool.ruff.lint.per-file-ignores]
+# O template HTML da TV vive dentro de uma string longa em agente.py, e os
+# imports de lib/ só podem vir DEPOIS do sys.path.insert que os torna possíveis
+# — é o que permite correr o agente sem o instalar, que é um requisito do posto.
+"agente.py" = ["E501", "E402"]
+
+# tratamento.py é aritmética vetorizada, e junta na mesma linha atribuições que
+# formam um par indivisível (x0/y0 de um ponto, nx/ny de uma normal, W/H de uma
+# dimensão). Separá-las em treze sítios daria mais linhas e menos leitura, e o
+# módulo não estava em causa nesta onda. Fica assinalado, não escondido.
+"lib/tratamento.py" = ["E702"]

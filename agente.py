@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 """
 agente.py — Agente de automação dos editais do expositor da CMMB.
 
@@ -30,19 +29,26 @@ Ficheiros de estado (na raiz do projeto):
   - retiradas.txt : datas de saída, editáveis à mão.
 """
 from __future__ import annotations
-import os, sys, json, time, argparse, hashlib, glob
-from datetime import datetime, date
+
+import argparse
+import glob
+import hashlib
+import json
+import os
+import sys
+import time
+from datetime import date, datetime
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(BASE, "lib"))
-from PIL import Image
+import armazenamento as arm  # escrita durável (atómica, com gerações)
 import documentos as doc
+import painel as painel_mod  # servidor do painel de gestão
+import registo as reg_mod  # registo de entrada (fluxo de estados)
 import tratamento as trat
-import armazenamento as arm        # escrita durável (atómica, com gerações)
-import registo as reg_mod          # registo de entrada (fluxo de estados)
-import painel as painel_mod        # servidor do painel de gestão
+from PIL import Image
 
 # Configuração por omissão. Pode ser sobreposta por um 'config.json' na raiz —
 # assim o utilizador altera tempos, título e limites sem tocar no código.
@@ -1016,7 +1022,8 @@ def main():
 
     # Atalho: só reconstruir as saídas (típico depois de editar datas de saída).
     if args.rebuild_web:
-        reconstruir_saidas(cfg, registo); return
+        reconstruir_saidas(cfg, registo)
+        return
 
     logo_im = carregar_logo(cfg)
 
@@ -1034,7 +1041,8 @@ def main():
         print(f"[WATCH] a vigiar {cfg['entrada']} (Ctrl+C para parar)")
         try:
             while True:
-                ciclo(); time.sleep(int(cfg["intervalo_watch"]))
+                ciclo()
+                time.sleep(int(cfg["intervalo_watch"]))
         except KeyboardInterrupt:
             print("\n[FIM] vigil\u00e2ncia terminada.")
     else:

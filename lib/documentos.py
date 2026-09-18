@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 documentos.py — Conversão de documentos para imagem e extração de metadados.
 
@@ -21,8 +20,13 @@ Dependências: pymupdf, pillow. Para Word é ainda preciso o 'soffice' (LibreOff
 acessível no PATH do sistema.
 """
 from __future__ import annotations
-import os, re, subprocess, shutil
+
+import os
+import re
+import shutil
+import subprocess
 from datetime import datetime
+
 from PIL import Image
 
 # O PyMuPDF é opcional em tempo de importação: se faltar, o módulo ainda carrega
@@ -376,11 +380,11 @@ def _guess_subject(text, fallback_name):
     Returns:
         tuple[str, float]: (assunto estimado, confiança 0.0-1.0).
     """
-    lines = [l.strip() for l in text.splitlines() if l.strip()]
+    lines = [linha.strip() for linha in text.splitlines() if linha.strip()]
 
     seen_edital = False
-    for l in lines:
-        up = l.upper()
+    for linha in lines:
+        up = linha.upper()
         # Fase 1: procurar o marcador que antecede o título.
         if not seen_edital and ("EDITAL" in up or re.match(r"AM\s*/?\s*20\d\d", up)):
             seen_edital = True
@@ -388,18 +392,18 @@ def _guess_subject(text, fallback_name):
         # Fase 2: já passámos o "EDITAL" — a próxima linha "a sério" é o assunto.
         if seen_edital:
             # Saltar o subtítulo "AM / 2026" e linhas só de traços/espaços.
-            if re.fullmatch(r"AM\s*/?\s*20\d\d", up) or re.fullmatch(r"[-—\s]*", l):
+            if re.fullmatch(r"AM\s*/?\s*20\d\d", up) or re.fullmatch(r"[-—\s]*", linha):
                 continue
             # Considera-se assunto uma linha com pelo menos 8 letras (evita apanhar
             # números soltos, códigos ou pontuação como se fossem título).
-            if len(re.sub(r"[^A-Za-zÀ-ÿ]", "", l)) >= 8:
-                return _clean_subject(l), 0.9   # caso normal: confiança alta
+            if len(re.sub(r"[^A-Za-zÀ-ÿ]", "", linha)) >= 8:
+                return _clean_subject(linha), 0.9   # caso normal: confiança alta
 
     # Recurso: se o marcador "EDITAL" não apareceu, aceita a primeira linha
     # com corpo de texto razoável (>=12 letras). Confiança média — pode falhar.
-    for l in lines:
-        if len(re.sub(r"[^A-Za-zÀ-ÿ]", "", l)) >= 12:
-            return _clean_subject(l), 0.5
+    for linha in lines:
+        if len(re.sub(r"[^A-Za-zÀ-ÿ]", "", linha)) >= 12:
+            return _clean_subject(linha), 0.5
 
     # Último recurso: nome do ficheiro humanizado. Confiança baixa.
     return _humanize(fallback_name), 0.2

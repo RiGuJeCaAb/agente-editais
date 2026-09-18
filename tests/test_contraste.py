@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """
 test_contraste.py — O painel tem de se ler, e isso é verificável.
 
