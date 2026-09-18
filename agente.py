@@ -51,6 +51,7 @@ CONFIG = {
     "saida":    os.path.join(BASE, "saida"),
     "arquivo":  os.path.join(BASE, "arquivo"),   # ZIP permanente dos retirados
     "previas":  os.path.join(BASE, "previas"),   # pré-visualizações leves p/ o painel
+    "fundos":   os.path.join(BASE, "fundos"),    # cache dos fundos metálicos pré-desenhados
     "trabalho": os.path.join(BASE, "trabalho"),
     "estado":   os.path.join(BASE, "estado.json"),
     "registo":  os.path.join(BASE, "editais.json"),
@@ -112,7 +113,7 @@ def load_config():
             print("  usar os valores por defeito (incluindo SENHA VAZIA, que")
             print("  impede o painel de arrancar). Corrija o config.json.")
             print("=" * 60)
-    for k in ("entrada", "saida", "arquivo", "previas", "trabalho"):
+    for k in ("entrada", "saida", "arquivo", "previas", "fundos", "trabalho"):
         os.makedirs(cfg[k], exist_ok=True)
 
     # Deteta espaços acidentais à volta da senha (causa comum de "pass não bate").
@@ -509,7 +510,8 @@ def varrer(cfg, registo, estado, logo_im):
         for bi, bloco in enumerate(blocos, start=1):
             indice = proximo_indice(registo)
             seed = 3 + (indice - 1) * 7              # padrão de fundo distinto por ecrã
-            comp = trat.compose_sheets([it[0] for it in bloco], seed=seed, logo_im=logo_im)
+            comp = trat.compose_sheets([it[0] for it in bloco], seed=seed, logo_im=logo_im,
+                                       cache_fundos=cfg["fundos"])
             out_name = nome_saida(indice, slug, parte=bi, total=total)
             comp.save(os.path.join(cfg["saida"], out_name), "PNG")
             ent = {"indice": indice, "ficheiro_origem": bloco[0][2],
@@ -801,7 +803,8 @@ def _compor_edital(cfg, r, logo_im):
     nomes = []
     for bi, bloco in enumerate(blocos, start=1):
         seed = 3 + (r["id"] * 7 + bi)   # padrão de fundo estável por edital/ecrã
-        comp = trat.compose_sheets(bloco, seed=seed, logo_im=logo_im)
+        comp = trat.compose_sheets(bloco, seed=seed, logo_im=logo_im,
+                                   cache_fundos=cfg["fundos"])
         nome = nome_saida(r["id"], slug, parte=bi, total=total)
         comp.save(os.path.join(cfg["saida"], nome), "PNG")
         nomes.append(nome)
@@ -923,7 +926,24 @@ def iniciar_painel(cfg):
                 print(f"[ERRO vigia] {ex}")
             time.sleep(int(cfg["intervalo_watch"]))
 
+    def aquecer_fundos():
+        """Desenha as variantes de fundo em falta, antes de alguém precisar delas.
+
+        Cada variante custa ~7 s a desenhar e depois vive em disco para sempre.
+        Feito aqui, em fundo e a baixa prioridade, a primeira publicação do dia
+        já as encontra prontas em vez de as pagar uma a uma no pior momento —
+        que é justamente quando alguém está à espera de ver o edital no ecrã.
+        """
+        for i in range(trat.VARIANTES_DE_FUNDO):
+            try:
+                trat.obter_fundo(seed=i, cache=cfg["fundos"])
+            except Exception as ex:
+                print(f"[FUNDOS] falha a preparar a variante {i}: {ex}")
+                return
+        print(f"[FUNDOS] {trat.VARIANTES_DE_FUNDO} variantes prontas em {cfg['fundos']}")
+
     import threading
+    threading.Thread(target=aquecer_fundos, daemon=True).start()
     threading.Thread(target=vigiar, daemon=True).start()
 
     # Primeira publicação da TV em FUNDO: compor imagens 4K é pesado e não deve

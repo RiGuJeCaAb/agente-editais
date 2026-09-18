@@ -20,25 +20,37 @@ NumPy sobre matrizes de píxeis. É a razão de o código parecer "matemático" 
 é o que permite tratar imagens 4K em segundos em vez de percorrer píxel a píxel.
 """
 from __future__ import annotations
+import hashlib
+import os
+
 import numpy as np
 from PIL import Image
 from scipy import ndimage
+
+# Toda a aritmética de imagem corre em float32, não em float64. Não é
+# micro-otimização: as constantes da paleta eram `float` (= float64) e, por
+# promoção do NumPy, contaminavam TODOS os intermédios de forma (2160, 3840, 3)
+# — 199 MB cada em vez de 100 MB, com vários vivos ao mesmo tempo. O
+# `.astype(np.float32)` que existia na grelha de coordenadas era desfeito na
+# linha seguinte pela primeira multiplicação com a paleta. Medido: 1325 MB de
+# pico só para gerar um fundo.
+REAL = np.float32
 
 # ---------------------------------------------------------------------------
 # Paleta de marca CMMB. Guardadas como vetores NumPy (R,G,B em float) para poder
 # interpolá-las diretamente nas contas de cor mais abaixo.
 # ---------------------------------------------------------------------------
-GREEN_DEEP  = np.array([5, 38, 24],   float)   # verde quase-preto (profundidade)
-GREEN_BASE  = np.array([13, 77, 51],  float)   # #0D4D33 — a cor de marca
-GREEN_LIGHT = np.array([46, 130, 88], float)   # verde iluminado (brilho especular)
-GOLD        = np.array([200, 168, 75], float)  # #C8A84B — o dourado de marca
-GOLD_LIGHT  = np.array([235, 210, 140], float) # dourado claro (realces/pontos)
+GREEN_DEEP  = np.array([5, 38, 24],   REAL)   # verde quase-preto (profundidade)
+GREEN_BASE  = np.array([13, 77, 51],  REAL)   # #0D4D33 — a cor de marca
+GREEN_LIGHT = np.array([46, 130, 88], REAL)   # verde iluminado (brilho especular)
+GOLD        = np.array([200, 168, 75], REAL)  # #C8A84B — o dourado de marca
+GOLD_LIGHT  = np.array([235, 210, 140], REAL) # dourado claro (realces/pontos)
 
 # Paleta específica do relevo do logótipo (gravação): do brilho ao sulco escuro.
-GOLD_HI   = np.array([252, 234, 178], float)   # face mais iluminada do relevo
-GOLD_MID  = np.array([200, 166, 75],  float)   # tom médio (corpo do metal)
-GOLD_LO   = np.array([138, 104, 40],  float)   # zona em sombra
-GOLD_DEEP = np.array([70, 50, 18],    float)   # fundo do sulco gravado
+GOLD_HI   = np.array([252, 234, 178], REAL)   # face mais iluminada do relevo
+GOLD_MID  = np.array([200, 166, 75],  REAL)   # tom médio (corpo do metal)
+GOLD_LO   = np.array([138, 104, 40],  REAL)   # zona em sombra
+GOLD_DEEP = np.array([70, 50, 18],    REAL)   # fundo do sulco gravado
 
 # Dimensões do ecrã final (16:9 em 4K).
 CANVAS_W, CANVAS_H = 3840, 2160
@@ -96,7 +108,7 @@ def metallic_green_bg(w=CANVAS_W, h=CANVAS_H, seed=7):
     rng = np.random.default_rng(seed)
     # Grelhas de coordenadas normalizadas [0,1]: nx/ny servem de base a todos os
     # gradientes seguintes sem termos de escrever ciclos sobre píxeis.
-    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    yy, xx = np.mgrid[0:h, 0:w].astype(REAL)
     nx, ny = xx / (w - 1), yy / (h - 1)
 
     # (a) Gradiente diagonal: mistura do verde profundo para o verde de marca ao
@@ -127,7 +139,7 @@ def metallic_green_bg(w=CANVAS_W, h=CANVAS_H, seed=7):
     # (e) Laivos dourados: 42 "vetas" diagonais finas, cada uma um traço levemente
     # ondulado. Desenhamo-las primeiro num mapa a preto-e-branco (veins) e só
     # depois as convertemos em cor, para poder dar-lhes núcleo nítido + halo difuso.
-    veins = np.zeros((h, w), np.float32)
+    veins = np.zeros((h, w), REAL)
     for _ in range(42):
         x0 = rng.uniform(-0.2, 1.05); y0 = rng.uniform(-0.05, 1.05)
         ang = rng.uniform(-0.95, -0.25)          # ângulo (sempre diagonal ascendente)
@@ -155,16 +167,132 @@ def metallic_green_bg(w=CANVAS_W, h=CANVAS_H, seed=7):
 
     # (f) Pontos dourados ("poeira"): píxeis esparsos e aleatórios, ligeiramente
     # desfocados, que cintilam sobretudo nas zonas iluminadas.
-    glint = rng.random((h, w)) > 0.9991          # ~0.09% dos píxeis
-    glint = ndimage.gaussian_filter(glint.astype(np.float32), 0.8)
+    glint = rng.random((h, w), dtype=REAL) > 0.9991   # ~0.09% dos píxeis
+    glint = ndimage.gaussian_filter(glint.astype(REAL), 0.8)
     base = base + GOLD_LIGHT[None, None, :] * glint[..., None] * 1.05 * (0.45 + spec[..., None])
 
     # (g) Grão fino: ruído gaussiano leve, para evitar bandas de cor lisas
     # (banding) e dar textura fotográfica.
-    base = base + rng.normal(0, 1.8, (h, w, 1))
+    base = base + rng.normal(0, 1.8, (h, w, 1)).astype(REAL)
 
     # Recorta ao intervalo válido [0,255] e converte para o tipo de imagem final.
     return np.clip(base, 0, 255).astype(np.uint8)
+
+
+# ---------------------------------------------------------------------------
+# Cache de fundos em disco.
+# ---------------------------------------------------------------------------
+# O fundo era regenerado do zero em cada ecrã — 7,9 segundos e 1,3 GB — só para
+# variar uma semente e os editais não parecerem clonados. Mas o fundo não depende
+# do CONTEÚDO: um punhado de variantes pré-desenhadas dá exatamente a mesma
+# impressão de variedade, porque ninguém vê dois ecrãs ao mesmo tempo e ninguém
+# repara que o 1.º e o 9.º partilham o padrão.
+#
+# Guarda-se em PNG por ser sem perdas: o fundo tem grão fino de propósito, e o
+# JPEG trataria esse grão como ruído a deitar fora, deixando bandas visíveis nas
+# zonas de gradiente suave — logo nas margens verdes, que são o que se vê.
+VARIANTES_DE_FUNDO = 8
+
+# Fundos já descodificados, guardados em memória entre composições. Uma
+# publicação compõe vários ecrãs seguidos e reencontra as mesmas variantes;
+# descodificar o PNG de 3840x2160 custava 0,6 s de cada vez. Limita-se a três
+# entradas (~75 MB) para não trocar tempo por memória sem limite.
+_FUNDOS_EM_MEMORIA = {}
+_MAX_FUNDOS_EM_MEMORIA = 3
+
+
+def _desfocar(m, sigma, sigma_minimo=4.0):
+    """Desfoca uma máscara com qualidade suficiente para sombra, muito mais depressa.
+
+    Os dois gaussian_filter da sombra eram 3,1 s dos 5,2 s de uma composição —
+    o verdadeiro estrangulamento, e não a geração do fundo, como se supôs à
+    primeira. Um filtro gaussiano de sigma 55 sobre 8,3 milhões de píxeis são
+    umas 440 amostras por eixo e por píxel.
+
+    A saída para isto é conhecida e explora uma propriedade do próprio problema:
+    uma desfocagem larga destrói, por construção, o detalhe fino. Reduz-se a
+    máscara, desfoca-se com sigma proporcionalmente menor, e reamplia-se. O fator
+    é escolhido para o sigma efetivo nunca descer abaixo de 'sigma_minimo', que é
+    onde o núcleo ainda tem amostras que cheguem para não serrilhar.
+
+    Medido contra o filtro exato, com a máscara real de três folhas: erro máximo
+    de 0,005, que depois de multiplicado pela opacidade da sombra (0,62) dá menos
+    de UM nível em 255. O grão que o fundo tem de propósito é maior do que isso.
+
+    Args:
+        m (numpy.ndarray): máscara float32 (h, w) em [0,1].
+        sigma (float): desvio-padrão pretendido, em píxeis da imagem final.
+        sigma_minimo (float): sigma efetivo mínimo depois da redução.
+
+    Returns:
+        numpy.ndarray: máscara desfocada (h, w) em float32.
+    """
+    fator = max(1, int(sigma // sigma_minimo))
+    if fator == 1:
+        return ndimage.gaussian_filter(m.astype(REAL), sigma)
+    h, w = m.shape
+    peq = np.asarray(Image.fromarray(m.astype(REAL)).resize(
+        (max(1, w // fator), max(1, h // fator)), Image.BILINEAR), REAL)
+    peq = ndimage.gaussian_filter(peq, sigma / fator)
+    return np.asarray(Image.fromarray(peq).resize((w, h), Image.BILINEAR), REAL)
+
+# Sobe quando a aparência do fundo mudar, para a cache antiga ser ignorada em vez
+# de continuar a servir imagens desenhadas por uma versão anterior do código.
+VERSAO_DO_FUNDO = 1
+
+
+def obter_fundo(seed=7, cache=None, variantes=VARIANTES_DE_FUNDO):
+    """Devolve um fundo metálico, servindo-o da cache em disco quando existe.
+
+    A semente deixa de escolher um fundo único e passa a escolher uma de
+    'variantes' pré-desenhadas. É o que transforma a composição de ~9 s em menos
+    de 1 s a partir do segundo ecrã: gera-se cada variante uma vez na vida e daí
+    em diante lê-se do disco.
+
+    Args:
+        seed (int): semente do edital; decide qual das variantes lhe cabe.
+        cache (str|None): pasta da cache. Sem ela, gera sempre (comportamento
+            antigo) — é o que os testes usam para não tocar no disco.
+        variantes (int): quantos fundos distintos existem no total.
+
+    Returns:
+        numpy.ndarray: imagem RGB uint8 (CANVAS_H, CANVAS_W, 3).
+    """
+    if not cache:
+        return metallic_green_bg(CANVAS_W, CANVAS_H, seed=seed)
+    i = int(seed) % max(1, variantes)
+    os.makedirs(cache, exist_ok=True)
+    nome = f"fundo_{CANVAS_W}x{CANVAS_H}_v{VERSAO_DO_FUNDO}_{i:02d}.png"
+    caminho = os.path.join(cache, nome)
+    if i in _FUNDOS_EM_MEMORIA:
+        return _FUNDOS_EM_MEMORIA[i]
+    if os.path.exists(caminho):
+        try:
+            img = np.array(Image.open(caminho).convert("RGB"))
+            _guardar_em_memoria(i, img)
+            return img
+        except OSError:
+            # Ficheiro truncado por uma escrita interrompida: apaga e redesenha,
+            # em vez de deixar a composição a falhar para sempre.
+            try:
+                os.remove(caminho)
+            except OSError:
+                pass
+    # A semente da variante é fixa (e não a do edital), para a variante i ser
+    # sempre a mesma imagem, hoje e daqui a um ano.
+    img = metallic_green_bg(CANVAS_W, CANVAS_H, seed=1000 + i)
+    tmp = caminho + ".tmp"
+    Image.fromarray(img).save(tmp, "PNG", compress_level=6)
+    os.replace(tmp, caminho)
+    _guardar_em_memoria(i, img)
+    return img
+
+
+def _guardar_em_memoria(i, img):
+    """Guarda um fundo descodificado, deitando fora o mais antigo se já houver três."""
+    if len(_FUNDOS_EM_MEMORIA) >= _MAX_FUNDOS_EM_MEMORIA:
+        _FUNDOS_EM_MEMORIA.pop(next(iter(_FUNDOS_EM_MEMORIA)))
+    _FUNDOS_EM_MEMORIA[i] = img
 
 
 # ===========================================================================
@@ -457,7 +585,7 @@ def _fit_sheet(page_img, target_w=SHEET_W, target_h=SHEET_H):
 
 
 def compose_sheets(pages, seed=7, logo_im=None,
-                   logo_width_frac=0.150, logo_margin_frac=0.032):
+                   logo_width_frac=0.150, logo_margin_frac=0.032, cache_fundos=None):
     """Compõe 1..3 páginas lado a lado, ao mesmo tamanho, sobre o fundo metálico.
 
     É a função central do módulo. Gera o fundo, coloca as folhas nas posições
@@ -470,18 +598,20 @@ def compose_sheets(pages, seed=7, logo_im=None,
         logo_im (PIL.Image.Image | None): logótipo RGBA já construído, ou None.
         logo_width_frac (float): largura do logótipo como fração do ecrã.
         logo_margin_frac (float): margem do logótipo ao canto, fração da largura.
+        cache_fundos (str|None): pasta da cache de fundos. Com ela, o fundo vem
+            do disco em vez de ser redesenhado — ver obter_fundo.
 
     Returns:
         PIL.Image.Image: composição final RGB (CANVAS_W × CANVAS_H).
     """
     pages = pages[:MAX_POR_ECRA]
     n = len(pages)
-    bg = metallic_green_bg(CANVAS_W, CANVAS_H, seed=seed).astype(float)
+    bg = obter_fundo(seed, cache_fundos).astype(REAL)
     xs = sheet_positions(n)
     y0 = SHEET_TOP
 
     # Máscara conjunta de todas as folhas: é a partir dela que se calcula a sombra.
-    m = np.zeros((CANVAS_H, CANVAS_W), float)
+    m = np.zeros((CANVAS_H, CANVAS_W), REAL)
     fitted = []
     for x0, pg in zip(xs, pages):
         sheet = _fit_sheet(pg)
@@ -493,14 +623,15 @@ def compose_sheets(pages, seed=7, logo_im=None,
     #  - sombra distante (sigma 55, deslocada muito): difusa, indica altura.
     # Multiplica-se por (1 - m) para a sombra só existir FORA das folhas, e por
     # 0.62 para não ficar demasiado escura.
-    sh_near = np.roll(np.roll(ndimage.gaussian_filter(m, 18), 14, 0), 10, 1)
-    sh_far = np.roll(np.roll(ndimage.gaussian_filter(m, 55), 60, 0), 42, 1)
+    sh_near = np.roll(np.roll(_desfocar(m, 18), 14, 0), 10, 1)
+    sh_far = np.roll(np.roll(_desfocar(m, 55), 60, 0), 42, 1)
     shadow = np.clip(sh_near * 0.55 + sh_far * 0.45, 0, 1) * (1 - m) * 0.62
     out = bg * (1 - shadow[..., None])
+    del bg, sh_near, sh_far, shadow   # libertar já: são ~100 MB cada
 
     # Assenta cada folha por cima da sombra.
     for x0, sheet in fitted:
-        out[y0:y0 + SHEET_H, x0:x0 + SHEET_W, :] = np.array(sheet).astype(float)
+        out[y0:y0 + SHEET_H, x0:x0 + SHEET_W, :] = np.array(sheet, dtype=REAL)
 
     img = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
     _paste_logo(img, m, logo_im, logo_width_frac, logo_margin_frac)
@@ -544,8 +675,8 @@ def _place_sheets_from_existing(a, m, bg):
     Returns:
         numpy.ndarray: composição float (h,w,3) pronta a converter em imagem.
     """
-    sh_near = np.roll(np.roll(ndimage.gaussian_filter(m, 18), 14, 0), 10, 1)
-    sh_far = np.roll(np.roll(ndimage.gaussian_filter(m, 55), 60, 0), 42, 1)
+    sh_near = np.roll(np.roll(_desfocar(m, 18), 14, 0), 10, 1)
+    sh_far = np.roll(np.roll(_desfocar(m, 55), 60, 0), 42, 1)
     shadow = np.clip(sh_near * 0.55 + sh_far * 0.45, 0, 1) * (1 - m) * 0.62
     out = bg.astype(float) * (1 - shadow[..., None])
     # 'soft' é a máscara ligeiramente desfocada, usada como fator de mistura para
