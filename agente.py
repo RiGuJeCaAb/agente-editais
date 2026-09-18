@@ -1203,6 +1203,11 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   var elV = document.getElementById('vazio');
   var elE = document.getElementById('estado');
 
+  // Ao fim de quantos minutos sem o agente escrever o slides.json se considera
+  // que o que está no ecrã pode já não valer. Três ciclos do vigia (30 s) com
+  // folga larga: abaixo disto seria alarme falso a cada hesitação da rede.
+  var MINUTOS_ATE_SUSPEITAR = 30;
+
   var slides = [];      // lista atual [{src,assunto,pub}]
   var nodes = [];       // <div.slide> correspondentes, na mesma ordem
   var idx = 0;          // índice do slide visível
@@ -1273,6 +1278,18 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     }
   }
 
+  // Assinala, com discrição, que o conteúdo no ecrã já tem muito tempo. Sem isto,
+  // um agente que morra deixa a TV a mostrar editais de há uma semana com um ar
+  // perfeitamente normal, e ninguém dá por nada — que é o pior desfecho possível
+  // num expositor onde a lei conta os dias de afixação.
+  function avisaSeVelho(gerado){
+    if (!gerado){ return; }
+    var minutos = (Date.now() - new Date(gerado).getTime()) / 60000;
+    elE.textContent = minutos > MINUTOS_ATE_SUSPEITAR
+      ? 'conteúdo de ' + new Date(gerado).toLocaleString('pt-PT') + ' — verificar o agente'
+      : '';
+  }
+
   // Vai buscar o slides.json. Se a versão mudou, aplica. Tolerante a falhas de rede.
   function sincroniza(){
     // cache:'no-store' para a TV não servir uma cópia velha do ficheiro.
@@ -1280,7 +1297,6 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       .then(function(r){ return r.ok ? r.json() : null; })
       .then(function(data){
         if(!data) return;
-        elE.textContent = ''; // limpa aviso de erro se antes falhou
         if (typeof data.spe === 'number' && data.spe*1000 !== spe){
           spe = data.spe * 1000;
           if (timer) arrancaRotacao();  // aplica novo intervalo sem parar
@@ -1289,6 +1305,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
           versao = data.v;
           aplica(Array.isArray(data.slides) ? data.slides : []);
         }
+        avisaSeVelho(data.gerado_em);
       })
       .catch(function(){
         // Sem rede: mantém o que está no ecrã (não interrompe nada).
@@ -1342,12 +1359,21 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     if (r){ try{ r.call(el); }catch(e){} }
   }
 
+  // Arranca a sondagem do slides.json UMA vez. Havia dois setInterval — um no
+  // comeca() e outro no listener de load — por isso, depois de um toque no ecrã
+  // de arranque, a TV ficava a buscar o ficheiro a dobrar, para sempre.
+  var sondagem = null;
+  function arrancaSondagem(){
+    if (sondagem) return;
+    sincroniza();
+    sondagem = setInterval(sincroniza, 15000);
+  }
+
   function comeca(){
     arr.style.display = 'none';
     fs();
     anti_screensaver_webos();   // tenta o wake lock real
-    sincroniza();               // primeira carga imediata
-    setInterval(sincroniza, 15000);  // e depois de 15 em 15s, ao vivo
+    arrancaSondagem();
   }
 
   arr.addEventListener('click', comeca);
@@ -1364,9 +1390,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (pr && pr.then){ pr.then(function(){ auto=true; arr.style.display='none'; }).catch(function(){}); }
     }
     anti_screensaver_webos();
-    sincroniza();
-    setInterval(sincroniza, 15000);
-    setTimeout(function(){ if(!auto){ /* fica o ecrã de arranque, mas já roda */ } }, 1000);
+    arrancaSondagem();
   });
 </script>
 </body>
