@@ -33,8 +33,11 @@ em memória do processo. Para o volume de um município (dezenas de editais/mês
 isto chega e sobra; não se justifica uma base de dados.
 """
 from __future__ import annotations
+import copy
 import os, json, threading
 from datetime import datetime, date
+
+import armazenamento as arm
 
 # Os quatro estados do ciclo de vida. Usar constantes (e não strings soltas pelo
 # código) evita gralhas silenciosas do tipo "Publicado" vs "publicado".
@@ -87,7 +90,13 @@ class RegistoEntrada:
         # Lock de processo: serializa as escritas quando várias ações do painel
         # chegam quase ao mesmo tempo. Não protege contra vários PROCESSOS a
         # escrever o mesmo ficheiro — mas o desenho é haver um só processo-agente.
-        self._lock = threading.Lock()
+        self._lock = threading.RLock()
+        # Jornal apenas-acrescento, ao lado do registo. Duplica de propósito o
+        # histórico que vive dentro de cada edital: aquele é reescrito por inteiro
+        # a cada gravação (e portanto vulnerável a uma escrita interrompida), este
+        # só cresce. É o que se entrega a quem audita.
+        raiz = os.path.splitext(path)[0]
+        self.jornal = arm.JornalAuditoria(raiz.replace("registo_entrada", "registo") + "_auditoria.jsonl")
         self._dados = self._carregar()
 
     # ---- persistência -----------------------------------------------------
@@ -97,20 +106,34 @@ class RegistoEntrada:
         Returns:
             dict: {"editais": [...], "seq": int} — 'seq' é o contador de IDs.
         """
-        if os.path.exists(self.path):
-            with open(self.path, encoding="utf-8") as f:
-                return json.load(f)
-        return {"editais": [], "seq": 0}
+        return arm.ler_json(self.path, {"editais": [], "seq": 0})
 
     def _guardar(self):
-        """Escreve o registo no disco (indentado, com acentos preservados).
+        """Escreve o registo no disco de forma atómica, com gerações de recurso.
 
-        Chamado internamente após cada mutação. Escreve o ficheiro completo:
-        simples, atómico o suficiente para este volume, e mantém o JSON sempre
-        num estado coerente e legível.
+        Chamado internamente após cada mutação. Delega em armazenamento.gravar_json,
+        que escreve para temporário, força ao disco e só então troca — a versão
+        anterior deste método usava `open(path, "w")` direto, e uma interrupção
+        entre o truncar e o escrever deixava o registo ilegível e o agente sem
+        arrancar. Está reproduzido no teste test_armazenamento.py.
         """
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump(self._dados, f, ensure_ascii=False, indent=2)
+        arm.gravar_json(self.path, self._dados)
+
+    def _anotar(self, reg, utilizador, de, para, nota):
+        """Acrescenta um evento ao histórico do edital E ao jornal de auditoria.
+
+        Único ponto por onde se escreve auditoria, para não haver caminho que
+        alimente um dos dois e esqueça o outro. O jornal leva o id e o assunto
+        além do evento, porque é lido fora de contexto — quem audita abre o
+        .jsonl sozinho, sem o registo ao lado.
+        """
+        ev = _evento(utilizador, de, para, nota)
+        reg.setdefault("historico", []).append(ev)
+        self.jornal.registar({**ev, "id": reg.get("id"),
+                              "numero": reg.get("numero", ""),
+                              "assunto": reg.get("assunto", ""),
+                              "ficheiro_origem": reg.get("ficheiro_origem", "")})
+        return ev
 
     # ---- criação ----------------------------------------------------------
     def criar_rascunho(self, *, ficheiro_origem, hash_ficheiro, num_paginas,
@@ -153,13 +176,12 @@ class RegistoEntrada:
                 "ficheiros_previa": [],         # pré-visualizações leves p/ o painel
                 # Auditoria:
                 "criado_em": _agora(),
-                "historico": [
-                    _evento(utilizador, None, RASCUNHO, "Documento recebido e lido")
-                ],
+                "historico": [],
             }
+            self._anotar(registo, utilizador, None, RASCUNHO, "Documento recebido e lido")
             self._dados["editais"].append(registo)
             self._guardar()
-            return registo
+            return copy.deepcopy(registo)
 
     @staticmethod
     def _campos_duvidosos(conf):
@@ -176,12 +198,20 @@ class RegistoEntrada:
 
     # ---- consultas --------------------------------------------------------
     def todos(self):
-        """Devolve todos os registos (referência viva à lista interna).
+        """Devolve uma CÓPIA de todos os registos, em ordem de criação.
+
+        Era uma referência viva à lista interna. O painel entregava-a ao
+        serializador JSON enquanto a thread de vigia lhe fazia append e o próprio
+        painel mutava dicionários lá dentro — ler e escrever a mesma estrutura em
+        threads diferentes sem lock. Não se conseguiu fazer rebentar numa passagem
+        curta (o GIL é indulgente), mas a correção custa uma cópia de umas dezenas
+        de registos e remove a classe de problema inteira.
 
         Returns:
-            list[dict]: todos os editais, em ordem de criação.
+            list[dict]: cópia profunda dos editais, em ordem de criação.
         """
-        return self._dados["editais"]
+        with self._lock:
+            return copy.deepcopy(self._dados["editais"])
 
     def por_id(self, rid):
         """Procura um registo pelo seu id.
@@ -197,6 +227,10 @@ class RegistoEntrada:
                 return e
         return None
 
+    # Nota: por_id devolve a referência INTERNA de propósito — é usada dentro dos
+    # métodos que mutam sob lock. Quem serve dados ao exterior usa todos(), que
+    # devolve cópia.
+
     def por_estado(self, estado):
         """Filtra registos por estado.
 
@@ -206,7 +240,8 @@ class RegistoEntrada:
         Returns:
             list[dict]: registos nesse estado.
         """
-        return [e for e in self._dados["editais"] if e["estado"] == estado]
+        with self._lock:
+            return copy.deepcopy([e for e in self._dados["editais"] if e["estado"] == estado])
 
     def hash_existe(self, hash_ficheiro):
         """Indica se já existe um registo com o mesmo conteúdo (mesmo hash).
@@ -219,7 +254,8 @@ class RegistoEntrada:
         Returns:
             bool: True se já existe.
         """
-        return any(e["hash"] == hash_ficheiro for e in self._dados["editais"])
+        with self._lock:
+            return any(e["hash"] == hash_ficheiro for e in self._dados["editais"])
 
     def definir_previas(self, rid, nomes):
         """Regista os nomes das pré-visualizações leves de um registo.
@@ -235,6 +271,29 @@ class RegistoEntrada:
             reg = self.por_id(rid)
             if reg is not None:
                 reg["ficheiros_previa"] = nomes
+                self._guardar()
+
+    def definir_pngs(self, rid, nomes):
+        """Regista os nomes dos PNG compostos de um edital.
+
+        Irmão de definir_previas, e pela mesma razão: são dados que o agente
+        produz, não campos que o utilizador edita, por isso não passam pela lista
+        branca de editar() nem geram evento de auditoria.
+
+        Passou a ser indispensável quando por_estado() deixou de devolver
+        referências vivas: o agente escrevia `r["ficheiros_png"] = ...` no
+        resultado e chamava _guardar(), o que a partir daí gravaria o estado
+        interno inalterado — os nomes perdiam-se e a imagem 4K era recomposta a
+        cada ciclo. O teste test_registo.py::test_definir_pngs_persiste cobre-o.
+
+        Args:
+            rid (int): id do registo.
+            nomes (list[str]): nomes dos PNG na pasta de saída.
+        """
+        with self._lock:
+            reg = self.por_id(rid)
+            if reg is not None:
+                reg["ficheiros_png"] = list(nomes)
                 self._guardar()
 
     # ---- edição de campos -------------------------------------------------
@@ -268,11 +327,10 @@ class RegistoEntrada:
                     if campo in reg.get("campos_duvidosos", []):
                         reg["campos_duvidosos"].remove(campo)
             if alterados:
-                reg["historico"].append(
-                    _evento(utilizador, reg["estado"], reg["estado"],
-                            "Editado: " + ", ".join(alterados)))
+                self._anotar(reg, utilizador, reg["estado"], reg["estado"],
+                             "Editado: " + ", ".join(alterados))
                 self._guardar()
-            return reg
+            return copy.deepcopy(reg)
 
     # ---- transições de estado --------------------------------------------
     def mover_estado(self, rid, novo_estado, utilizador="painel", nota=""):
@@ -311,10 +369,9 @@ class RegistoEntrada:
                         "erro": "Falta a data de publicação (obrigatória).",
                         "registo": reg}
             reg["estado"] = novo_estado
-            reg["historico"].append(
-                _evento(utilizador, atual, novo_estado, nota or "Mudança de estado"))
+            self._anotar(reg, utilizador, atual, novo_estado, nota or "Mudança de estado")
             self._guardar()
-            return {"ok": True, "erro": None, "registo": reg}
+            return {"ok": True, "erro": None, "registo": copy.deepcopy(reg)}
 
     # ---- retirada automática por data ------------------------------------
     def aplicar_retiradas_automaticas(self, utilizador="sistema"):
@@ -341,9 +398,8 @@ class RegistoEntrada:
                 try:
                     if date.fromisoformat(dr) < hoje:
                         reg["estado"] = RETIRADO
-                        reg["historico"].append(
-                            _evento(utilizador, PUBLICADO, RETIRADO,
-                                    f"Retirada automática (data {dr})"))
+                        self._anotar(reg, utilizador, PUBLICADO, RETIRADO,
+                                     f"Retirada automática (data {dr})")
                         retirados.append(reg["id"])
                 except ValueError:
                     # Data mal formada não deve rebentar o ciclo; ignora-se.

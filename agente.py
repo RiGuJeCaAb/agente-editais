@@ -40,6 +40,7 @@ sys.path.insert(0, os.path.join(BASE, "lib"))
 from PIL import Image
 import documentos as doc
 import tratamento as trat
+import armazenamento as arm        # escrita durável (atómica, com gerações)
 import registo as reg_mod          # registo de entrada (fluxo de estados)
 import painel as painel_mod        # servidor do painel de gestão
 
@@ -133,20 +134,16 @@ def _load_json(path, default):
     Returns:
         O conteúdo do JSON, ou 'default'.
     """
-    if os.path.exists(path):
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    return default
+    return arm.ler_json(path, default)
 
 def _save_json(path, data):
-    """Grava 'data' como JSON legível (indentado, com acentos preservados).
+    """Grava 'data' como JSON de forma atómica, com gerações de recurso.
 
     Args:
         path (str): destino.
         data: estrutura serializável em JSON.
     """
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(data, f, ensure_ascii=False, indent=2)
+    arm.gravar_json(path, data)
 
 def file_hash(path):
     """Calcula o SHA-1 do conteúdo de um ficheiro (lido em blocos de 64 KB).
@@ -670,9 +667,11 @@ def publicar_registos(cfg, reg, logo_im):
     slides = []
     for r in publicados:
         # Caso 1: nunca teve PNG — primeira publicação, compõe de novo.
+        # Grava-se por definir_pngs() e não por mutação do dicionário: desde que
+        # por_estado() devolve cópias, escrever no resultado não chega ao registo.
         if not r.get("ficheiros_png"):
             r["ficheiros_png"] = _compor_edital(cfg, r, logo_im)
-            reg._guardar()
+            reg.definir_pngs(r["id"], r["ficheiros_png"])
         # Caso 2: tem nome de PNG registado mas o ficheiro não está na pasta
         # (foi arquivado quando esteve retirado) — recupera-o do ZIP de arquivo.
         else:
@@ -685,7 +684,7 @@ def publicar_registos(cfg, reg, logo_im):
                     print(f"[ARQUIVO] recomposição de recurso para #{r['id']} "
                           f"(nem tudo estava arquivado)")
                     r["ficheiros_png"] = _compor_edital(cfg, r, logo_im)
-                    reg._guardar()
+                    reg.definir_pngs(r["id"], r["ficheiros_png"])
         # Cada ecrã (PNG) do edital é um slide, com assunto + data de publicação.
         for png in r["ficheiros_png"]:
             slides.append({"src": png, "assunto": r["assunto"],
@@ -826,19 +825,48 @@ def _escrever_pagina_tv(cfg, slides):
     # slides.json — a fonte viva que a TV consulta em ciclo.
     payload = {
         "v": datetime.now().isoformat(timespec="seconds"),  # versão p/ deteção de mudança
+        "gerado_em": datetime.now().isoformat(timespec="seconds"),  # frescura (ver TV)
         "spe": int(cfg["segundos_por_ecra"]),
         "titulo": cfg["titulo_tv"],
         "slides": slides,
     }
-    with open(os.path.join(cfg["saida"], "slides.json"), "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
+    # Escrita atómica, e não `open(..., "w")`: a TV busca este ficheiro de 15 em
+    # 15 segundos e, com a escrita destrutiva, havia uma janela em que apanhava
+    # JSON truncado. O fetch falhava, a página mostrava "sem ligação" e o operador
+    # via um erro que não existia. Sem gerações — é um ficheiro derivado, que se
+    # regenera sozinho no ciclo seguinte.
+    arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0)
 
     # index.html — escrito uma vez; já não leva os slides lá dentro. Só precisa de
     # saber o título inicial e o intervalo por defeito (o resto vem do JSON).
     html = (_HTML_TEMPLATE.replace("__TITULO__", cfg["titulo_tv"])
             .replace("__SPE__", str(int(cfg["segundos_por_ecra"]))))
-    with open(os.path.join(cfg["saida"], "index.html"), "w", encoding="utf-8") as f:
-        f.write(html)
+    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"), html)
+
+
+def _escrever_texto_atomico(caminho, texto):
+    """Escreve um ficheiro de texto de forma atómica (temporário + troca).
+
+    O index.html é reescrito a cada republicação enquanto a TV o pode estar a
+    carregar. Vale a mesma regra do slides.json: ou tem a versão anterior inteira,
+    ou a nova inteira.
+    """
+    import tempfile
+    pasta = os.path.dirname(os.path.abspath(caminho))
+    os.makedirs(pasta, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=pasta, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(texto)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, caminho)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def _escrever_zip_publicados(cfg, reg, publicados):
