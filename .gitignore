@@ -1,0 +1,30 @@
+# Configuração local (contém a senha do painel) — nunca versionar.
+config.json
+
+# Dados de execução: estado, registos e trilho de auditoria são do posto, não do código.
+estado.json
+editais.json
+registo_entrada.json
+registo_auditoria.jsonl
+retiradas.txt
+*.bak.[0-9]
+*.tmp
+
+# Pastas de trabalho e saída.
+entrada/*
+!entrada/_COLOCAR_DOCUMENTOS_AQUI.txt
+saida/
+previas/
+trabalho/
+fundos/
+arquivo/*
+!arquivo/_ARQUIVO.txt
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/

@@ -1,0 +1,9 @@
+{
+  "_INSTRUCOES": "Copie este ficheiro para 'config.json' e defina a senha. Use um editor SIMPLES (Bloco de Notas em modo texto), NUNCA o Word — aspas curvas partem o ficheiro.",
+  "painel_senha": "DEFINA-UMA-SENHA-AQUI",
+  "painel_host": "127.0.0.1",
+  "painel_porta": 8770,
+  "usar_registo_entrada": true,
+  "segundos_por_ecra": 30,
+  "manter_zips": 3
+}

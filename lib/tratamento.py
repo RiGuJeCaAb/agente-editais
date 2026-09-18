@@ -1,0 +1,592 @@
+# -*- coding: utf-8 -*-
+"""
+tratamento.py — Tratamento visual dos editais para o expositor da CMMB.
+
+Este módulo é o "atelier" do agente: pega nas páginas já rasterizadas e produz a
+imagem final 16:9 (4K) com a identidade "Força do Interior" do Município:
+
+  1. fundo verde metalizado #0D4D33 (Pantone 3500U) com laivos e pontos dourados;
+  2. as folhas/cartazes a "pairar" sobre o fundo, com sombra projetada;
+  3. o logótipo dourado com efeito de gravação (relevo 3D) no canto superior esq.
+
+Funciona tanto para folhas brancas (editais) como para cartazes coloridos, e
+compõe 1, 2 ou 3 folhas lado a lado — SEMPRE ao mesmo tamanho — para aproveitar
+o formato 16:9 sem esticar nada.
+
+Dependências: numpy, pillow, scipy.
+
+Nota sobre a abordagem: quase tudo aqui é feito com operações vetorizadas de
+NumPy sobre matrizes de píxeis. É a razão de o código parecer "matemático" — mas
+é o que permite tratar imagens 4K em segundos em vez de percorrer píxel a píxel.
+"""
+from __future__ import annotations
+import numpy as np
+from PIL import Image
+from scipy import ndimage
+
+# ---------------------------------------------------------------------------
+# Paleta de marca CMMB. Guardadas como vetores NumPy (R,G,B em float) para poder
+# interpolá-las diretamente nas contas de cor mais abaixo.
+# ---------------------------------------------------------------------------
+GREEN_DEEP  = np.array([5, 38, 24],   float)   # verde quase-preto (profundidade)
+GREEN_BASE  = np.array([13, 77, 51],  float)   # #0D4D33 — a cor de marca
+GREEN_LIGHT = np.array([46, 130, 88], float)   # verde iluminado (brilho especular)
+GOLD        = np.array([200, 168, 75], float)  # #C8A84B — o dourado de marca
+GOLD_LIGHT  = np.array([235, 210, 140], float) # dourado claro (realces/pontos)
+
+# Paleta específica do relevo do logótipo (gravação): do brilho ao sulco escuro.
+GOLD_HI   = np.array([252, 234, 178], float)   # face mais iluminada do relevo
+GOLD_MID  = np.array([200, 166, 75],  float)   # tom médio (corpo do metal)
+GOLD_LO   = np.array([138, 104, 40],  float)   # zona em sombra
+GOLD_DEEP = np.array([70, 50, 18],    float)   # fundo do sulco gravado
+
+# Dimensões do ecrã final (16:9 em 4K).
+CANVAS_W, CANVAS_H = 3840, 2160
+
+# ---------------------------------------------------------------------------
+# Geometria UNIFORME da folha.
+# Estes números não são arbitrários: foram medidos nas composições originais de
+# 3 folhas (as DDN por freguesia), para que 1, 2 ou 3 folhas fiquem exatamente
+# do mesmo tamanho e alinhadas, dando consistência visual à rotação no ecrã.
+# ---------------------------------------------------------------------------
+SHEET_W, SHEET_H = 1201, 1678   # largura/altura de cada folha no canvas
+SHEET_TOP = 248                 # topo das folhas (deixa faixa verde p/ o logótipo)
+SHEET_GAP = 37                  # intervalo horizontal entre folhas
+MAX_POR_ECRA = 3                # nunca mais de 3 folhas por ecrã
+
+
+def sheet_positions(n):
+    """Calcula as posições X (borda esquerda) de n folhas centradas no canvas.
+
+    Mantém a largura e o intervalo uniformes e centra o conjunto, quer haja 1,
+    2 ou 3 folhas — é isto que faz uma folha isolada aparecer com o mesmo tamanho
+    das de um trio, apenas centrada.
+
+    Args:
+        n (int): número de folhas (1..MAX_POR_ECRA); valores fora são limitados.
+
+    Returns:
+        list[int]: coordenadas X da borda esquerda de cada folha.
+    """
+    n = max(1, min(n, MAX_POR_ECRA))
+    total = n * SHEET_W + (n - 1) * SHEET_GAP   # largura ocupada pelo conjunto
+    x0 = (CANVAS_W - total) // 2                 # margem para centrar
+    return [x0 + i * (SHEET_W + SHEET_GAP) for i in range(n)]
+
+
+# ===========================================================================
+# 1) Fundo verde metalizado
+# ===========================================================================
+def metallic_green_bg(w=CANVAS_W, h=CANVAS_H, seed=7):
+    """Gera o fundo verde metálico com laivos e pontos dourados.
+
+    O efeito "metálico" nasce da soma de várias camadas: um gradiente diagonal
+    (dá profundidade), um brilho especular deslocado (o reflexo de metal polido),
+    umas riscas finíssimas (o "brushed metal"), vetas douradas em diagonal e uns
+    pontinhos de brilho (a "poeira" dourada). O 'seed' torna o padrão determinístico
+    mas variável entre editais, para não parecerem todos clonados.
+
+    Args:
+        w (int), h (int): dimensões do fundo.
+        seed (int): semente do gerador aleatório (padrão reproduzível por edital).
+
+    Returns:
+        numpy.ndarray: imagem RGB uint8 de forma (h, w, 3).
+    """
+    rng = np.random.default_rng(seed)
+    # Grelhas de coordenadas normalizadas [0,1]: nx/ny servem de base a todos os
+    # gradientes seguintes sem termos de escrever ciclos sobre píxeis.
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    nx, ny = xx / (w - 1), yy / (h - 1)
+
+    # (a) Gradiente diagonal: mistura do verde profundo para o verde de marca ao
+    # longo da diagonal. É o que dá a sensação de superfície e não de cor chapada.
+    diag = np.clip(nx * 0.55 + ny * 0.45, 0, 1)
+    base = (GREEN_DEEP[None, None, :] * (1 - diag[..., None]) +
+            GREEN_BASE[None, None, :] * diag[..., None])
+
+    # (b) Brilho especular: um "foco" de luz posicionado em cima-à-esquerda. A
+    # distância a esse ponto (d) elevada a uma potência concentra o brilho, como
+    # a reflexão numa chapa de metal. Guardamos 'spec' porque é reutilizado para
+    # fazer o ouro reluzir mais onde há mais luz.
+    cx, cy = 0.34, 0.26
+    d = np.sqrt(((nx - cx) * 1.05) ** 2 + (ny - cy) ** 2)
+    spec = np.clip(1 - d * 1.4, 0, 1) ** 2.0
+    base = base + (GREEN_LIGHT - GREEN_BASE)[None, None, :] * spec[..., None] * 1.15
+
+    # (c) "Brushed metal": ondulação horizontal de amplitude mínima. Quase não se
+    # vê conscientemente, mas quebra a lisura e lê-se como metal escovado.
+    brush = np.sin(ny * np.pi * 300 + np.sin(nx * 5) * 1.5)
+    base = base + brush[..., None] * 4.0
+
+    # (d) Vinheta suave: escurece ligeiramente as bordas para o olhar cair no
+    # centro (onde ficam as folhas).
+    vig = np.clip(1 - (((nx - 0.5) ** 2 + (ny - 0.5) ** 2) * 0.85), 0.7, 1.0)
+    base = base * vig[..., None]
+
+    # (e) Laivos dourados: 42 "vetas" diagonais finas, cada uma um traço levemente
+    # ondulado. Desenhamo-las primeiro num mapa a preto-e-branco (veins) e só
+    # depois as convertemos em cor, para poder dar-lhes núcleo nítido + halo difuso.
+    veins = np.zeros((h, w), np.float32)
+    for _ in range(42):
+        x0 = rng.uniform(-0.2, 1.05); y0 = rng.uniform(-0.05, 1.05)
+        ang = rng.uniform(-0.95, -0.25)          # ângulo (sempre diagonal ascendente)
+        length = rng.uniform(0.35, 1.05)         # comprimento da veta
+        amp = rng.uniform(0.6, 1.15)             # intensidade
+        wob_f = rng.uniform(5, 13); wob_a = rng.uniform(0.006, 0.014)  # ondulação
+        # Traça a veta amostrando 900 pontos ao longo do seu comprimento.
+        t = np.linspace(0, length, 900)
+        px = x0 + np.cos(ang) * t + np.sin(t * wob_f) * wob_a
+        py = y0 + np.sin(ang) * t + np.cos(t * wob_f * 0.8) * wob_a * 0.7
+        px = (px * (w - 1)).astype(int); py = (py * (h - 1)).astype(int)
+        # Mantém só os pontos dentro da imagem e marca-os no mapa de vetas.
+        ok = (px >= 0) & (px < w) & (py >= 0) & (py < h)
+        veins[py[ok], px[ok]] = np.maximum(veins[py[ok], px[ok]], amp)
+    # Núcleo nítido (sigma pequeno) + halo suave (sigma grande) = veta com brilho.
+    core = ndimage.gaussian_filter(veins, sigma=0.8)
+    halo = ndimage.gaussian_filter(veins, sigma=4.5) * 0.7
+    veins = np.clip(core + halo, 0, 1.5)
+    # As vetas reluzem mais onde há brilho especular (fator 'spec'), como ouro real.
+    vfac = veins * (0.65 + spec * 1.0)
+    gold_col = (GOLD[None, None, :] * (1 - spec[..., None] * 0.5) +
+                GOLD_LIGHT[None, None, :] * spec[..., None] * 0.5)
+    base = (base * (1 - np.clip(vfac[..., None], 0, 1) * 0.95) +
+            gold_col * np.clip(vfac[..., None], 0, 1) * 1.18)
+
+    # (f) Pontos dourados ("poeira"): píxeis esparsos e aleatórios, ligeiramente
+    # desfocados, que cintilam sobretudo nas zonas iluminadas.
+    glint = rng.random((h, w)) > 0.9991          # ~0.09% dos píxeis
+    glint = ndimage.gaussian_filter(glint.astype(np.float32), 0.8)
+    base = base + GOLD_LIGHT[None, None, :] * glint[..., None] * 1.05 * (0.45 + spec[..., None])
+
+    # (g) Grão fino: ruído gaussiano leve, para evitar bandas de cor lisas
+    # (banding) e dar textura fotográfica.
+    base = base + rng.normal(0, 1.8, (h, w, 1))
+
+    # Recorta ao intervalo válido [0,255] e converte para o tipo de imagem final.
+    return np.clip(base, 0, 255).astype(np.uint8)
+
+
+# ===========================================================================
+# 2) Deteção da(s) folha(s) — usada quando recompomos imagens já montadas
+# ===========================================================================
+def extract_sheet_mask(a):
+    """Deteta a(s) peça(s) central(is) (folha branca OU cartaz colorido) numa imagem.
+
+    Ideia central: a peça é "tudo o que NÃO é o fundo verde texturado". Em vez de
+    procurar branco (falharia com cartazes coloridos), procuramos onde o fundo
+    verde NÃO domina e tratamos cada mancha resultante como um retângulo sólido —
+    porque folhas e cartazes são retângulos, e assim logótipos verdes no interior
+    (que "furariam" a máscara) não abrem buracos.
+
+    Args:
+        a (numpy.ndarray): imagem RGB (int) de forma (h, w, 3).
+
+    Returns:
+        numpy.ndarray: máscara booleana (h, w) — True onde há folha/cartaz.
+    """
+    h, w = a.shape[:2]
+    r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
+    mn = a.min(axis=2); mx = a.max(axis=2); sat = mx - mn
+
+    # "É fundo?" = verde domina (g é o maior canal com margem) e é escuro.
+    green_dom = (g >= r) & (g >= b) & (g - np.minimum(r, b) > 8)
+    dark = mx < 170
+    is_bg = green_dom & dark
+    # Densidade local de fundo: uniform_filter faz a média numa janela 35x35, o que
+    # transforma "este píxel é fundo?" em "esta VIZINHANÇA é fundo?". As folhas dão
+    # zonas de baixa densidade de fundo; as riscas finas do verde dão densidade alta.
+    bg_dens = ndimage.uniform_filter(is_bg.astype(np.float32), size=35)
+    fg = bg_dens < 0.35
+    # Morfologia: fechar tapa pequenos buracos internos, abrir remove salpicos
+    # soltos, e fill_holes garante manchas cheias antes de as etiquetar.
+    fg = ndimage.binary_closing(fg, structure=np.ones((9, 9)), iterations=2)
+    fg = ndimage.binary_opening(fg, structure=np.ones((9, 9)), iterations=1)
+    fg = ndimage.binary_fill_holes(fg)
+
+    # Etiqueta as manchas separadas (cada folha é uma "ilha").
+    lbl, n = ndimage.label(fg)
+    if n == 0:
+        return fg
+    sizes = ndimage.sum(np.ones_like(lbl), lbl, range(1, n + 1))
+    total = h * w
+    # Mantém só as manchas com área relevante (>=6% do ecrã): descarta ruído e
+    # aceita várias folhas (algumas imagens antigas têm 2 ou 3 lado a lado).
+    keep = [i + 1 for i, s in enumerate(sizes) if s / total >= 0.06]
+    if not keep:
+        keep = [int(np.argmax(sizes)) + 1]
+    main = np.isin(lbl, keep)
+
+    # Rede de segurança: se a deteção por "não-fundo" falhou (mancha demasiado
+    # pequena), tenta o método clássico de folha branca (alta luminância + baixa
+    # saturação). Cobre casos-limite de digitalizações muito claras.
+    if main.mean() < 0.10:
+        white = ((mn > 200) & (sat < 30)).astype(np.float32)
+        dens = ndimage.uniform_filter(white, size=25)
+        solid = ndimage.binary_fill_holes(dens > 0.6)
+        lbl2, n2 = ndimage.label(solid)
+        if n2 > 0:
+            s2 = ndimage.sum(np.ones_like(lbl2), lbl2, range(1, n2 + 1))
+            keep2 = [i + 1 for i, s in enumerate(s2) if s / total >= 0.06]
+            if keep2:
+                main = np.isin(lbl2, keep2)
+
+    # Converte cada mancha no seu retângulo delimitador cheio: as folhas são
+    # retangulares, e assim elementos internos (logótipos verdes) não abrem buracos.
+    filled = np.zeros_like(main)
+    l3, n3 = ndimage.label(main)
+    for i in range(1, n3 + 1):
+        comp = l3 == i
+        ys, xs = np.where(comp)
+        y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
+        bh, bw = y1 - y0 + 1, x1 - x0 + 1
+        if bh * bw < 0.04 * h * w:      # ignora retângulos minúsculos
+            continue
+        # Se a mancha preenche bem a sua caixa (>55%), é mesmo um retângulo →
+        # preenche a caixa toda. Senão, mantém a forma original (fill_holes).
+        if comp.sum() / (bh * bw) > 0.55:
+            filled[y0:y1 + 1, x0:x1 + 1] = True
+        else:
+            filled |= ndimage.binary_fill_holes(comp)
+    return filled
+
+
+# ===========================================================================
+# 3) Logótipo dourado com gravação (relevo 3D)
+# ===========================================================================
+def _alpha_from(path):
+    """Extrai o canal de opacidade (alfa) do logótipo a partir de um PNG do símbolo.
+
+    O símbolo vem como tinta escura sobre fundo branco. Convertendo a luminância,
+    quanto mais escuro o píxel (tinta), maior o alfa (1 = tinta cheia; 0 = fundo).
+
+    Args:
+        path (str): caminho do PNG do símbolo ou do texto.
+
+    Returns:
+        numpy.ndarray: matriz float (h, w) com valores de alfa em [0,1].
+    """
+    a = np.array(Image.open(path).convert('RGB')).astype(float)
+    lum = a.mean(axis=2)
+    al = np.clip((235 - lum) / 180, 0, 1)   # escuro→1, claro→0
+    al[lum > 226] = 0                        # branco puro = totalmente transparente
+    return ndimage.gaussian_filter(al, 0.4)  # leve suavização anti-serrilhado
+
+
+def _scale_to_h(al, H):
+    """Redimensiona uma matriz de alfa para uma altura-alvo, mantendo o rácio.
+
+    Args:
+        al (numpy.ndarray): matriz de alfa (h, w).
+        H (int): altura desejada em píxeis.
+
+    Returns:
+        numpy.ndarray: alfa redimensionado (H, w') em [0,1].
+    """
+    h, w = al.shape
+    s = H / h
+    im = Image.fromarray((np.clip(al, 0, 1) * 255).astype(np.uint8)).resize(
+        (max(1, int(w * s)), H), Image.LANCZOS)
+    return np.array(im).astype(float) / 255.0
+
+
+def _assemble(sym_path, txt_path, sym_h, gap):
+    """Monta símbolo + texto ("Moimenta da Beira / Município") lado a lado num só alfa.
+
+    O símbolo e o texto vêm de PNGs separados (para poderem ter tamanhos relativos
+    diferentes); aqui alinham-se verticalmente ao centro e juntam-se com um intervalo.
+
+    Args:
+        sym_path (str): PNG do símbolo (monograma).
+        txt_path (str): PNG do texto.
+        sym_h (int): altura do símbolo em píxeis (o texto vai a 62% disto).
+        gap (int): intervalo horizontal entre símbolo e texto.
+
+    Returns:
+        numpy.ndarray: matriz de alfa combinada (H, W) do logótipo completo.
+    """
+    sa = _scale_to_h(_alpha_from(sym_path), sym_h)
+    ta = _scale_to_h(_alpha_from(txt_path), int(sym_h * 0.62))
+    H = max(sa.shape[0], ta.shape[0])
+    W = sa.shape[1] + gap + ta.shape[1]
+    c = np.zeros((H, W), float)
+    # Símbolo à esquerda, centrado na vertical.
+    ys = (H - sa.shape[0]) // 2
+    c[ys:ys + sa.shape[0], 0:sa.shape[1]] = sa
+    # Texto à direita do intervalo, também centrado na vertical.
+    xt = sa.shape[1] + gap; yt = (H - ta.shape[0]) // 2
+    c[yt:yt + ta.shape[0], xt:xt + ta.shape[1]] = ta
+    return c
+
+
+def _engrave(mask):
+    """Dá a um alfa plano o aspeto de metal dourado gravado (relevo 3D).
+
+    Esta é a parte mais "gráfica" do módulo. A técnica é iluminação por normais:
+      1. do alfa cria-se um "mapa de altura" (bevel) — as bordas do traço descem,
+         o interior fica alto, como se o metal fosse esculpido;
+      2. desse mapa calcula-se, em cada píxel, a direção da superfície (a normal);
+      3. ilumina-se a superfície com uma luz direcional fixa (difusa + especular),
+         de modo que as faces viradas à luz brilham e as opostas ficam em sombra —
+         é isso que o olho lê como relevo.
+    Um sulco escuro no contorno reforça a ideia de "cavado" na chapa.
+
+    Args:
+        mask (numpy.ndarray): alfa do logótipo (H, W) em [0,1].
+
+    Returns:
+        tuple[numpy.ndarray, numpy.ndarray]: (RGB float (H,W,3), alfa final (H,W)).
+        O alfa é devolvido porque engrossámos o traço e a máscara mudou.
+    """
+    solid = mask > 0.45
+    # Engrossa ligeiramente o traço: o logótipo original é fino e, reduzido no
+    # ecrã, o relevo perder-se-ia; dar-lhe corpo fá-lo "aguentar" a gravação.
+    solid = ndimage.binary_dilation(solid, iterations=2)
+    mask = np.maximum(mask, solid.astype(float))
+
+    # Mapa de altura via transformada de distância: cada píxel recebe a distância
+    # à borda mais próxima. Limitando a 12 e elevando a 0.65 obtém-se um chanfro
+    # (bevel) curto e de ombro arredondado, não uma cúpula exagerada.
+    dist = ndimage.distance_transform_edt(solid)
+    height = np.power(np.clip(dist / 12.0, 0, 1), 0.65)
+    height = ndimage.gaussian_filter(height, 1.3)   # suaviza o relevo
+
+    # Normais da superfície: o gradiente do mapa de altura dá a inclinação em x e y;
+    # com z fixo obtemos o vetor perpendicular à superfície em cada píxel. É este
+    # vetor que, comparado com a direção da luz, decide o brilho.
+    gy, gx = np.gradient(height)
+    s = 7.0                                   # "força" do relevo (exagera a inclinação)
+    nx, ny = -gx * s, -gy * s
+    nz = np.ones_like(height)
+    nrm = np.sqrt(nx * nx + ny * ny + nz * nz) + 1e-6   # normaliza (evita /0)
+    nx, ny, nz = nx / nrm, ny / nrm, nz / nrm
+
+    # Luz direcional vinda de cima-à-esquerda (coerente com o brilho do fundo).
+    L = np.array([-0.55, -0.62, 0.56]); L /= np.linalg.norm(L)
+    # Componente difusa: quanto a superfície "encara" a luz (produto escalar).
+    diff = np.clip(nx * L[0] + ny * L[1] + nz * L[2], 0, 1)
+    # Componente especular (Blinn-Phong simplificado): brilho concentrado onde a
+    # normal se alinha com o vetor intermédio entre luz e observador (H).
+    V = np.array([0, 0, 1.0]); Hh = (L + V); Hh /= np.linalg.norm(Hh)
+    spec = np.clip(nx * Hh[0] + ny * Hh[1] + nz * Hh[2], 0, 1) ** 20
+
+    # Cor base: interpola do tom em sombra (LO) ao médio (MID) segundo a altura,
+    # aplica a iluminação difusa (com um mínimo ambiente de 0.30 p/ não ficar preto)
+    # e soma o realce especular claro por cima.
+    shade = 0.30 + 0.98 * diff
+    base = (GOLD_LO[None, None, :] * (1 - height[..., None]) +
+            GOLD_MID[None, None, :] * height[..., None])
+    rgb = base * shade[..., None]
+    rgb = rgb + (GOLD_HI - GOLD_MID)[None, None, :] * spec[..., None] * 1.05
+
+    # Sulco no contorno: a orla externa (diferença entre a forma e a sua erosão)
+    # é escurecida para GOLD_DEEP, dando a leitura de "gravado" em vez de "colado".
+    rim = solid.astype(float) - ndimage.binary_erosion(solid, iterations=2).astype(float)
+    rim = ndimage.gaussian_filter(rim, 1.0)
+    rgb = rgb * (1 - rim[..., None] * 0.5) + GOLD_DEEP[None, None, :] * rim[..., None] * 0.5
+
+    return np.clip(rgb, 0, 255), mask
+
+
+def build_logo(sym_path, txt_path, out_h=160, gap_ratio=0.34, ss=4):
+    """Constrói o logótipo dourado gravado como imagem RGBA pronta a colar.
+
+    Renderiza a uma resolução 'ss' vezes maior e reduz no fim (supersampling):
+    é o truque para o relevo e as bordas saírem nítidos em vez de serrilhados,
+    já que os traços são finos.
+
+    Args:
+        sym_path (str): PNG do símbolo (monograma MMB).
+        txt_path (str): PNG do texto "Moimenta da Beira / Município".
+        out_h (int): altura final do logótipo em píxeis.
+        gap_ratio (float): intervalo símbolo–texto, como fração da altura.
+        ss (int): fator de supersampling (4 = renderiza a 4x e reduz).
+
+    Returns:
+        PIL.Image.Image: logótipo em modo RGBA (com transparência), altura out_h.
+    """
+    sym_h_hi = int(out_h * ss)
+    gap_hi = int(sym_h_hi * gap_ratio)
+    mask = _assemble(sym_path, txt_path, sym_h_hi, gap_hi)
+    rgb, mask = _engrave(mask)
+    # Junta cor + alfa num RGBA e reduz para a resolução final (LANCZOS = nítido).
+    rgba = np.dstack([rgb, np.clip(mask, 0, 1) * 255]).astype(np.uint8)
+    im = Image.fromarray(rgba, 'RGBA').resize(
+        (rgba.shape[1] // ss, rgba.shape[0] // ss), Image.LANCZOS)
+    return im
+
+
+# ===========================================================================
+# 4) Composição final
+# ===========================================================================
+def _fit_sheet(page_img, target_w=SHEET_W, target_h=SHEET_H):
+    """Encaixa uma página na caixa-folha uniforme SEM cortar nada.
+
+    Usa a estratégia "fit" (a página cabe inteira), não "cover" (que cortava). O
+    fator de escala é o MENOR entre ajustar-pela-largura e ajustar-pela-altura, o
+    que garante que a imagem toda cabe na caixa; o espaço restante é preenchido a
+    branco e a imagem fica centrada.
+
+    Porquê esta mudança: a versão anterior escalava sempre pela altura e cortava as
+    laterais quando a imagem ficava mais larga que a caixa. Para uma folha A4
+    (vertical) isso era inofensivo, mas para um PRINTSCREEN (horizontal, 16:9) a
+    largura escalada disparava e o corte amputava o texto das margens esquerda e
+    direita. Com "fit", um A4 continua a encaixar praticamente igual, e um
+    printscreen largo aparece como uma faixa centrada com margens brancas em cima e
+    em baixo — mas sem perder um único pixel de conteúdo.
+
+    Args:
+        page_img (PIL.Image.Image): página a encaixar.
+        target_w (int), target_h (int): dimensões da caixa-folha.
+
+    Returns:
+        PIL.Image.Image: página encaixada, tamanho exato (target_w, target_h),
+        com o conteúdo inteiro visível.
+    """
+    w, h = page_img.size
+    # Escala que faz caber pela largura vs. pela altura; usamos a menor para que
+    # NENHUMA dimensão ultrapasse a caixa (logo, nada é cortado).
+    escala = min(target_w / w, target_h / h)
+    nw = max(1, int(round(w * escala)))
+    nh = max(1, int(round(h * escala)))
+    img = page_img.convert("RGB").resize((nw, nh), Image.LANCZOS)
+    # Tela branca do tamanho exato da caixa; a imagem encaixada é centrada nela.
+    canvas = Image.new("RGB", (target_w, target_h), (255, 255, 255))
+    canvas.paste(img, ((target_w - nw) // 2, (target_h - nh) // 2))
+    return canvas
+
+
+def compose_sheets(pages, seed=7, logo_im=None,
+                   logo_width_frac=0.150, logo_margin_frac=0.032):
+    """Compõe 1..3 páginas lado a lado, ao mesmo tamanho, sobre o fundo metálico.
+
+    É a função central do módulo. Gera o fundo, coloca as folhas nas posições
+    uniformes, projeta-lhes uma sombra de duplo nível (para "pairarem") e, se
+    houver espaço verde no canto, aplica o logótipo gravado.
+
+    Args:
+        pages (list[PIL.Image.Image]): 1 a 3 páginas (excedente é ignorado).
+        seed (int): semente do fundo (varia o padrão dourado por ecrã).
+        logo_im (PIL.Image.Image | None): logótipo RGBA já construído, ou None.
+        logo_width_frac (float): largura do logótipo como fração do ecrã.
+        logo_margin_frac (float): margem do logótipo ao canto, fração da largura.
+
+    Returns:
+        PIL.Image.Image: composição final RGB (CANVAS_W × CANVAS_H).
+    """
+    pages = pages[:MAX_POR_ECRA]
+    n = len(pages)
+    bg = metallic_green_bg(CANVAS_W, CANVAS_H, seed=seed).astype(float)
+    xs = sheet_positions(n)
+    y0 = SHEET_TOP
+
+    # Máscara conjunta de todas as folhas: é a partir dela que se calcula a sombra.
+    m = np.zeros((CANVAS_H, CANVAS_W), float)
+    fitted = []
+    for x0, pg in zip(xs, pages):
+        sheet = _fit_sheet(pg)
+        fitted.append((x0, sheet))
+        m[y0:y0 + SHEET_H, x0:x0 + SHEET_W] = 1.0
+
+    # Sombra de duplo nível para dar a ilusão de "flutuar":
+    #  - sombra próxima (sigma 18, deslocada pouco): contacto suave sob a folha;
+    #  - sombra distante (sigma 55, deslocada muito): difusa, indica altura.
+    # Multiplica-se por (1 - m) para a sombra só existir FORA das folhas, e por
+    # 0.62 para não ficar demasiado escura.
+    sh_near = np.roll(np.roll(ndimage.gaussian_filter(m, 18), 14, 0), 10, 1)
+    sh_far = np.roll(np.roll(ndimage.gaussian_filter(m, 55), 60, 0), 42, 1)
+    shadow = np.clip(sh_near * 0.55 + sh_far * 0.45, 0, 1) * (1 - m) * 0.62
+    out = bg * (1 - shadow[..., None])
+
+    # Assenta cada folha por cima da sombra.
+    for x0, sheet in fitted:
+        out[y0:y0 + SHEET_H, x0:x0 + SHEET_W, :] = np.array(sheet).astype(float)
+
+    img = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+    _paste_logo(img, m, logo_im, logo_width_frac, logo_margin_frac)
+    return img
+
+
+def compose_from_image(src_img, seed=7, logo_im=None,
+                       logo_width_frac=0.150, logo_margin_frac=0.032):
+    """Recompõe uma imagem 16:9 JÁ montada (deteta as folhas e troca o fundo).
+
+    Serve para reaproveitar exportações antigas do expositor: extrai as folhas
+    existentes, gera um fundo metálico novo e volta a assentá-las com sombra.
+
+    Args:
+        src_img (PIL.Image.Image): imagem 16:9 com folha(s) embebida(s).
+        seed (int): semente do novo fundo.
+        logo_im (PIL.Image.Image | None): logótipo RGBA ou None.
+        logo_width_frac (float), logo_margin_frac (float): dimensão/margem do logo.
+
+    Returns:
+        PIL.Image.Image: composição refeita com o fundo e o tratamento atuais.
+    """
+    a = np.array(src_img.convert('RGB')).astype(int)
+    H, W = a.shape[:2]
+    bg = metallic_green_bg(W, H, seed=seed)
+    m = extract_sheet_mask(a)
+    out = _place_sheets_from_existing(a, m.astype(float), bg)
+    img = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
+    _paste_logo(img, m, logo_im, logo_width_frac, logo_margin_frac)
+    return img
+
+
+def _place_sheets_from_existing(a, m, bg):
+    """Reassenta folhas já presentes numa imagem sobre um fundo novo, com sombra.
+
+    Args:
+        a (numpy.ndarray): imagem original RGB (int).
+        m (numpy.ndarray): máscara float (h,w) das folhas.
+        bg (numpy.ndarray): fundo novo RGB (uint8).
+
+    Returns:
+        numpy.ndarray: composição float (h,w,3) pronta a converter em imagem.
+    """
+    sh_near = np.roll(np.roll(ndimage.gaussian_filter(m, 18), 14, 0), 10, 1)
+    sh_far = np.roll(np.roll(ndimage.gaussian_filter(m, 55), 60, 0), 42, 1)
+    shadow = np.clip(sh_near * 0.55 + sh_far * 0.45, 0, 1) * (1 - m) * 0.62
+    out = bg.astype(float) * (1 - shadow[..., None])
+    # 'soft' é a máscara ligeiramente desfocada, usada como fator de mistura para
+    # as bordas da folha não ficarem serrilhadas contra o fundo.
+    soft = ndimage.gaussian_filter(m, 0.8)[..., None]
+    out = out * (1 - soft) + a.astype(float) * soft
+    return out
+
+
+def _paste_logo(img, mask, logo_im, width_frac, margin_frac):
+    """Cola o logótipo no canto superior esquerdo — mas só se houver espaço verde.
+
+    Verifica se a faixa onde o logótipo iria assentar é maioritariamente fundo
+    (não uma folha). Se a folha ocupa o canto, o logótipo é omitido para não
+    ficar por cima do conteúdo. Esta decisão é deliberada: mais vale sem logótipo
+    do que um logótipo sobreposto ao texto do edital.
+
+    Args:
+        img (PIL.Image.Image): composição onde colar (alterada no lugar).
+        mask (numpy.ndarray): máscara das folhas (para saber onde há conteúdo).
+        logo_im (PIL.Image.Image | None): logótipo RGBA; se None, não faz nada.
+        width_frac (float): largura do logótipo como fração do ecrã.
+        margin_frac (float): margem ao canto, como fração da largura do ecrã.
+
+    Returns:
+        None. (Modifica 'img' diretamente.)
+    """
+    if logo_im is None:
+        return
+    W, H = img.size
+    LW, LH = logo_im.size
+    tw = int(W * width_frac); th = int(round(LH * tw / LW))   # tamanho-alvo do logo
+    mx = int(W * margin_frac); my = int(W * margin_frac * 0.55)  # posição (x,y)
+
+    # Testa se a faixa do logótipo é fundo verde livre. Recalcula "é fundo?" na
+    # composição final (e não na máscara) porque queremos o verde real por baixo.
+    a = np.array(img).astype(int)
+    r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
+    is_bg = (g >= r) & (g >= b) & (g - np.minimum(r, b) > 6) & (a.max(axis=2) < 175)
+    band = is_bg[my:my + th, mx:mx + tw]
+    if band.size == 0 or band.mean() < 0.85:   # <85% de fundo → canto ocupado
+        return
+    lg = logo_im.resize((tw, th), Image.LANCZOS)
+    img.paste(lg, (mx, my), lg)                 # o 3.º arg (lg) é a máscara alfa
