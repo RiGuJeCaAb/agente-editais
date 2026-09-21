@@ -1,32 +1,42 @@
 #!/usr/bin/env python3
 """
-agente.py — Agente de automação dos editais do expositor da CMMB.
+agente.py — Agente de automação dos editais do expositor municipal.
 
-É o "maestro" do sistema: liga o módulo de documentos (ler/converter) ao módulo
-de tratamento (compor) e produz o que a televisão consome.
+É o "maestro" do sistema: liga o módulo de documentos (ler/converter) ao de
+tratamento (compor), guarda tudo no registo de entrada e serve o painel onde
+as pessoas validam e publicam.
 
-Fluxo de uma execução:
-  1. Lê os documentos NOVOS da pasta de entrada (PDF, imagens, Word) — todas as
-     páginas de cada um.
-  2. Extrai os metadados (assunto, número, data de publicação) de cada documento.
-  3. AGRUPA as folhas por assunto (juntando páginas do mesmo documento E documentos
-     diferentes com o mesmo assunto) e distribui-as por ecrãs de até 3 folhas,
-     todas ao mesmo tamanho — aproveitando o formato 16:9.
-  4. Trata visualmente cada ecrã e grava-o com nome datado.
-  5. Datas de saída de exposição: geridas num ficheiro de texto simples,
-     'retiradas.txt' (o utilizador só escreve a data à frente de cada edital).
-  6. Gera a página da TV ('saida/index.html', ecrã inteiro, 30 s por ecrã) e um
-     ZIP de arquivo, mantendo apenas as 3 cópias ZIP mais recentes.
+Fluxo de um edital, do disco ao expositor:
+  1. O documento aparece na pasta de entrada (PDF, imagem, Word).
+  2. A vigia lê-o, guarda o original no arquivo imutável, propõe assunto,
+     número e data com um grau de confiança, e cria um RASCUNHO.
+  3. Uma pessoa revê no painel, escolhe o tipo de documento, confirma as datas
+     e VALIDA. O sistema propõe o prazo e avisa se ficar aquém do legal.
+  4. Ao PUBLICAR, as imagens 4K são compostas e o edital entra no slides.json
+     que a televisão consulta. É este o instante que a certidão certifica.
+  5. A RETIRADA acontece por data ou à mão; o PNG vai para o arquivo.
 
-Modos de utilização:
-  python agente.py --once          # processa uma vez e termina
-  python agente.py --watch         # fica a vigiar a pasta, em ciclo
-  python agente.py --rebuild-web   # só reconstrói página+ZIP (após editar retiradas)
+Um só caminho, e passa sempre por uma pessoa
+--------------------------------------------
+Até à versão 0.13 havia um segundo caminho, automático: lia a pasta e punha as
+imagens no ecrã sem ninguém ver. Saiu na 0.14, com o `editais.json` e o
+`retiradas.txt` que o serviam.
+
+A razão não é arrumação. Desde a Onda 2 a aplicação emite uma certidão que diz
+QUEM afixou cada edital, e um caminho que publicava sem ninguém não tinha essa
+resposta. Quem tiver dados do modelo antigo não os perde: ver lib/migracao.py,
+que os traz na primeira execução.
+
+Modo de utilização:
+  python agente.py --painel                     # o serviço
+  python agente.py --criar-utilizador NOME      # a primeira conta
+  python agente.py --utilizadores               # quem tem acesso
 
 Ficheiros de estado (na raiz do projeto):
-  - editais.json  : registo de todos os ecrãs já produzidos (metadados).
-  - estado.json   : hashes dos ficheiros já processados (evita reprocessar).
-  - retiradas.txt : datas de saída, editáveis à mão.
+  - registo_entrada.json    : os editais e o seu percurso (gravação atómica).
+  - registo_auditoria.jsonl : trilho de auditoria, apenas-acrescento.
+  - utilizadores.json       : contas do painel (senhas derivadas).
+  - originais/              : arquivo imutável dos documentos, por SHA-256.
 """
 from __future__ import annotations
 
@@ -37,26 +47,28 @@ import json
 import os
 import sys
 import time
-from datetime import date, datetime
+from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.13.0"
+VERSAO = "0.14.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(BASE, "lib"))
+from PIL import Image
+
 import armazenamento as arm  # escrita durável (atómica, com gerações)
 import diario  # registo técnico (níveis, rotação, ficheiro)
 import documentos as doc
+import migracao
 import originais as orig  # arquivo imutável dos documentos
 import painel as painel_mod  # servidor do painel de gestão
 import prazos as pr  # tipos de documento e janelas legais
 import registo as reg_mod  # registo de entrada (fluxo de estados)
 import tratamento as trat
 import utilizadores as utl  # contas, senhas derivadas e sessões
-from PIL import Image
 
 # Registadores, um por subsistema. Os nomes são os prefixos que já se liam nas
 # linhas do agente — [AGENTE], [PAINEL], [TV] — agora com significado para a
@@ -78,9 +90,11 @@ CONFIG = {
     "originais": os.path.join(BASE, "originais"), # arquivo imutável dos documentos
     "fundos":   os.path.join(BASE, "fundos"),    # cache dos fundos metálicos pré-desenhados
     "trabalho": os.path.join(BASE, "trabalho"),
-    "estado":   os.path.join(BASE, "estado.json"),
-    "registo":  os.path.join(BASE, "editais.json"),
-    "retiradas": os.path.join(BASE, "retiradas.txt"),
+    # Ficheiros do modelo antigo. Já não são escritos — só lidos uma vez, pela
+    # migração, e depois renomeados. Ver lib/migracao.py.
+    "estado_antigo":    os.path.join(BASE, "estado.json"),
+    "registo_antigo":   os.path.join(BASE, "editais.json"),
+    "retiradas_antigo": os.path.join(BASE, "retiradas.txt"),
     "registo_entrada": os.path.join(BASE, "registo_entrada.json"),  # fluxo de estados
     "utilizadores": os.path.join(BASE, "utilizadores.json"),        # contas do painel
     "diario":   os.path.join(BASE, "diario", "agente.log"),         # registo técnico
@@ -167,27 +181,6 @@ def load_config():
     _agente.debug(f"agente de editais {VERSAO} | registo em {cfg['diario']}")
     return cfg
 
-def _load_json(path, default):
-    """Lê um JSON, devolvendo um valor por omissão se o ficheiro não existir.
-
-    Args:
-        path (str): caminho do ficheiro.
-        default: valor a devolver quando o ficheiro está ausente.
-
-    Returns:
-        O conteúdo do JSON, ou 'default'.
-    """
-    return arm.ler_json(path, default)
-
-def _save_json(path, data):
-    """Grava 'data' como JSON de forma atómica, com gerações de recurso.
-
-    Args:
-        path (str): destino.
-        data: estrutura serializável em JSON.
-    """
-    arm.gravar_json(path, data)
-
 def file_hash(path):
     """Calcula o SHA-1 do conteúdo de um ficheiro (lido em blocos de 64 KB).
 
@@ -206,152 +199,6 @@ def file_hash(path):
             h.update(chunk)
     return h.hexdigest()
 
-
-# ===========================================================================
-# Datas de saída de exposição — ficheiro de texto simples 'retiradas.txt'
-# Optou-se por texto (e não JSON) para o funcionário poder editar sem risco de
-# partir sintaxe: basta escrever a data à frente de cada edital.
-# ===========================================================================
-def garantir_retiradas(cfg, registo):
-    """Assegura que o retiradas.txt existe e tem uma linha por edital conhecido.
-
-    Cria o ficheiro com o cabeçalho de ajuda se faltar, e acrescenta uma linha
-    (chave + "= ") por cada assunto/número ainda não listado — assim o utilizador
-    encontra sempre lá o edital novo, pronto a receber a data.
-
-    Args:
-        cfg (dict): configuração (para o caminho do ficheiro).
-        registo (dict): registo de editais já produzidos.
-    """
-    path = cfg["retiradas"]
-    existentes = _ler_retiradas(path)   # o que já lá está (para não duplicar)
-    if not os.path.exists(path):
-        with open(path, "w", encoding="utf-8") as f:
-            f.write(_CABECALHO_RETIRADAS)
-    # Percorre os editais e junta os que ainda não têm entrada. Usa-se o número
-    # (ou o início do assunto) como chave, e um set 'vistos' evita repetir a mesma
-    # chave quando há vários ecrãs do mesmo edital (partes p1de2, p2de2...).
-    vistos = set()
-    novas = []
-    for e in registo["editais"]:
-        chave = e.get("numero") or (e.get("assunto", "")[:50])
-        nk = _norm(chave)
-        if not nk or nk in vistos:
-            continue
-        vistos.add(nk)
-        if nk in existentes:
-            continue
-        novas.append((chave, e.get("assunto", ""), e.get("data_publicacao")))
-    if novas:
-        with open(path, "a", encoding="utf-8") as f:
-            for rotulo, assunto, pub in novas:
-                # Comentário com o assunto + linha editável "chave = " (data em branco).
-                f.write(f"\n# {assunto}  (publicado {pub or '?'})\n{rotulo} = \n")
-
-def _ler_retiradas(path):
-    """Lê o retiradas.txt e devolve um mapa {chave_normalizada: data}.
-
-    Tolerante por design: ignora linhas em branco e comentários (#), aceita '='
-    ou ';' como separador, e ignora datas mal escritas (não rebenta).
-
-    Args:
-        path (str): caminho do retiradas.txt.
-
-    Returns:
-        dict[str, datetime.date]: datas de saída por chave normalizada.
-    """
-    out = {}
-    if not os.path.exists(path):
-        return out
-    with open(path, encoding="utf-8") as f:
-        for raw in f:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            sep = "=" if "=" in line else (";" if ";" in line else None)
-            if not sep:
-                continue
-            chave, _, valor = line.partition(sep)
-            valor = valor.strip()
-            if not valor:            # data em branco = fica no ecrã indefinidamente
-                continue
-            d = _parse_data(valor)
-            if d:
-                out[_norm(chave)] = d
-    return out
-
-def _parse_data(s):
-    """Interpreta uma data em ISO, DD/MM/AAAA ou DD-MM-AAAA (ou None).
-
-    Args:
-        s (str): texto da data.
-
-    Returns:
-        datetime.date | None
-    """
-    for fmt in ("%Y-%m-%d", "%d/%m/%Y", "%d-%m-%Y"):
-        try:
-            return datetime.strptime(s.strip(), fmt).date()
-        except ValueError:
-            pass
-    return None
-
-def _norm(s):
-    """Normaliza uma chave para comparação: minúsculas, só letras e dígitos.
-
-    Torna a correspondência robusta a acentos, espaços e pontuação, para que
-    "2026-0017" e "2026 0017" ou variações do assunto casem na mesma.
-
-    Args:
-        s (str): texto a normalizar.
-
-    Returns:
-        str: versão normalizada (alfanumérica, minúscula).
-    """
-    return "".join(ch for ch in (s or "").lower() if ch.isalnum())
-
-def retirada_de(e, mapa):
-    """Descobre a data de saída de um edital, procurando por número e por assunto.
-
-    Tenta primeiro a correspondência exata pelo número (mais fiável); se falhar,
-    procura por inclusão parcial do assunto (para quem preferiu escrever texto
-    em vez do número na chave).
-
-    Args:
-        e (dict): entrada de edital do registo.
-        mapa (dict): mapa {chave: data} vindo de _ler_retiradas.
-
-    Returns:
-        datetime.date | None: a data de saída, se encontrada.
-    """
-    num = _norm(e.get("numero", ""))
-    if num and num in mapa:
-        return mapa[num]
-    asn = _norm(e.get("assunto", ""))[:40]
-    for chave, d in mapa.items():
-        if chave and (chave in asn or asn in chave):
-            return d
-    return None
-
-
-# ===========================================================================
-# Numeração e nomes de ficheiro
-# ===========================================================================
-def proximo_indice(registo):
-    """Devolve o próximo índice sequencial global de ecrã.
-
-    O índice é contínuo entre execuções (baseia-se no máximo já registado), para
-    a numeração nunca recuar nem repetir.
-
-    Args:
-        registo (dict): registo de editais.
-
-    Returns:
-        int: próximo índice (>= 1).
-    """
-    if not registo["editais"]:
-        return 1
-    return max(e["indice"] for e in registo["editais"]) + 1
 
 def nome_saida(indice, slug, parte=None, total=None):
     """Constrói o nome do PNG de saída, com grupo data/hora à cabeça.
@@ -373,75 +220,6 @@ def nome_saida(indice, slug, parte=None, total=None):
     sufixo = f"_p{parte}de{total}" if (parte and total and total > 1) else ""
     return f"{ts}_{indice:02d}_{slug}{sufixo}_16x9_3d_CLD.png"
 
-def ativos_hoje(cfg, registo):
-    """Devolve os ecrãs que devem estar visíveis hoje (retirada ainda não passou).
-
-    Um ecrã é escondido quando a data de saída do seu edital já ficou para trás.
-    Não é apagado do registo — apenas não entra na página nem no ZIP.
-
-    Args:
-        cfg (dict): configuração (para ler o retiradas.txt).
-        registo (dict): registo de editais.
-
-    Returns:
-        list[dict]: ecrãs ativos, ordenados pelo índice.
-    """
-    mapa = _ler_retiradas(cfg["retiradas"])
-    hoje = date.today()
-    ativos = [e for e in registo["editais"]
-              if not (retirada_de(e, mapa) and retirada_de(e, mapa) < hoje)]
-    ativos.sort(key=lambda e: e["indice"])
-    return ativos
-
-def gerar_pagina_web(cfg, registo):
-    """Escreve a página da TV (saida/index.html) com os ecrãs ativos embebidos.
-
-    Preenche o template HTML com a lista de slides (imagem + assunto + data de
-    publicação) e o tempo por ecrã. O rodapé mostra tema à esquerda e data à
-    direita — SEM número de ordem, por opção.
-
-    Args:
-        cfg (dict): configuração.
-        registo (dict): registo de editais.
-
-    Returns:
-        tuple[str, int]: (caminho do index.html, nº de ecrãs ativos).
-    """
-    ativos = ativos_hoje(cfg, registo)
-    slides = [{"src": e["ficheiro_png"], "assunto": e["assunto"],
-               "pub": e["data_publicacao"] or ""} for e in ativos]
-    # Nova arquitetura: escreve o slides.json (fonte viva que a TV consulta em
-    # ciclo) e o index.html (sem slides embebidos). Reutiliza a mesma função do
-    # fluxo do painel, para os dois modos gerarem exatamente a mesma coisa.
-    _escrever_pagina_tv(cfg, slides)
-    out = os.path.join(cfg["saida"], "index.html")
-    return out, len(ativos)
-
-def gerar_zip(cfg, registo):
-    """Cria um ZIP de arquivo com os PNG ativos + o registo, e roda os antigos.
-
-    O ZIP é conveniência de arquivo/partilha — a TV não precisa dele (usa a
-    página). Inclui o editais.json para o arquivo ser auto-descritivo.
-
-    Args:
-        cfg (dict): configuração.
-        registo (dict): registo de editais.
-
-    Returns:
-        str: caminho do ZIP criado.
-    """
-    import zipfile
-    ts = datetime.now().strftime("%Y%m%d%H%M")
-    zpath = os.path.join(cfg["saida"], f"{ts}_editais_expositor_CLD.zip")
-    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
-        for e in ativos_hoje(cfg, registo):
-            p = os.path.join(cfg["saida"], e["ficheiro_png"])
-            if os.path.exists(p):
-                z.write(p, e["ficheiro_png"])
-        z.writestr("editais.json", json.dumps(registo, ensure_ascii=False, indent=2))
-    _rodar_zips(cfg)   # limpa cópias antigas logo a seguir a criar a nova
-    return zpath
-
 def _rodar_zips(cfg):
     """Mantém só as N cópias ZIP mais recentes na saída, apagando as restantes.
 
@@ -460,129 +238,6 @@ def _rodar_zips(cfg):
             _agente.info(f"LIMP zip antigo removido: {os.path.basename(velho)}")
         except OSError:
             pass
-
-def varrer(cfg, registo, estado, logo_im):
-    """Processa os documentos novos: lê, agrupa por assunto e compõe os ecrãs.
-
-    É aqui que vive a regra de negócio central. O processamento é feito em quatro
-    fases deliberadas, e NÃO documento-a-documento, porque documentos diferentes
-    podem partilhar assunto e devem juntar-se no mesmo ecrã:
-
-      1. Ler todas as páginas dos ficheiros ainda não processados (por hash).
-      2. Agrupar essas páginas por assunto/número, preservando a ordem de chegada.
-      3. Para cada grupo, partir em blocos de até 3 folhas e compor um ecrã por bloco.
-      4. Marcar os ficheiros como processados (para não repetir na próxima passagem).
-
-    Args:
-        cfg (dict): configuração.
-        registo (dict): registo de editais (é ATUALIZADO com os novos ecrãs).
-        estado (dict): estado de processamento (é ATUALIZADO com os hashes novos).
-        logo_im (PIL.Image.Image | None): logótipo a aplicar, ou None.
-
-    Returns:
-        int: número de GRUPOS (assuntos) novos processados nesta passagem.
-    """
-    # ---- Fase 1: recolher as páginas novas, na ordem alfabética dos ficheiros ----
-    # 'pendentes' guarda cada página como um tuplo com tudo o que é preciso depois:
-    # a chave de agrupamento, os metadados, a imagem, o hash e o nome de origem.
-    pendentes = []
-    novos_hashes = {}
-    for nome in sorted(os.listdir(cfg["entrada"])):
-        path = os.path.join(cfg["entrada"], nome)
-        if not os.path.isfile(path):
-            continue
-        if os.path.splitext(nome)[1].lower() not in doc.SUPPORTED:
-            continue
-        h = file_hash(path)
-        if h in estado["processados"]:   # já visto antes → ignora
-            continue
-        try:
-            pages, text = doc.to_pages_and_text(path, cfg["trabalho"])
-            meta = doc.extract_metadata(text, fallback_name=nome)
-            # A chave de agrupamento é o número do edital (preferido, mais fiável)
-            # ou o assunto; normalizada para casar apesar de acentos/espaços.
-            chave = _norm(meta.get("numero") or meta.get("assunto") or nome)
-            for pg in pages:
-                pendentes.append((chave, meta, pg, h, nome))
-            novos_hashes.setdefault(h, {"ficheiro": nome, "paginas": len(pages),
-                                        "em": datetime.now().isoformat(timespec="seconds"),
-                                        "ecras": []})
-            _agente.info(f"LER {nome}: {len(pages)} pág | assunto: {meta['assunto'] or '(n/d)'}")
-        except Exception as ex:
-            # Um documento problemático não deve derrubar o lote inteiro.
-            _agente.error(f"{nome}: {ex}")
-
-    if not pendentes:
-        return 0
-
-    # ---- Fase 2: agrupar por assunto, mantendo a ordem de chegada ----
-    # 'ordem' preserva a sequência em que os assuntos apareceram (dict mantém
-    # inserção, mas ser explícito deixa a intenção clara e é robusto).
-    ordem = []
-    grupos = {}
-    for chave, meta, pg, h, nome in pendentes:
-        if chave not in grupos:
-            grupos[chave] = {"meta": meta, "itens": []}
-            ordem.append(chave)
-        grupos[chave]["itens"].append((pg, h, nome))
-
-    # ---- Fase 3: compor ecrãs de até 3 folhas por grupo ----
-    novos = 0
-    for chave in ordem:
-        g = grupos[chave]
-        meta = g["meta"]
-        itens = g["itens"]
-        slug = doc.slugify(meta["assunto"] or doc._humanize(itens[0][2]))
-        # Os itens são tuplos (página, hash, nome); agrupa-se pelas páginas e
-        # reconstroem-se os tuplos, para o caminho antigo seguir a mesma regra
-        # de orientação do caminho do painel.
-        _por_pagina = {id(it[0]): it for it in itens}
-        blocos = [[_por_pagina[id(pg)] for pg in bloco]
-                  for bloco in trat.agrupar_ecras([it[0] for it in itens])]
-        total = len(blocos)
-        for bi, bloco in enumerate(blocos, start=1):
-            indice = proximo_indice(registo)
-            seed = 3 + (indice - 1) * 7              # padrão de fundo distinto por ecrã
-            comp = trat.compose_sheets([it[0] for it in bloco], seed=seed, logo_im=logo_im,
-                                       cache_fundos=cfg["fundos"])
-            out_name = nome_saida(indice, slug, parte=bi, total=total)
-            comp.save(os.path.join(cfg["saida"], out_name), "PNG")
-            ent = {"indice": indice, "ficheiro_origem": bloco[0][2],
-                   "ficheiro_png": out_name, "assunto": meta["assunto"],
-                   "numero": meta["numero"], "entidade": meta["entidade"],
-                   "data_publicacao": meta["data_publicacao"],
-                   "parte": bi, "total_partes": total, "folhas_neste_ecra": len(bloco),
-                   "processado_em": datetime.now().isoformat(timespec="seconds")}
-            registo["editais"].append(ent)
-            # Regista, em cada ficheiro de origem, que ecrãs gerou (rastreabilidade).
-            for (_pg, h, _nome) in bloco:
-                if h in novos_hashes:
-                    novos_hashes[h]["ecras"].append(out_name)
-        _agente.info(f"OK  assunto '{meta['assunto'] or slug}': "
-              f"{len(itens)} folha(s) -> {total} ecr\u00e3(s)")
-        novos += 1
-
-    # ---- Fase 4: marcar ficheiros como processados ----
-    for h, info in novos_hashes.items():
-        estado["processados"][h] = info
-    return novos
-
-def reconstruir_saidas(cfg, registo):
-    """Regenera tudo o que a TV consome: retiradas.txt, index.html e ZIP.
-
-    Chamada no fim de cada ciclo (e pelo modo --rebuild-web). Não processa
-    documentos novos; apenas reflete o estado atual do registo nas saídas.
-
-    Args:
-        cfg (dict): configuração.
-        registo (dict): registo de editais.
-    """
-    garantir_retiradas(cfg, registo)
-    web, n = gerar_pagina_web(cfg, registo)
-    zp = gerar_zip(cfg, registo)
-    _agente.info(f"WEB {web}  ({n} ecr\u00e3(s) ativos)")
-    _agente.info(f"ZIP {zp}")
-
 
 # ===========================================================================
 # FLUXO COM REGISTO DE ENTRADA (validação humana antes de publicar)
@@ -877,389 +532,18 @@ def _compor_edital(cfg, r, logo_im, reg=None):
     return nomes
 
 
-def _escrever_pagina_tv(cfg, slides):
-    """Escreve o index.html e o slides.json da TV.
-
-    Mudança de arquitetura face à versão anterior: os slides deixam de ser
-    embebidos no HTML. Passam a viver num ficheiro à parte, 'slides.json', que a
-    página busca periodicamente (polling). Assim, editais novos entram no carrossel
-    SEM recarregar a página nem interromper a rotação — o HTML é escrito uma vez e
-    só o JSON muda. O 'v' (versão) é um carimbo temporal que a página usa para
-    detetar se houve alteração sem comparar a lista toda.
-
-    Args:
-        cfg (dict): configuração.
-        slides (list[dict]): itens {src, assunto, pub}.
-    """
-    # slides.json — a fonte viva que a TV consulta em ciclo.
-    payload = {
-        "v": datetime.now().isoformat(timespec="seconds"),  # versão p/ deteção de mudança
-        "gerado_em": datetime.now().isoformat(timespec="seconds"),  # frescura (ver TV)
-        "spe": int(cfg["segundos_por_ecra"]),
-        "titulo": cfg["titulo_tv"],
-        "slides": slides,
-    }
-    # Escrita atómica, e não `open(..., "w")`: a TV busca este ficheiro de 15 em
-    # 15 segundos e, com a escrita destrutiva, havia uma janela em que apanhava
-    # JSON truncado. O fetch falhava, a página mostrava "sem ligação" e o operador
-    # via um erro que não existia. Sem gerações — é um ficheiro derivado, que se
-    # regenera sozinho no ciclo seguinte.
-    arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0)
-
-    # index.html — escrito uma vez; já não leva os slides lá dentro. Só precisa de
-    # saber o título inicial e o intervalo por defeito (o resto vem do JSON).
-    html = (_HTML_TEMPLATE.replace("__TITULO__", cfg["titulo_tv"])
-            .replace("__SPE__", str(int(cfg["segundos_por_ecra"]))))
-    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"), html)
-
-
-def _escrever_texto_atomico(caminho, texto):
-    """Escreve um ficheiro de texto de forma atómica (temporário + troca).
-
-    O index.html é reescrito a cada republicação enquanto a TV o pode estar a
-    carregar. Vale a mesma regra do slides.json: ou tem a versão anterior inteira,
-    ou a nova inteira.
-    """
-    import tempfile
-    pasta = os.path.dirname(os.path.abspath(caminho))
-    os.makedirs(pasta, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(dir=pasta, suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            f.write(texto)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, caminho)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-
-
-def _escrever_zip_publicados(cfg, reg, publicados):
-    """Cria o ZIP de arquivo com os PNG publicados + o registo, e roda os antigos.
-
-    Args:
-        cfg (dict): configuração.
-        reg (RegistoEntrada): registo de entrada.
-        publicados (list[dict]): registos publicados.
-    """
-    import zipfile
-    ts = datetime.now().strftime("%Y%m%d%H%M")
-    zpath = os.path.join(cfg["saida"], f"{ts}_editais_expositor_CLD.zip")
-    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
-        for r in publicados:
-            for png in r.get("ficheiros_png", []):
-                p = os.path.join(cfg["saida"], png)
-                if os.path.exists(p):
-                    z.write(p, png)
-        z.writestr("registo_entrada.json",
-                   json.dumps(reg._dados, ensure_ascii=False, indent=2))
-    _rodar_zips(cfg)
-
-
-def iniciar_painel(cfg):
-    """Arranca o painel de gestão (servidor web) e o ciclo de leitura em fundo.
-
-    Junta as duas metades do modelo novo: uma thread vigia a pasta de entrada e
-    cria rascunhos; o servidor do painel serve a interface e a API de validação.
-    A publicação (a partir do painel) regenera a página da TV via callback.
-
-    Args:
-        cfg (dict): configuração.
-    """
-    reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
-    contas = utl.Utilizadores(cfg["utilizadores"])
-    logo_im = carregar_logo(cfg)
-    estado_do_agente = {"arranque": datetime.now().isoformat(timespec="seconds"),
-                        "ultima_varredura": None, "ultima_publicacao": None,
-                        "ecras_no_ar": 0}
-
-    # Callback que o painel invoca após publicar/retirar: recompõe a TV.
-    def republicar():
-        n = publicar_registos(cfg, reg, logo_im)
-        estado_do_agente["ultima_publicacao"] = datetime.now().isoformat(timespec="seconds")
-        estado_do_agente["ecras_no_ar"] = n
-        _tv.info(f"atualizada: {n} ecr\u00e3(s) no ar")
-
-    # Thread de fundo: lê documentos novos e cria rascunhos periodicamente.
-    def vigiar():
-        while True:
-            try:
-                n = varrer_para_registo(cfg, reg, logo_im)
-                estado_do_agente["ultima_varredura"] = datetime.now().isoformat(timespec="seconds")
-                if n:
-                    _agente.info(f"ENTRADA {n} novo(s) documento(s) em rascunho")
-                # Aplica retiradas automáticas mesmo sem novos documentos.
-                if reg.aplicar_retiradas_automaticas():
-                    republicar()
-                # Deita fora os testemunhos de sessões já sem validade, para a
-                # memória não crescer com cada entrada que nunca é fechada.
-                contas.limpar_sessoes_expiradas()
-            except Exception as ex:
-                print(f"[ERRO vigia] {ex}")
-            time.sleep(int(cfg["intervalo_watch"]))
-
-    def aquecer_fundos():
-        """Desenha as variantes de fundo em falta, antes de alguém precisar delas.
-
-        Cada variante custa ~7 s a desenhar e depois vive em disco para sempre.
-        Feito aqui, em fundo e a baixa prioridade, a primeira publicação do dia
-        já as encontra prontas em vez de as pagar uma a uma no pior momento —
-        que é justamente quando alguém está à espera de ver o edital no ecrã.
-        """
-        for i in range(trat.VARIANTES_DE_FUNDO):
-            try:
-                trat.obter_fundo(seed=i, cache=cfg["fundos"])
-            except Exception as ex:
-                _fundos.info(f"falha a preparar a variante {i}: {ex}")
-                return
-        _fundos.info(f"{trat.VARIANTES_DE_FUNDO} variantes prontas em {cfg['fundos']}")
-
-    import threading
-    threading.Thread(target=aquecer_fundos, daemon=True).start()
-    threading.Thread(target=vigiar, daemon=True).start()
-
-    # Primeira publicação da TV em FUNDO: compor imagens 4K é pesado e não deve
-    # atrasar o arranque do painel. O servidor fica disponível de imediato; a TV
-    # atualiza-se assim que a composição terminar.
-    threading.Thread(target=republicar, daemon=True).start()
-
-    # Servidor do painel (bloqueante) — arranca já, sem esperar pela composição.
-    html_path = os.path.join(BASE, "lib", "painel.html")
-    servidor = painel_mod.PainelServer(
-        reg, cfg, republicar_callback=republicar, painel_html_path=html_path,
-        contas=contas,
-        saude_callback=lambda: estado_de_saude(cfg, reg, estado_do_agente))
-    servidor.iniciar(host=cfg["painel_host"], porta=int(cfg["painel_porta"]),
-                     bloquear=True)
-
-
-def estado_de_saude(cfg, reg, estado):
-    """Reúne o estado do agente para a rota /saude.
-
-    Serve para um supervisor de serviço (systemd, Nagios, Zabbix, um relógio de
-    parede) saber se isto está vivo SEM ter de entrar no painel — daí ser a
-    única rota que dispensa sessão. Por essa mesma razão só devolve números e
-    instantes: contagens por estado, sim; assuntos de editais por validar, não.
-    Um endereço sem autenticação não pode revelar o que ainda não é público.
-
-    Args:
-        cfg (dict): configuração.
-        reg (RegistoEntrada): registo de entrada.
-        estado (dict): marcadores vivos que o ciclo do painel vai atualizando.
-
-    Returns:
-        dict: estado, pronto a servir em JSON.
-    """
-    import shutil
-    contagens = {e: len(reg.por_estado(e)) for e in reg_mod.ESTADOS}
-    try:
-        uso = shutil.disk_usage(cfg["saida"])
-        disco = {"livre_mb": round(uso.free / 1e6), "total_mb": round(uso.total / 1e6)}
-    except OSError:
-        disco = None
-
-    # 'ok' é o que um supervisor lê sem interpretar o resto: a vigia tem de ter
-    # corrido há menos de três intervalos (dá folga a uma passagem demorada sem
-    # deixar passar um ciclo morto) e tem de haver espaço para escrever as
-    # imagens 4K, que é o que primeiro falha num disco cheio.
-    limite = int(cfg["intervalo_watch"]) * 3
-    fresco = True
-    if estado.get("ultima_varredura"):
-        idade = (datetime.now() - datetime.fromisoformat(estado["ultima_varredura"])).total_seconds()
-        fresco = idade < limite
-    espaco = disco is None or disco["livre_mb"] > 500
-
-    return {
-        "ok": bool(fresco and espaco),
-        "versao": VERSAO,
-        "arranque": estado.get("arranque"),
-        "ultima_varredura": estado.get("ultima_varredura"),
-        "ultima_publicacao": estado.get("ultima_publicacao"),
-        "ecras_no_ar": estado.get("ecras_no_ar", 0),
-        "editais": contagens,
-        "disco": disco,
-        "agora": datetime.now().isoformat(timespec="seconds"),
-    }
-
-
-def comando_criar_utilizador(cfg, nome, administrador=False):
-    """Cria uma conta do painel a partir da linha de comandos.
-
-    É por aqui que nasce a primeira conta, quando ainda não há painel onde
-    entrar. A senha é pedida sem eco (getpass) e nunca passa por argumento da
-    linha de comandos — um argumento fica no histórico da consola e na lista de
-    processos, à vista de quem tiver acesso à máquina.
-
-    Args:
-        cfg (dict): configuração.
-        nome (str): nome de utilizador a criar.
-        administrador (bool): se True, a conta pode gerir contas.
-
-    Returns:
-        int: código de saída (0 = criada).
-    """
-    import getpass
-    contas = utl.Utilizadores(cfg["utilizadores"])
-    papel = utl.ADMINISTRADOR if administrador else utl.OPERADOR
-    print(f"A criar a conta '{nome}' com o papel de {utl.PAPEL_LABEL[papel].lower()}.")
-    nome_completo = input("Nome completo (como aparece na certidão): ").strip()
-    senha = getpass.getpass("Senha (mínimo 10 caracteres): ")
-    if senha != getpass.getpass("Repita a senha: "):
-        _agente.error("As senhas não coincidem. Nada foi criado.")
-        return 1
-    try:
-        conta = contas.criar(nome, senha, nome_completo=nome_completo, papel=papel,
-                             por="linha de comandos")
-    except utl.ErroDeUtilizador as e:
-        _agente.error(f"{e}")
-        return 1
-    print(f"Conta '{conta['nome']}' criada. Já pode entrar no painel.")
-    return 0
-
-
-def comando_listar_utilizadores(cfg):
-    """Mostra as contas do painel, para se saber quem tem acesso."""
-    contas = utl.Utilizadores(cfg["utilizadores"])
-    lista = contas.listar()
-    if not lista:
-        print("Ainda não há contas. Crie a primeira com:")
-        print("  python agente.py --criar-utilizador NOME --administrador")
-        return 0
-    print(f"{'utilizador':<18}{'nome completo':<26}{'papel':<16}{'estado':<10}última entrada")
-    print("-" * 92)
-    for c in lista:
-        print(f"{c['nome']:<18}{c['nome_completo'][:25]:<26}"
-              f"{utl.PAPEL_LABEL[c['papel']]:<16}"
-              f"{'activa' if c['activo'] else 'desactivada':<10}"
-              f"{c['ultima_entrada'] or 'nunca'}")
-    return 0
-
-
-def carregar_logo(cfg):
-    """Constrói o logótipo dourado gravado, se os ficheiros do símbolo existirem.
-
-    Se faltarem os PNG do símbolo/texto, o agente continua a funcionar — apenas
-    produz as composições sem logótipo (com aviso), em vez de falhar.
-
-    Args:
-        cfg (dict): configuração (caminhos logo_sym e logo_txt).
-
-    Returns:
-        PIL.Image.Image | None: logótipo pronto, ou None se indisponível.
-    """
-    if os.path.exists(cfg["logo_sym"]) and os.path.exists(cfg["logo_txt"]):
-        return trat.build_logo(cfg["logo_sym"], cfg["logo_txt"], out_h=160)
-    _agente.warning("log\u00f3tipo n\u00e3o encontrado em assets/ \u2014 sa\u00edda sem logo.")
-    return None
-
-def main():
-    """Ponto de entrada da linha de comandos: interpreta o modo e corre o ciclo.
-
-    Modos: --once (uma passagem), --watch (ciclo contínuo), --rebuild-web (só
-    regenera saídas). O ciclo interno lê os documentos novos, grava o estado
-    apenas se houve novidades, e regenera sempre a página/ZIP no fim.
-    """
-    ap = argparse.ArgumentParser(description="Agente de editais CMMB")
-    ap.add_argument("--once", action="store_true", help="processa uma vez e termina")
-    ap.add_argument("--watch", action="store_true", help="vigia a pasta em contínuo")
-    ap.add_argument("--rebuild-web", action="store_true",
-                    help="só reconstrói página+ZIP (após editar retiradas.txt)")
-    ap.add_argument("--painel", action="store_true",
-                    help="arranca o painel de gestão (validação humana no browser)")
-    ap.add_argument("--criar-utilizador", metavar="NOME",
-                    help="cria uma conta de acesso ao painel (pede a senha sem eco)")
-    ap.add_argument("--administrador", action="store_true",
-                    help="com --criar-utilizador: dá-lhe também a gestão de contas")
-    ap.add_argument("--utilizadores", action="store_true",
-                    help="lista as contas de acesso ao painel")
-    ap.add_argument("--versao", action="version", version=f"agente de editais {VERSAO}")
-    args = ap.parse_args()
-
-    cfg = load_config()
-
-    # Gestão de contas: não arranca serviço nenhum, faz o que lhe pedem e sai.
-    if args.criar_utilizador:
-        return comando_criar_utilizador(cfg, args.criar_utilizador, args.administrador)
-    if args.utilizadores:
-        return comando_listar_utilizadores(cfg)
-
-    # Modo PAINEL: fluxo com validação humana. Os documentos entram como rascunho
-    # e só vão ao ecrã depois de validados/publicados no browser. É o modo
-    # recomendado para uso corrente; corre até Ctrl+C.
-    if args.painel:
-        try:
-            iniciar_painel(cfg)
-        except RuntimeError as e:
-            # Erro esperado e acionável (tipicamente: ainda não há contas). A
-            # mensagem da exceção já diz o que fazer, e é mostrada tal e qual em
-            # vez de um traceback que assusta sem informar.
-            _painel.error(str(e))
-            return 1
-        return
-
-    # Carrega estado persistente; na primeira execução, arranca de estruturas vazias.
-    registo = _load_json(cfg["registo"], {"editais": []})
-    estado = _load_json(cfg["estado"], {"processados": {}})
-
-    # Atalho: só reconstruir as saídas (típico depois de editar datas de saída).
-    if args.rebuild_web:
-        reconstruir_saidas(cfg, registo)
-        return
-
-    logo_im = carregar_logo(cfg)
-
-    def ciclo():
-        """Uma passagem completa: processar novos + persistir + regenerar saídas."""
-        n = varrer(cfg, registo, estado, logo_im)
-        if n:  # só grava se houve mudanças, para não reescrever ficheiros à toa
-            _save_json(cfg["registo"], registo)
-            _save_json(cfg["estado"], estado)
-        reconstruir_saidas(cfg, registo)
-        return n
-
-    if args.watch:
-        # Modo serviço: repete o ciclo com uma pausa entre passagens.
-        _agente.info(f"WATCH a vigiar {cfg['entrada']} (Ctrl+C para parar)")
-        try:
-            while True:
-                ciclo()
-                time.sleep(int(cfg["intervalo_watch"]))
-        except KeyboardInterrupt:
-            print("\n[FIM] vigil\u00e2ncia terminada.")
-    else:
-        # --once (predefinição): uma passagem e sai.
-        ciclo()
-
-_CABECALHO_RETIRADAS = """# ---------------------------------------------------------------
-# DATAS DE SAÍDA DE EXPOSIÇÃO
-# ---------------------------------------------------------------
-# Escreva, à frente de cada edital, a data em que ele deve SAIR do ecrã.
-# Formato: AAAA-MM-DD  (ex.: 2026-07-29)  ou  DD/MM/AAAA
-# Deixe em branco para ficar no ecrã indefinidamente.
-# Linhas começadas por # são ignoradas.
-# O agente acrescenta aqui, automaticamente, uma linha por edital novo.
-# ---------------------------------------------------------------
-"""
-
 # ===========================================================================
 # Template da página da TV (expositor).
 #
-# Arquitetura (mudou face à versão anterior):
-#   - Os slides NÃO estão embebidos no HTML. A página busca 'slides.json' em ciclo
-#     (polling) e atualiza o carrossel AO VIVO — editais novos entram sem recarregar
-#     a página e sem cortar a rotação a decorrer. Só o marcador __SPE__ (intervalo
-#     por defeito) e __TITULO__ são injetados; tudo o resto vem do JSON.
-#   - Carrossel verdadeiramente infinito: roda para sempre até ordem em contrário.
-#     Já NÃO há location.reload() (era ele que interrompia o ciclo).
-#   - Fundo com "veias" douradas em movimento ondular, desenhadas num <canvas> por
-#     baixo dos editais (decisão de DESIGN — não é o que impede o screensaver).
-#   - Anti-screensaver do webOS: tentativa via API Luna (WebOSServiceBridge). Fala
-#     com o gestor de energia da TV a dizer "não durmas". PODE não estar acessível
-#     a partir do browser — só se confirma na TV real; ver comentário no código.
+# Arquitetura:
+#   - Os slides NÃO estão embebidos no HTML. A página busca 'slides.json' em
+#     ciclo e atualiza o carrossel AO VIVO — editais novos entram sem recarregar
+#     a página e sem cortar a rotação. Só __SPE__ e __TITULO__ são injetados.
+#   - Carrossel infinito: roda para sempre. Não há location.reload().
+#   - Fundo com "veias" douradas num <canvas>. É DESIGN, não anti-screensaver.
+#   - Anti-screensaver do webOS: tentativa via API Luna (WebOSServiceBridge),
+#     que pode não estar acessível a partir do browser. Ver o comentário no
+#     código e a secção 12 do README.
 # ===========================================================================
 _HTML_TEMPLATE = r"""<!DOCTYPE html>
 <html lang="pt-PT">
@@ -1589,6 +873,346 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 </body>
 </html>
 """
+
+
+def _escrever_pagina_tv(cfg, slides):
+    """Escreve o index.html e o slides.json da TV.
+
+    Mudança de arquitetura face à versão anterior: os slides deixam de ser
+    embebidos no HTML. Passam a viver num ficheiro à parte, 'slides.json', que a
+    página busca periodicamente (polling). Assim, editais novos entram no carrossel
+    SEM recarregar a página nem interromper a rotação — o HTML é escrito uma vez e
+    só o JSON muda. O 'v' (versão) é um carimbo temporal que a página usa para
+    detetar se houve alteração sem comparar a lista toda.
+
+    Args:
+        cfg (dict): configuração.
+        slides (list[dict]): itens {src, assunto, pub}.
+    """
+    # slides.json — a fonte viva que a TV consulta em ciclo.
+    payload = {
+        "v": datetime.now().isoformat(timespec="seconds"),  # versão p/ deteção de mudança
+        "gerado_em": datetime.now().isoformat(timespec="seconds"),  # frescura (ver TV)
+        "spe": int(cfg["segundos_por_ecra"]),
+        "titulo": cfg["titulo_tv"],
+        "slides": slides,
+    }
+    # Escrita atómica, e não `open(..., "w")`: a TV busca este ficheiro de 15 em
+    # 15 segundos e, com a escrita destrutiva, havia uma janela em que apanhava
+    # JSON truncado. O fetch falhava, a página mostrava "sem ligação" e o operador
+    # via um erro que não existia. Sem gerações — é um ficheiro derivado, que se
+    # regenera sozinho no ciclo seguinte.
+    arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0)
+
+    # index.html — escrito uma vez; já não leva os slides lá dentro. Só precisa de
+    # saber o título inicial e o intervalo por defeito (o resto vem do JSON).
+    html = (_HTML_TEMPLATE.replace("__TITULO__", cfg["titulo_tv"])
+            .replace("__SPE__", str(int(cfg["segundos_por_ecra"]))))
+    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"), html)
+
+
+def _escrever_texto_atomico(caminho, texto):
+    """Escreve um ficheiro de texto de forma atómica (temporário + troca).
+
+    O index.html é reescrito a cada republicação enquanto a TV o pode estar a
+    carregar. Vale a mesma regra do slides.json: ou tem a versão anterior inteira,
+    ou a nova inteira.
+    """
+    import tempfile
+    pasta = os.path.dirname(os.path.abspath(caminho))
+    os.makedirs(pasta, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=pasta, suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(texto)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, caminho)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+def _escrever_zip_publicados(cfg, reg, publicados):
+    """Cria o ZIP de arquivo com os PNG publicados + o registo, e roda os antigos.
+
+    Args:
+        cfg (dict): configuração.
+        reg (RegistoEntrada): registo de entrada.
+        publicados (list[dict]): registos publicados.
+    """
+    import zipfile
+    ts = datetime.now().strftime("%Y%m%d%H%M")
+    zpath = os.path.join(cfg["saida"], f"{ts}_editais_expositor_CLD.zip")
+    with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
+        for r in publicados:
+            for png in r.get("ficheiros_png", []):
+                p = os.path.join(cfg["saida"], png)
+                if os.path.exists(p):
+                    z.write(p, png)
+        z.writestr("registo_entrada.json",
+                   json.dumps(reg._dados, ensure_ascii=False, indent=2))
+    _rodar_zips(cfg)
+
+
+def iniciar_painel(cfg):
+    """Arranca o painel de gestão (servidor web) e o ciclo de leitura em fundo.
+
+    Junta as duas metades do modelo novo: uma thread vigia a pasta de entrada e
+    cria rascunhos; o servidor do painel serve a interface e a API de validação.
+    A publicação (a partir do painel) regenera a página da TV via callback.
+
+    Args:
+        cfg (dict): configuração.
+    """
+    reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
+
+    # Traz os editais do modelo antigo, se os houver. Corre antes de tudo o
+    # resto e uma vez só: a seguir os ficheiros de origem são renomeados.
+    if migracao.precisa_de_migrar(cfg):
+        _agente.info("Encontrados editais no modelo antigo. A migrar…")
+        migracao.migrar(cfg, reg)
+
+    contas = utl.Utilizadores(cfg["utilizadores"])
+    logo_im = carregar_logo(cfg)
+    estado_do_agente = {"arranque": datetime.now().isoformat(timespec="seconds"),
+                        "ultima_varredura": None, "ultima_publicacao": None,
+                        "ecras_no_ar": 0}
+
+    # Callback que o painel invoca após publicar/retirar: recompõe a TV.
+    def republicar():
+        n = publicar_registos(cfg, reg, logo_im)
+        estado_do_agente["ultima_publicacao"] = datetime.now().isoformat(timespec="seconds")
+        estado_do_agente["ecras_no_ar"] = n
+        _tv.info(f"atualizada: {n} ecr\u00e3(s) no ar")
+
+    # Thread de fundo: lê documentos novos e cria rascunhos periodicamente.
+    def vigiar():
+        while True:
+            try:
+                n = varrer_para_registo(cfg, reg, logo_im)
+                estado_do_agente["ultima_varredura"] = datetime.now().isoformat(timespec="seconds")
+                if n:
+                    _agente.info(f"ENTRADA {n} novo(s) documento(s) em rascunho")
+                # Aplica retiradas automáticas mesmo sem novos documentos.
+                if reg.aplicar_retiradas_automaticas():
+                    republicar()
+                # Deita fora os testemunhos de sessões já sem validade, para a
+                # memória não crescer com cada entrada que nunca é fechada.
+                contas.limpar_sessoes_expiradas()
+            except Exception as ex:
+                print(f"[ERRO vigia] {ex}")
+            time.sleep(int(cfg["intervalo_watch"]))
+
+    def aquecer_fundos():
+        """Desenha as variantes de fundo em falta, antes de alguém precisar delas.
+
+        Cada variante custa ~7 s a desenhar e depois vive em disco para sempre.
+        Feito aqui, em fundo e a baixa prioridade, a primeira publicação do dia
+        já as encontra prontas em vez de as pagar uma a uma no pior momento —
+        que é justamente quando alguém está à espera de ver o edital no ecrã.
+        """
+        for i in range(trat.VARIANTES_DE_FUNDO):
+            try:
+                trat.obter_fundo(seed=i, cache=cfg["fundos"])
+            except Exception as ex:
+                _fundos.info(f"falha a preparar a variante {i}: {ex}")
+                return
+        _fundos.info(f"{trat.VARIANTES_DE_FUNDO} variantes prontas em {cfg['fundos']}")
+
+    import threading
+    threading.Thread(target=aquecer_fundos, daemon=True).start()
+    threading.Thread(target=vigiar, daemon=True).start()
+
+    # Primeira publicação da TV em FUNDO: compor imagens 4K é pesado e não deve
+    # atrasar o arranque do painel. O servidor fica disponível de imediato; a TV
+    # atualiza-se assim que a composição terminar.
+    threading.Thread(target=republicar, daemon=True).start()
+
+    # Servidor do painel (bloqueante) — arranca já, sem esperar pela composição.
+    html_path = os.path.join(BASE, "lib", "painel.html")
+    servidor = painel_mod.PainelServer(
+        reg, cfg, republicar_callback=republicar, painel_html_path=html_path,
+        contas=contas,
+        saude_callback=lambda: estado_de_saude(cfg, reg, estado_do_agente))
+    servidor.iniciar(host=cfg["painel_host"], porta=int(cfg["painel_porta"]),
+                     bloquear=True)
+
+
+def estado_de_saude(cfg, reg, estado):
+    """Reúne o estado do agente para a rota /saude.
+
+    Serve para um supervisor de serviço (systemd, Nagios, Zabbix, um relógio de
+    parede) saber se isto está vivo SEM ter de entrar no painel — daí ser a
+    única rota que dispensa sessão. Por essa mesma razão só devolve números e
+    instantes: contagens por estado, sim; assuntos de editais por validar, não.
+    Um endereço sem autenticação não pode revelar o que ainda não é público.
+
+    Args:
+        cfg (dict): configuração.
+        reg (RegistoEntrada): registo de entrada.
+        estado (dict): marcadores vivos que o ciclo do painel vai atualizando.
+
+    Returns:
+        dict: estado, pronto a servir em JSON.
+    """
+    import shutil
+    contagens = {e: len(reg.por_estado(e)) for e in reg_mod.ESTADOS}
+    try:
+        uso = shutil.disk_usage(cfg["saida"])
+        disco = {"livre_mb": round(uso.free / 1e6), "total_mb": round(uso.total / 1e6)}
+    except OSError:
+        disco = None
+
+    # 'ok' é o que um supervisor lê sem interpretar o resto: a vigia tem de ter
+    # corrido há menos de três intervalos (dá folga a uma passagem demorada sem
+    # deixar passar um ciclo morto) e tem de haver espaço para escrever as
+    # imagens 4K, que é o que primeiro falha num disco cheio.
+    limite = int(cfg["intervalo_watch"]) * 3
+    fresco = True
+    if estado.get("ultima_varredura"):
+        idade = (datetime.now() - datetime.fromisoformat(estado["ultima_varredura"])).total_seconds()
+        fresco = idade < limite
+    espaco = disco is None or disco["livre_mb"] > 500
+
+    return {
+        "ok": bool(fresco and espaco),
+        "versao": VERSAO,
+        "arranque": estado.get("arranque"),
+        "ultima_varredura": estado.get("ultima_varredura"),
+        "ultima_publicacao": estado.get("ultima_publicacao"),
+        "ecras_no_ar": estado.get("ecras_no_ar", 0),
+        "editais": contagens,
+        "disco": disco,
+        "agora": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def comando_criar_utilizador(cfg, nome, administrador=False):
+    """Cria uma conta do painel a partir da linha de comandos.
+
+    É por aqui que nasce a primeira conta, quando ainda não há painel onde
+    entrar. A senha é pedida sem eco (getpass) e nunca passa por argumento da
+    linha de comandos — um argumento fica no histórico da consola e na lista de
+    processos, à vista de quem tiver acesso à máquina.
+
+    Args:
+        cfg (dict): configuração.
+        nome (str): nome de utilizador a criar.
+        administrador (bool): se True, a conta pode gerir contas.
+
+    Returns:
+        int: código de saída (0 = criada).
+    """
+    import getpass
+    contas = utl.Utilizadores(cfg["utilizadores"])
+    papel = utl.ADMINISTRADOR if administrador else utl.OPERADOR
+    print(f"A criar a conta '{nome}' com o papel de {utl.PAPEL_LABEL[papel].lower()}.")
+    nome_completo = input("Nome completo (como aparece na certidão): ").strip()
+    senha = getpass.getpass("Senha (mínimo 10 caracteres): ")
+    if senha != getpass.getpass("Repita a senha: "):
+        _agente.error("As senhas não coincidem. Nada foi criado.")
+        return 1
+    try:
+        conta = contas.criar(nome, senha, nome_completo=nome_completo, papel=papel,
+                             por="linha de comandos")
+    except utl.ErroDeUtilizador as e:
+        _agente.error(f"{e}")
+        return 1
+    print(f"Conta '{conta['nome']}' criada. Já pode entrar no painel.")
+    return 0
+
+
+def comando_listar_utilizadores(cfg):
+    """Mostra as contas do painel, para se saber quem tem acesso."""
+    contas = utl.Utilizadores(cfg["utilizadores"])
+    lista = contas.listar()
+    if not lista:
+        print("Ainda não há contas. Crie a primeira com:")
+        print("  python agente.py --criar-utilizador NOME --administrador")
+        return 0
+    print(f"{'utilizador':<18}{'nome completo':<26}{'papel':<16}{'estado':<10}última entrada")
+    print("-" * 92)
+    for c in lista:
+        print(f"{c['nome']:<18}{c['nome_completo'][:25]:<26}"
+              f"{utl.PAPEL_LABEL[c['papel']]:<16}"
+              f"{'activa' if c['activo'] else 'desactivada':<10}"
+              f"{c['ultima_entrada'] or 'nunca'}")
+    return 0
+
+
+def carregar_logo(cfg):
+    """Constrói o logótipo dourado gravado, se os ficheiros do símbolo existirem.
+
+    Se faltarem os PNG do símbolo/texto, o agente continua a funcionar — apenas
+    produz as composições sem logótipo (com aviso), em vez de falhar.
+
+    Args:
+        cfg (dict): configuração (caminhos logo_sym e logo_txt).
+
+    Returns:
+        PIL.Image.Image | None: logótipo pronto, ou None se indisponível.
+    """
+    if os.path.exists(cfg["logo_sym"]) and os.path.exists(cfg["logo_txt"]):
+        return trat.build_logo(cfg["logo_sym"], cfg["logo_txt"], out_h=160)
+    _agente.warning("log\u00f3tipo n\u00e3o encontrado em assets/ \u2014 sa\u00edda sem logo.")
+    return None
+
+def main():
+    """Ponto de entrada da linha de comandos.
+
+    Há um só modo de serviço: --painel. Os modos --once, --watch e --rebuild-web
+    saíram na versão 0.14 com o caminho de publicação automática que serviam.
+
+    A razão não é arrumação. Desde a Onda 2 a aplicação emite uma certidão que
+    diz QUEM afixou cada edital, e um caminho que publicava sem ninguém não
+    tinha essa resposta. Mantê-lo era garantir que, mais cedo ou mais tarde,
+    alguém pediria a certidão de um edital afixado por ninguém.
+    """
+    ap = argparse.ArgumentParser(
+        description="Agente de editais do expositor municipal",
+        epilog="Os modos --once, --watch e --rebuild-web foram retirados na "
+               "versão 0.14: a publicação passa sempre pelo painel, para a "
+               "certidão de afixação poder dizer quem afixou cada edital.")
+    ap.add_argument("--painel", action="store_true",
+                    help="arranca o painel de gestão (validação humana no browser)")
+    ap.add_argument("--criar-utilizador", metavar="NOME",
+                    help="cria uma conta de acesso ao painel (pede a senha sem eco)")
+    ap.add_argument("--administrador", action="store_true",
+                    help="com --criar-utilizador: dá-lhe também a gestão de contas")
+    ap.add_argument("--utilizadores", action="store_true",
+                    help="lista as contas de acesso ao painel")
+    ap.add_argument("--versao", action="version", version=f"agente de editais {VERSAO}")
+    args = ap.parse_args()
+
+    cfg = load_config()
+
+    # Gestão de contas: não arranca serviço nenhum, faz o que lhe pedem e sai.
+    if args.criar_utilizador:
+        return comando_criar_utilizador(cfg, args.criar_utilizador, args.administrador)
+    if args.utilizadores:
+        return comando_listar_utilizadores(cfg)
+
+    if not args.painel:
+        # Sem argumentos, mostra a ajuda em vez de não fazer nada em silêncio.
+        # Antes, correr `python agente.py` sem mais nada fazia uma publicação
+        # automática — precisamente o que deixou de existir.
+        ap.print_help()
+        return 0
+
+    try:
+        iniciar_painel(cfg)
+    except RuntimeError as e:
+        # Erro esperado e acionável (tipicamente: ainda não há contas). A
+        # mensagem da exceção já diz o que fazer, e é mostrada tal e qual em
+        # vez de um traceback que assusta sem informar.
+        _painel.error(str(e))
+        return 1
+    return 0
+
 
 if __name__ == "__main__":
     sys.exit(main() or 0)

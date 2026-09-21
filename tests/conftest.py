@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import pytest
+
 import registo as reg_mod
 
 META_BOA = {

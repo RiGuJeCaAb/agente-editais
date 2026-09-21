@@ -36,3 +36,9 @@ venv/
 .pytest_cache/
 .ruff_cache/
 .mypy_cache/
+
+# Metadados que o `pip install -e` escreve ao lado do código. São gerados a cada
+# instalação e variam com a versão do setuptools — não pertencem ao repositório.
+*.egg-info/
+build/
+dist/

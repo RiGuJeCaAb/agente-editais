@@ -20,8 +20,9 @@ import json
 import urllib.error
 import urllib.request
 
-import painel as painel_mod
 import pytest
+
+import painel as painel_mod
 import registo as reg_mod
 import utilizadores as utl
 from conftest import META_BOA

@@ -12,8 +12,9 @@ from __future__ import annotations
 import re
 from datetime import date, timedelta
 
-import prazos as pr
 import pytest
+
+import prazos as pr
 
 DELIBERACAO = "deliberacao_orgao_autarquico"
 

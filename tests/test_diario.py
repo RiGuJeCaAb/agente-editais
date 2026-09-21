@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import logging
 
-import diario
 import pytest
+
+import diario
 
 
 @pytest.fixture(autouse=True)

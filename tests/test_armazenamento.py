@@ -12,8 +12,9 @@ import json
 import logging
 import os
 
-import armazenamento as arm
 import pytest
+
+import armazenamento as arm
 import registo as reg_mod
 from conftest import META_BOA
 

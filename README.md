@@ -18,7 +18,9 @@ TV abre num URL — mais um ZIP de arquivo.
    área em vez dos 10 % que lhe sobravam encaixado na caixa vertical.
 4. **Trata** visualmente e **converte** para PNG 16:9 (3840×2160).
 5. **Numera**: `AAAAMMDDHHMM_nn_assunto_p1de2_16x9_3d_CLD.png`.
-6. **Datas de saída**: ficheiro de texto simples `retiradas.txt` (ver secção 5).
+6. **Espera por uma pessoa.** Nada vai ao ecrã sozinho: cada documento fica como
+   rascunho no painel até alguém o validar e publicar. É essa pessoa que a
+   certidão de afixação nomeia.
 7. **Publica** `saida/index.html` (a página da TV, ecrã inteiro, 30 s por ecrã) + um ZIP
    (mantém só as **3 cópias mais recentes**).
 8. Editais cuja data de saída já passou são **escondidos automaticamente** da TV.
@@ -46,47 +48,63 @@ Os ficheiros do logótipo (`assets/sym_ok.png`, `assets/txt_ok.png`) já vão in
 
 ## 3. Utilização
 
+Há um só modo de serviço — o painel:
+
 ```bash
-# processar uma vez tudo o que estiver em entrada/ e gerar página + zip
-python agente.py --once
+# criar a primeira conta (pede a senha sem eco); --administrador dá-lhe
+# também a gestão de contas
+python agente.py --criar-utilizador ana.silva --administrador
 
-# vigiar a pasta em contínuo (processa ficheiros novos automaticamente)
-python agente.py --watch
+# arrancar o painel de gestão
+python agente.py --painel
 
-# só reconstruir a página/zip depois de editares datas de retirada no JSON
-python agente.py --rebuild-web
+# ver as contas que existem
+python agente.py --utilizadores
 ```
 
 **Fluxo diário típico:**
 1. Atiras os PDFs novos para `entrada/`.
-2. O agente (em `--watch`, ou agendado) processa-os.
-3. Abres `editais.json` e preenches a `data_retirada` de cada um (campo manual).
-4. O agente reconstrói a página; a TV mostra os ativos e esconde os expirados.
+2. Abres o painel, secção **Por validar**. Cada documento aparece um de cada vez,
+   com a pré-visualização ao lado e os metadados extraídos já preenchidos.
+3. Confirmas ou corriges o assunto, o número e o **tipo de documento** — é o tipo
+   que diz qual o prazo de afixação que a lei manda cumprir.
+4. **Publicas.** A partir daí o edital está no ecrã e há uma certidão que diz
+   quem o afixou, quando, e com que resumo SHA-256 do original.
+5. Chegada a hora, **retiras** — e sai outra certidão, a da desafixação.
 
-### O ficheiro `retiradas.txt` (datas de saída — modo simples)
+> **Os modos `--once`, `--watch` e `--rebuild-web` saíram na versão 0.14.**
+> Publicavam sem ninguém ver. Desde a 0.12 a aplicação emite uma certidão que
+> diz *quem* afixou cada edital, e um caminho automático não tem essa resposta.
+> Quem tenha dados do modelo antigo não os perde: ver **secção 3.1**.
 
-Já não precisa de mexer em JSON. Há um ficheiro de texto, `retiradas.txt`, que o
-agente vai preenchendo sozinho com uma linha por edital. Você só escreve a **data
-de saída** à frente do `=`:
+### 3.1 Migração do modelo antigo
 
-```
-# DELIBERAÇÕES PROFERIDAS PELA ASSEMBLEIA MUNICIPAL COM EFICÁCIA EXTERNA  (publicado 2026-06-29)
-2026-0017 = 2026-07-29
-```
+Se a pasta ainda tiver um `editais.json`, o agente migra-o sozinho ao arrancar o
+painel. Não é preciso fazer nada, nem correr comando nenhum.
 
-Regras simples:
-- Data no formato `AAAA-MM-DD` (ex.: `2026-07-29`) ou `DD/MM/AAAA`.
-- **Em branco** = fica no ecrã indefinidamente.
-- A partir da data escrita, o edital **sai do ecrã** (não é apagado do arquivo).
-- A chave à esquerda pode ser o **número** do edital ou parte do **assunto**.
+O modelo antigo guardava um registo por **ecrã** — um edital de cinco folhas
+aparecia lá três vezes. A migração reagrupa-os no edital a que pertencem, lê as
+datas do `retiradas.txt`, recupera o resumo SHA-256 do original quando o ficheiro
+ainda existe, e reconstrói o estado de cada um (publicado, ou retirado se a data
+já passou).
 
-Depois de gravar, peça a reconstrução da página:
+O que o modelo antigo não tinha, assume-se em vez de se inventar:
 
-```bash
-python agente.py --rebuild-web
-```
+| | o que fica | porquê |
+|---|---|---|
+| quem afixou | `migracao` | não havia contas; a certidão di-lo em vez de inventar um nome |
+| hora da afixação | o `processado_em` do primeiro ecrã | é quando a imagem foi composta — o mais próximo que os dados permitem |
+| tipo de documento | o de omissão | o prazo não é verificado até alguém o escolher no painel |
+| resumo do original | o SHA-256, se o ficheiro ainda estiver em `entrada/`; senão, vazio | o modelo antigo só guardava o SHA-1. Havendo ficheiro, calcula-se e arquiva-se; não havendo, a certidão cala-se em vez de citar o que não conferiu |
 
-(No modo `--watch` isto acontece sozinho no ciclo seguinte.)
+Um edital antigo **sem data de publicação** não vai ao ecrã: fica em **Por
+validar**, à espera de quem saiba a data — que é obrigatória porque o rodapé da
+TV a mostra. O arranque diz quantos ficaram assim, para não se descobrir pela
+ausência deles no expositor.
+
+Os ficheiros de origem são **renomeados** para `.migrado`, não apagados. Se a
+migração tiver lido alguma coisa ao contrário, os dados continuam lá para se
+conferir — e o painel mostra os editais migrados como quaisquer outros.
 
 ---
 
@@ -98,7 +116,6 @@ Opcional: cria um `config.json` ao lado do `agente.py` para alterar defaults:
 {
   "segundos_por_ecra": 30,
   "manter_zips": 3,
-  "intervalo_watch": 30,
   "titulo_tv": "Editais · Câmara Municipal de Moimenta da Beira"
 }
 ```
@@ -106,7 +123,6 @@ Opcional: cria um `config.json` ao lado do `agente.py` para alterar defaults:
 - `segundos_por_ecra` — tempo de cada ecrã na TV (predefinição 30 s).
 - `manter_zips` — quantas cópias ZIP guardar na saída (predefinição 3; as antigas
   são apagadas automaticamente).
-- `intervalo_watch` — segundos entre varrimentos no modo `--watch`.
 
 ### A televisão arranca em ecrã inteiro
 
@@ -186,17 +202,22 @@ independentes — e tê-las separadas é o desenho correto.
 
 ---
 
-## 6. Agendamento (correr sozinho)
+## 6. Correr como serviço
 
-- **Linux** (cron, a cada 5 min):
-  ```
-  */5 * * * * cd /caminho/agente_editais && /usr/bin/python3 agente.py --once >> agente.log 2>&1
-  ```
-  ou correr `--watch` como serviço `systemd`.
+Não há nada a agendar: o que se põe a correr sozinho é o **painel**, e é ele que
+vigia a pasta de entrada. O processamento acontece quando chega um ficheiro; a
+publicação, quando uma pessoa a autoriza.
 
-- **Windows** (Task Scheduler): tarefa que corre `python agente.py --once`
-  ao arranque e/ou a cada X minutos. Em alternativa, `--watch` como serviço
-  (ex. via NSSM).
+- **Linux** (`systemd`): a unidade está feita em `servico/`, com as instruções.
+  ```bash
+  sudo cp servico/agente-editais.service /etc/systemd/system/
+  sudo systemctl enable --now agente-editais
+  ```
+- **Windows**: o painel como serviço via NSSM, apontado a
+  `python agente.py --painel`.
+
+O endpoint `/saude` responde sem sessão e serve para o supervisor saber se o
+painel está de pé.
 
 ---
 
@@ -206,8 +227,6 @@ independentes — e tê-las separadas é o desenho correto.
 agente_editais/
 ├── agente.py            # orquestrador (CLI)
 ├── config.json          # (opcional) overrides
-├── editais.json         # metadados + data_retirada MANUAL
-├── estado.json          # controlo do que já foi processado
 ├── assets/              # logótipo (sym_ok.png, txt_ok.png)
 ├── registo_entrada.json # registo de editais + histórico (gravação atómica)
 ├── registo_auditoria.jsonl # trilho de auditoria, apenas-acrescento
@@ -227,6 +246,7 @@ agente_editais/
     ├── diario.py        # registo técnico (níveis, rotação)
     ├── documentos.py    # conversão + extração de metadados
     ├── entrada.html     # página de início de sessão
+    ├── migracao.py      # traz o modelo antigo para o registo (código com prazo)
     ├── originais.py     # arquivo imutável dos documentos
     ├── painel.py        # servidor do painel + API
     ├── prazos.py        # tipos de documento e janelas legais
@@ -239,7 +259,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 234 testes
+pytest          # 272 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -338,17 +358,22 @@ favorece face a contas dispersas por aplicações.
 ### Expor a outros postos (rede interna)
 
 Por omissão o painel só escuta em `127.0.0.1` (a própria máquina). Para o abrir a
-outros postos, mude `"painel_host": "0.0.0.0"` no config — **preferencialmente
+outros postos, muda `"painel_host": "0.0.0.0"` no config — **preferencialmente
 dentro da VLAN de gestão**, nunca exposto à Internet.
 
-### Os dois modos, lado a lado
+### Já não há dois modos
 
-| Modo | Comando | Publica sozinho? |
-|------|---------|------------------|
-| Automático (antigo) | `python agente.py --watch` | Sim — direto ao ecrã |
-| Com validação (novo) | `python agente.py --painel` | Não — só após aprovação |
+Até à 0.13 havia um modo automático a viver ao lado do painel: `--watch` lia a
+pasta e punha os editais no ecrã sem ninguém ver. Saiu na **0.14**, e vale a pena
+dizer porquê, porque não foi arrumação.
 
-Para uso municipal corrente, recomenda-se o **modo painel**.
+Desde a 0.12 cada afixação e cada desafixação produzem uma certidão que nomeia
+**quem** praticou o ato. Um caminho que publica sozinho não tem essa resposta.
+Mantê-lo era garantir que mais cedo ou mais tarde alguém pediria a certidão de um
+edital afixado por ninguém — e a única resposta honesta seria «o computador».
+
+Publica-se pelo painel. Quem tenha editais do modelo antigo não os perde: a
+migração corre sozinha, e está descrita na **secção 3.1**.
 
 ---
 

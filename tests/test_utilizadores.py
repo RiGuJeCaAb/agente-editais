@@ -12,6 +12,7 @@ import json
 import time
 
 import pytest
+
 import utilizadores as utl
 
 SENHA = "uma-senha-suficiente"

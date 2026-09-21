@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import os
 
-import originais as orig
 import pytest
+
+import originais as orig
 
 
 @pytest.fixture

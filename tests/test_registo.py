@@ -8,6 +8,7 @@ publica-se o que não devia, e só se descobre quando alguém repara no exposito
 from __future__ import annotations
 
 import pytest
+
 import registo as reg_mod
 from conftest import META_BOA
 
