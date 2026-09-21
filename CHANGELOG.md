@@ -175,11 +175,35 @@ editais é vertical, e uma melhoria que estragasse esses seria mau negócio.
   instante de afixação para o passado. Não está na lista branca do `editar()`
   nem nos campos de sistema, e regista a correção com o valor anterior — a
   própria correção fica auditável.
-- 28 testes de migração: reagrupamento, sobrevivência dos metadados, recuperação
-  do resumo, reconstrução dos estados, afixação datada no passado, rasto de
-  auditoria, idempotência e um `retiradas.txt` maltratado de cinco maneiras.
+- 38 testes novos. De migração: reagrupamento, sobrevivência dos metadados,
+  recuperação do resumo, reconstrução dos estados, afixação datada no passado,
+  rasto de auditoria, idempotência, um `retiradas.txt` maltratado de cinco
+  maneiras, e o edital sem data de publicação que tem de ficar em rascunho e
+  dizê-lo. De certidão: cinco valores que não são resumos e não podem aparecer
+  debaixo de «Resumo do original».
 
 ### Corrigido
+- **A certidão citava como «Resumo do original» coisas que não eram resumos.**
+  O campo `hash` de um registo nem sempre traz um resumo de ficheiro: um edital
+  migrado cujo original já não estava na pasta leva lá uma chave sintética
+  (`migrado:numero+assunto`), que serve para o registo não colidir consigo
+  próprio e não serve para mais nada. A certidão imprimia-a como se fosse a
+  impressão digital do documento — ou seja, afirmava ter conferido um ficheiro
+  que nunca viu. Passa a aceitar só o que tem forma de resumo (SHA-256 ou o
+  SHA-1 antigo) e a calar-se no resto: um documento que se cala vale mais do
+  que um que afirma o que não sabe.
+- **A migração perdia o SHA-256 quando ainda era calculável.** O modelo antigo
+  só guardava o SHA-1, e o arquivo imutável endereça por SHA-256. Enquanto o
+  original estiver na pasta de entrada há por onde o calcular — e se não for
+  ali, nunca mais é: o edital fica para sempre sem forma de recuperar o
+  documento que afixou. Passa a calcular-se e a arquivar-se o original.
+- **`mover_estado` falhava em silêncio na migração.** Recusa devolvendo
+  `{"ok": False}`, não levantando exceção, e a migração ignorava a resposta. Um
+  edital antigo sem data de publicação falhava a validação, falhava a seguir a
+  publicação, ficava contado como migrado — e o posto era informado de que um
+  edital desaparecido do expositor tinha sido migrado com êxito. Ficar em
+  rascunho é a resposta certa (a data é obrigatória, e quem a sabe é uma
+  pessoa); o que não podia era acontecer calado.
 - **A ordem dos imports dependia de ter corrido o programa.** O `ruff` não sabia
   que os módulos do projeto vivem em `lib/`, e classificava-os pela heurística —
   que olha para as pastas da raiz. Como `diario/` e `originais/` são pastas de

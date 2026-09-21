@@ -95,6 +95,12 @@ O que o modelo antigo não tinha, assume-se em vez de se inventar:
 | quem afixou | `migracao` | não havia contas; a certidão di-lo em vez de inventar um nome |
 | hora da afixação | o `processado_em` do primeiro ecrã | é quando a imagem foi composta — o mais próximo que os dados permitem |
 | tipo de documento | o de omissão | o prazo não é verificado até alguém o escolher no painel |
+| resumo do original | o SHA-256, se o ficheiro ainda estiver em `entrada/`; senão, vazio | o modelo antigo só guardava o SHA-1. Havendo ficheiro, calcula-se e arquiva-se; não havendo, a certidão cala-se em vez de citar o que não conferiu |
+
+Um edital antigo **sem data de publicação** não vai ao ecrã: fica em **Por
+validar**, à espera de quem saiba a data — que é obrigatória porque o rodapé da
+TV a mostra. O arranque diz quantos ficaram assim, para não se descobrir pela
+ausência deles no expositor.
 
 Os ficheiros de origem são **renomeados** para `.migrado`, não apagados. Se a
 migração tiver lido alguma coisa ao contrário, os dados continuam lá para se
@@ -253,7 +259,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 262 testes
+pytest          # 272 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```

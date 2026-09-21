@@ -184,12 +184,39 @@ def test_o_selo_e_estavel_e_nao_depende_da_ordem_dos_campos(afixado):
     assert cert.selo(cert.factos(afixado)) == cert.selo(cert.factos(afixado))
 
 
+# Um SHA-1 a sério (40 dígitos hexadecimais), como o caminho de entrada o
+# escreve. O marcador "sha1antigo" que aqui estava antes era mais legível e não
+# era um resumo — e a certidão passou a distinguir uma coisa da outra.
+SHA1_ANTIGO = "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0"
+
+
 def test_a_certidao_prefere_o_sha256_ao_hash_antigo(afixado):
     """O documento cita o endereço do original no arquivo imutável."""
     assert cert.factos(afixado)["hash_original"] == afixado["sha256"]
     antigo = {k: v for k, v in afixado.items() if k != "sha256"}
-    antigo["hash"] = "sha1antigo"
-    assert cert.factos(antigo)["hash_original"] == "sha1antigo"
+    antigo["hash"] = SHA1_ANTIGO
+    assert cert.factos(antigo)["hash_original"] == SHA1_ANTIGO
+
+
+@pytest.mark.parametrize("valor", [
+    "migrado:20260017deliberacoes",   # chave sintética de um edital migrado
+    "sha1antigo",                     # um marcador qualquer
+    "",
+    "zzzz" * 16,                      # comprimento certo, não hexadecimal
+    "a1b2c3",                         # hexadecimal, comprimento nenhum
+])
+def test_a_certidao_cala_se_quando_o_campo_nao_e_um_resumo(afixado, valor):
+    """Um resumo que não é um resumo não entra num documento com fé pública.
+
+    O campo `hash` nem sempre traz um resumo de ficheiro: um edital migrado do
+    modelo automático cujo original já não estava na pasta leva lá uma chave
+    sintética, que serve para o registo não colidir consigo próprio e para mais
+    nada. Imprimi-la debaixo de «Resumo do original» era a certidão afirmar que
+    conferiu um documento que nunca viu.
+    """
+    reg = {k: v for k, v in afixado.items() if k != "sha256"}
+    reg["hash"] = valor
+    assert cert.factos(reg)["hash_original"] == ""
 
 
 @pytest.mark.parametrize("afixacao,desafixacao,esperado", [

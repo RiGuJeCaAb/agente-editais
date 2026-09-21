@@ -93,6 +93,35 @@ def _pt_data(valor: str | None) -> str:
         return str(valor)
 
 
+# Comprimentos, em dígitos hexadecimais, dos resumos que o projeto produz: o
+# SHA-256 do arquivo imutável e o SHA-1 que o caminho de entrada usa para
+# deduplicação. Qualquer outra coisa no campo não é um resumo de ficheiro.
+_COMPRIMENTOS_DE_RESUMO = (64, 40)
+
+
+# Devolve o resumo do original que a certidão pode citar, ou nada.
+def _resumo_citavel(reg: dict) -> str:
+    """Escolhe o que a certidão imprime em «Resumo do original».
+
+    Prefere o SHA-256, que é o endereço do documento no arquivo imutável, e
+    aceita o SHA-1 antigo para os editais anteriores ao arquivo.
+
+    Recusa tudo o resto, e é para isso que existe. Um edital migrado do modelo
+    automático pode não ter resumo nenhum — se o original já não estava na
+    pasta à data da migração, não havia por onde o calcular. Nesse caso o
+    campo `hash` leva uma chave sintética (`migrado:numero+assunto`), que serve
+    para o registo não colidir consigo próprio e não serve para mais nada.
+    Imprimi-la debaixo de «Resumo do original» era a certidão afirmar que
+    conferiu um documento que nunca viu.
+    """
+    for valor in (reg.get("sha256"), reg.get("hash")):
+        candidato = (valor or "").strip().lower()
+        if len(candidato) in _COMPRIMENTOS_DE_RESUMO and all(
+                c in "0123456789abcdef" for c in candidato):
+            return candidato
+    return ""
+
+
 def factos(reg: dict) -> dict:
     """Extrai do registo o conjunto exato de factos que a certidão afirma.
 
@@ -117,7 +146,8 @@ def factos(reg: dict) -> dict:
         "ficheiro_origem": reg.get("ficheiro_origem") or "",
         # SHA-256 quando existe (é o endereço do documento no arquivo imutável),
         # e o SHA-1 antigo como recurso para os editais anteriores ao arquivo.
-        "hash_original": reg.get("sha256") or reg.get("hash") or "",
+        # Passa por _resumo_citavel: o campo `hash` nem sempre é um resumo.
+        "hash_original": _resumo_citavel(reg),
         "afixado_em": reg.get("afixado_em") or "",
         "afixado_por": reg.get("afixado_por") or "",
         "desafixado_em": reg.get("desafixado_em") or "",

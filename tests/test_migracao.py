@@ -295,3 +295,120 @@ def test_agrupar_preserva_a_ordem_de_chegada():
     grupos = migracao.agrupar_por_edital(EDITAIS_ANTIGOS["editais"])
     assert [g[0]["numero"] for g in grupos] == ["2026-0017", "2026-0018"]
     assert sum(len(g) for g in grupos) == 3
+
+
+# ---------------------------------------------------------------------------
+# Os dois defeitos que a revisão do PR #4 apanhou
+# ---------------------------------------------------------------------------
+def test_sem_data_de_publicacao_fica_rascunho_e_nao_publicado_em_silencio(instalacao):
+    """O caso que fazia a migração mentir.
+
+    `mover_estado` recusa VALIDADO sem data de publicação — e RECUSA
+    devolvendo `{"ok": False}`, não levantando exceção. A migração ignorava a
+    resposta, tentava a seguir PUBLICADO a partir de RASCUNHO (transição que
+    também não existe, também silenciosa), contava o edital como migrado e
+    arquivava os ficheiros de origem. Resultado: um edital que estava no
+    expositor desaparecia dele, o posto era informado de que tinha sido
+    migrado, e ninguém ficava a saber.
+
+    O comportamento certo não é publicar à força: a data é obrigatória por uma
+    razão (o rodapé da TV mostra-a). É ficar em rascunho, à espera de quem
+    saiba a data — mas dizê-lo em voz alta.
+    """
+    dados = json.loads(json.dumps(EDITAIS_ANTIGOS))
+    for e in dados["editais"]:
+        if e["numero"] == "2026-0018":
+            e["data_publicacao"] = ""
+    (instalacao["pasta"] / "editais.json").write_text(
+        json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+
+    resultado = migracao.migrar(instalacao["cfg"], instalacao["reg"])
+
+    por_numero = {r["numero"]: r for r in instalacao["reg"].todos()}
+    assert len(por_numero) == 2, "nenhum edital se perde, mesmo sem data"
+    assert por_numero["2026-0017"]["estado"] == reg_mod.RETIRADO
+    assert por_numero["2026-0018"]["estado"] == reg_mod.RASCUNHO, (
+        "sem data de publicação o edital tem de ficar à espera de uma pessoa")
+    assert resultado == 2, "conta-se como migrado — o registo existe"
+
+
+def test_o_que_ficou_por_completar_e_dito_em_voz_alta(instalacao, caplog):
+    """Um rascunho inesperado no arranque tem de aparecer no registo técnico."""
+    import logging
+    dados = json.loads(json.dumps(EDITAIS_ANTIGOS))
+    for e in dados["editais"]:
+        if e["numero"] == "2026-0018":
+            e["data_publicacao"] = None
+    (instalacao["pasta"] / "editais.json").write_text(
+        json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+
+    with caplog.at_level(logging.WARNING):
+        migracao.migrar(instalacao["cfg"], instalacao["reg"])
+
+    texto = caplog.text.lower()
+    assert "2026-0018" in texto
+    assert "data de publica" in texto
+
+
+def test_o_original_ainda_na_pasta_entra_no_arquivo_imutavel(instalacao):
+    """O SHA-256 recupera-se do ficheiro, não se finge que o SHA-1 serve.
+
+    O modelo antigo só guardava o SHA-1 (identidade para não reingerir o mesmo
+    documento). O arquivo imutável da Onda 2 endereça por SHA-256, e a certidão
+    cita-o como «Resumo do original». Enquanto o original estiver na pasta de
+    entrada, é calculável — e se não se calcular aqui, nunca mais se calcula:
+    o edital fica para sempre sem forma de recuperar o documento que afixou.
+    """
+    import hashlib
+
+    import originais as orig
+
+    entrada = instalacao["pasta"] / "entrada"
+    entrada.mkdir()
+    conteudo = b"%PDF-1.4 um edital que ainda esta na pasta de entrada"
+    (entrada / "edital_17.pdf").write_bytes(conteudo)
+    esperado = hashlib.sha256(conteudo).hexdigest()
+
+    instalacao["cfg"]["entrada"] = str(entrada)
+    instalacao["cfg"]["originais"] = str(instalacao["pasta"] / "originais")
+    migracao.migrar(instalacao["cfg"], instalacao["reg"])
+
+    por_numero = {r["numero"]: r for r in instalacao["reg"].todos()}
+    assert por_numero["2026-0017"]["sha256"] == esperado
+    assert orig.conferir(instalacao["cfg"]["originais"], esperado, ".pdf"), (
+        "o original tem de ficar no arquivo imutável, não só o resumo no registo")
+    # O SHA-1 antigo continua a ser a identidade de deduplicação: é o que o
+    # caminho de entrada ainda calcula, e trocá-lo reingeria tudo como novo.
+    assert por_numero["2026-0017"]["hash"] == (
+        "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7f8a9b0")
+
+
+def test_sem_o_original_na_pasta_o_resumo_fica_vazio_e_nao_inventado(instalacao):
+    """Não havendo ficheiro, não há resumo. O campo fica vazio, não com lixo.
+
+    Punha-se aqui o SHA-1 antigo, ou a cadeia sintética `migrado:...`, e a
+    certidão imprimia-a debaixo de «Resumo do original» como se fosse um
+    resumo do documento. Não é, e um documento que afirma o que não sabe vale
+    menos do que um que se cala.
+    """
+    instalacao["cfg"]["entrada"] = str(instalacao["pasta"] / "entrada-vazia")
+    instalacao["cfg"]["originais"] = str(instalacao["pasta"] / "originais")
+    migracao.migrar(instalacao["cfg"], instalacao["reg"])
+
+    for r in instalacao["reg"].todos():
+        assert r["sha256"] == ""
+        assert not r["sha256"].startswith("migrado:")
+
+
+def test_a_certidao_de_um_migrado_nao_cita_a_chave_sintetica(instalacao):
+    """Sem SHA-1 conhecido inventa-se uma chave de deduplicação — que não é
+    um resumo, e não pode aparecer na certidão como se fosse."""
+    import certidao as cert
+
+    (instalacao["pasta"] / "estado.json").write_text(
+        '{"processados": {}}', encoding="utf-8")
+    migracao.migrar(instalacao["cfg"], instalacao["reg"])
+
+    for r in instalacao["reg"].todos():
+        assert r["hash"].startswith("migrado:")
+        assert "migrado:" not in cert.factos(r)["hash_original"]

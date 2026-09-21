@@ -31,6 +31,11 @@ O que NÃO existe no modelo antigo, e que por isso se assume com honestidade:
     é quando a imagem foi composta — o mais próximo que os dados permitem.
   - o **tipo de documento**. Fica o tipo por omissão, e o prazo não é verificado
     até alguém o escolher no painel.
+  - o **resumo SHA-256** do original, quando o ficheiro já não está na pasta de
+    entrada. O modelo antigo só guardava o SHA-1, que serve para não reingerir
+    o mesmo documento e não serve para o endereçar no arquivo imutável. Havendo
+    ficheiro, calcula-se e arquiva-se; não havendo, o campo fica vazio — e a
+    certidão cala-se em vez de citar o que não conferiu.
 """
 from __future__ import annotations
 
@@ -40,6 +45,7 @@ from typing import Any
 
 import armazenamento as arm
 import diario
+import originais as orig
 import prazos as pr
 
 _log = diario.obter("MIGRACAO")
@@ -151,6 +157,41 @@ def _hash_do_ficheiro(estado: dict, nome_origem: str) -> str:
     return ""
 
 
+def _sha256_do_original(cfg: dict, nome_origem: str) -> str:
+    """Calcula o SHA-256 do original e arquiva-o, se o ficheiro ainda existir.
+
+    É a última oportunidade de o fazer. O modelo antigo só guardava o SHA-1, e
+    o arquivo imutável da Onda 2 endereça por SHA-256: sem este cálculo, um
+    edital migrado fica para sempre sem forma de recuperar o documento que
+    afixou, mesmo estando o ficheiro ali à mão no momento da migração.
+
+    Não havendo ficheiro, devolve vazio. Não se põe aqui o SHA-1 a fingir de
+    SHA-256 — têm comprimentos diferentes e a certidão sabe distingui-los.
+
+    Args:
+        cfg: configuração do agente (usa `entrada` e `originais`).
+        nome_origem: nome do ficheiro como o modelo antigo o registou.
+
+    Returns:
+        str: o SHA-256 em hexadecimal, ou "" se não houver ficheiro.
+    """
+    pasta_entrada = cfg.get("entrada", "")
+    pasta_arquivo = cfg.get("originais", "")
+    if not (pasta_entrada and pasta_arquivo and nome_origem):
+        return ""
+    caminho = os.path.join(pasta_entrada, nome_origem)
+    if not os.path.isfile(caminho):
+        return ""
+    try:
+        sha256, _destino = orig.arquivar(pasta_arquivo, caminho)
+        return sha256
+    except OSError as e:
+        # Um original que não se consegue ler não pode derrubar a migração dos
+        # restantes: o edital migra à mesma, sem resumo, e fica registado porquê.
+        _log.warning(f"não foi possível arquivar '{nome_origem}': {e}")
+        return ""
+
+
 def precisa_de_migrar(cfg: dict) -> bool:
     """Indica se há dados no modelo antigo à espera de serem trazidos."""
     caminho = cfg.get("registo_antigo", "")
@@ -186,6 +227,7 @@ def migrar(cfg: dict, registo) -> int:
     retiradas = ler_retiradas(cfg.get("retiradas_antigo", ""))
     hoje = date.today()
     migrados = 0
+    incompletos = 0
 
     for grupo in agrupar_por_edital(entradas):
         cabeca = grupo[0]
@@ -205,6 +247,7 @@ def migrar(cfg: dict, registo) -> int:
             "entidade": cabeca.get("entidade", ""),
             "data_publicacao": cabeca.get("data_publicacao"),
             "tipo": pr.TIPO_POR_OMISSAO,
+            "sha256": _sha256_do_original(cfg, cabeca.get("ficheiro_origem", "")),
             "confianca": {},
         }
         novo = registo.criar_rascunho(
@@ -225,13 +268,34 @@ def migrar(cfg: dict, registo) -> int:
         # O percurso de estados é reconstruído pelo caminho legítimo, para o
         # histórico e o jornal de auditoria ficarem coerentes com os de um
         # edital normal — e não com um estado pousado à força.
-        registo.mover_estado(novo["id"], reg_mod.VALIDADO, utilizador=AUTOR,
-                             nota="Migrado do modelo automático anterior")
-        registo.mover_estado(novo["id"], reg_mod.PUBLICADO, utilizador=AUTOR,
-                             nota="Já estava no expositor à data da migração")
-        if retirada and retirada < hoje:
-            registo.mover_estado(novo["id"], reg_mod.RETIRADO, utilizador=AUTOR,
-                                 nota=f"Retirada já vencida à data da migração ({retirada})")
+        #
+        # `mover_estado` RECUSA devolvendo {"ok": False}: não levanta exceção.
+        # Ignorar a resposta era o defeito que a revisão do PR #4 apanhou — um
+        # edital sem data de publicação falhava VALIDADO em silêncio, falhava a
+        # seguir PUBLICADO (que não é transição válida a partir de rascunho),
+        # ficava contado como migrado, e o posto era informado de que um edital
+        # que desapareceu do expositor tinha sido migrado com êxito.
+        #
+        # Ficar em rascunho é a resposta certa: a data de publicação é
+        # obrigatória por uma razão, e quem a sabe é uma pessoa. O que não podia
+        # acontecer era acontecer calado.
+        nome = cabeca.get("numero") or cabeca.get("assunto", "")[:40] or "(sem nome)"
+        for destino, nota in (
+                (reg_mod.VALIDADO, "Migrado do modelo automático anterior"),
+                (reg_mod.PUBLICADO, "Já estava no expositor à data da migração")):
+            r = registo.mover_estado(novo["id"], destino, utilizador=AUTOR, nota=nota)
+            if not r["ok"]:
+                incompletos += 1
+                _log.warning(
+                    f"edital '{nome}' migrado como registo #{novo['id']} mas ficou "
+                    f"em rascunho: {r['erro']} Está em «Por validar», à espera de "
+                    f"quem saiba o que lhe falta — não voltou ao expositor.")
+                break
+        else:
+            if retirada and retirada < hoje:
+                registo.mover_estado(
+                    novo["id"], reg_mod.RETIRADO, utilizador=AUTOR,
+                    nota=f"Retirada já vencida à data da migração ({retirada})")
 
         # O instante de afixação é o do primeiro ecrã composto: é o mais próximo
         # que os dados antigos permitem. Sobrepõe-se ao que mover_estado acabou
@@ -250,6 +314,12 @@ def migrar(cfg: dict, registo) -> int:
             arquivar(cfg.get(chave, ""))
         _log.info(f"{migrados} edital(is) migrados. Os ficheiros do modelo antigo "
                   f"foram renomeados para '{SUFIXO_MIGRADO}' e podem ser conferidos.")
+        # Repetido no fim, e em WARNING, porque a linha de cima é a que se lê:
+        # quem arranca o painel tem de saber que há editais que não voltaram ao
+        # expositor antes de descobrir pela ausência deles no ecrã.
+        if incompletos:
+            _log.warning(f"{incompletos} de {migrados} ficaram em rascunho, em "
+                         f"«Por validar». Não estão no expositor.")
     return migrados
 
 
