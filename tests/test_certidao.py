@@ -7,10 +7,11 @@ e não só se o PDF sai sem exceção.
 """
 from __future__ import annotations
 
-import certidao as cert
-import prazos as pr
 import pymupdf
 import pytest
+
+import certidao as cert
+import prazos as pr
 
 CFG = {
     "municipio": "Município de Moimenta da Beira",

@@ -18,7 +18,7 @@ packages = []
 
 [project]
 name = "agente-editais"
-version = "0.13.0"
+version = "0.14.0"
 description = "Agente de editais do expositor da Câmara Municipal de Moimenta da Beira"
 requires-python = ">=3.10"
 dependencies = [
@@ -82,6 +82,22 @@ ignore_missing_imports = true
 [tool.ruff]
 line-length = 100
 target-version = "py310"
+# Os módulos do projeto vivem em lib/, que não é uma raiz de código que o ruff
+# adivinhe sozinho. Sem esta linha ele classificava-os pela heurística, e a
+# heurística olhava para as PASTAS da raiz: como `diario/` e `originais/` são
+# pastas de dados criadas pelo agente em execução (e ignoradas pelo git), os
+# imports `diario` e `originais` eram primeira-parte na máquina de quem já
+# tinha corrido a aplicação e terceira-parte numa clonagem limpa. A ordem dos
+# imports passava a depender de ter corrido o programa, e a CI dizia o
+# contrário do computador de quem escrevia. Declarado, é igual em todo o lado.
+src = ["lib", "."]
+
+[tool.ruff.lint.isort]
+known-first-party = [
+    "agente", "armazenamento", "certidao", "conftest", "diario", "documentos",
+    "migracao", "originais", "painel", "prazos", "registo", "tratamento",
+    "utilizadores",
+]
 
 [tool.ruff.lint]
 select = [

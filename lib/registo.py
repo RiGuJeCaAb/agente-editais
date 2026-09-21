@@ -347,6 +347,37 @@ class RegistoEntrada:
         """Atalho legível para gravar os nomes das pré-visualizações."""
         self.definir(rid, ficheiros_previa=list(nomes))
 
+    def definir_instante_de_afixacao(self, rid, instante, utilizador):
+        """Corrige o instante de afixação para um que aconteceu no passado.
+
+        Existe só para a migração dos editais do modelo antigo. Esses estiveram
+        meses no expositor, e mover_estado() carimba a afixação com a hora em
+        que a transição corre — o que daria a todos a mesma hora, a da migração.
+        A certidão diria então que um edital de junho foi afixado em setembro.
+
+        NÃO é para uso corrente, e por isso não está na lista branca de editar()
+        nem em CAMPOS_DE_SISTEMA: um instante de afixação que se possa reescrever
+        a pedido deixa de certificar seja o que for. O evento fica no histórico,
+        com quem o corrigiu e o valor anterior, para a correção ser ela própria
+        auditável.
+
+        Args:
+            rid (int): id do registo.
+            instante (str): instante em ISO.
+            utilizador (str): quem está a corrigir (na prática, 'migracao').
+        """
+        with self._lock:
+            reg = self.por_id(rid)
+            if reg is None:
+                return
+            anterior = reg.get("afixado_em")
+            reg["afixado_em"] = instante
+            reg["afixado_por"] = utilizador
+            self._anotar(reg, utilizador, reg["estado"], reg["estado"],
+                         f"Instante de afixação corrigido para {instante} "
+                         f"(estava {anterior or 'por preencher'})")
+            self._guardar()
+
     def definir_pngs(self, rid, nomes):
         """Atalho legível para gravar os nomes dos PNG compostos."""
         self.definir(rid, ficheiros_png=list(nomes))

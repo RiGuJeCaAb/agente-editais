@@ -11,9 +11,10 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-import tratamento as trat
 from PIL import Image
 from scipy import ndimage
+
+import tratamento as trat
 
 
 @pytest.fixture(scope="module")

@@ -135,3 +135,56 @@ pergunte «e provam isso?».
 A composição dos documentos verticais é **idêntica ao píxel** à da versão
 anterior: 100 % dos píxeis iguais em 1, 2 e 3 folhas. A esmagadora maioria dos
 editais é vertical, e uma melhoria que estragasse esses seria mau negócio.
+
+## 0.14.0 — Onda 3 (2/4): um só modelo de dados
+
+### Removido
+- **O caminho de publicação automática.** Os modos `--once`, `--watch` e
+  `--rebuild-web` saem, e com eles 370 linhas do `agente.py` (1595 → 1198).
+  Liam a pasta, compunham as imagens e punham-nas no ecrã sem ninguém ver.
+
+  A razão não é arrumação. Desde a 0.12 a aplicação emite uma certidão que diz
+  **quem** afixou cada edital. Um caminho que publica sozinho não tem essa
+  resposta, e mantê-lo era garantir que mais cedo ou mais tarde alguém pediria
+  a certidão de um edital afixado por ninguém. Dois modelos de dados a viver
+  lado a lado é uma dívida que só cresce: `editais.json` com um registo por
+  **ecrã**, mais um `retiradas.txt` editado à mão, contra o
+  `registo_entrada.json` com um registo por **edital**, estados e auditoria.
+- Com eles saem `varrer`, `reconstruir_saidas`, `gerar_pagina_web`, `gerar_zip`,
+  `garantir_retiradas`, `retirada_de`, `proximo_indice`, `ativos_hoje` e o par
+  `_load_json`/`_save_json`, que escrevia sem ser atomicamente.
+
+### Acrescentado
+- **`lib/migracao.py`** — ninguém perde editais na mudança. Ao arrancar o
+  painel, se encontrar `editais.json`, o agente reagrupa os registos por ecrã
+  no edital a que pertencem (o modelo antigo repetia um edital de cinco folhas
+  três vezes, com `parte` e `total_partes`), lê as datas do `retiradas.txt`,
+  recupera o resumo SHA-256 do original quando o ficheiro ainda existe, e cria
+  cada edital no registo novo passando pelos estados legítimos
+  (rascunho → validado → publicado → retirado, quando for o caso).
+
+  O que o modelo antigo não tinha, assume-se em vez de se inventar: **quem**
+  afixou fica `migracao` — não havia contas, e a certidão de um edital migrado
+  di-lo em letra gorda; a **hora** da afixação é o `processado_em` do primeiro
+  ecrã, o mais próximo que os dados permitem; o **tipo de documento** fica o
+  de omissão, e o prazo não é verificado até alguém o escolher no painel.
+
+  Os ficheiros de origem são **renomeados** para `.migrado`, não apagados: se a
+  migração tiver interpretado alguma coisa mal, os dados continuam lá.
+- `registo.definir_instante_de_afixacao()`, único caminho que corrige um
+  instante de afixação para o passado. Não está na lista branca do `editar()`
+  nem nos campos de sistema, e regista a correção com o valor anterior — a
+  própria correção fica auditável.
+- 28 testes de migração: reagrupamento, sobrevivência dos metadados, recuperação
+  do resumo, reconstrução dos estados, afixação datada no passado, rasto de
+  auditoria, idempotência e um `retiradas.txt` maltratado de cinco maneiras.
+
+### Corrigido
+- **A ordem dos imports dependia de ter corrido o programa.** O `ruff` não sabia
+  que os módulos do projeto vivem em `lib/`, e classificava-os pela heurística —
+  que olha para as pastas da raiz. Como `diario/` e `originais/` são pastas de
+  dados criadas em execução e ignoradas pelo git, `import diario` era
+  primeira-parte na máquina de quem já tinha corrido a aplicação e
+  terceira-parte numa clonagem limpa. A CI dizia verde e o computador de quem
+  escrevia dizia vermelho, pelo mesmo código. Declarado em `pyproject.toml`
+  (`src` e `known-first-party`), é igual em todo o lado.

@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import datetime as dt
 
-import documentos as doc
 import pytest
+
+import documentos as doc
 
 # Um edital da CMMB, no formato em que o texto sai do PDF.
 EDITAL = """

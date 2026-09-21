@@ -14,8 +14,9 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
-import tratamento as t
 from PIL import Image
+
+import tratamento as t
 
 
 def pagina(largura, altura):
