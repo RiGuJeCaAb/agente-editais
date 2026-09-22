@@ -259,7 +259,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 272 testes
+pytest          # 299 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -384,14 +384,48 @@ tudo ao mesmo tempo. Cada secção mostra só o que interessa naquele momento:
 
 - **No ecrã** (onde abre por omissão): os editais publicados no expositor agora.
 - **Por validar**: a caixa de entrada de trabalho, em vista **foco** — um documento
-  de cada vez, espaçoso, com pré-visualização e campos lado a lado, e navegação
-  seguinte/anterior (setas do teclado também funcionam). O número dourado ao lado
-  assinala quantos esperam validação.
+  de cada vez, espaçoso, com o documento e os campos lado a lado. O número dourado
+  ao lado assinala quantos esperam validação.
 - **Arquivo**: os editais retirados, com **pesquisa** por assunto ou número.
-- **Vista geral**: as quatro colunas (kanban), para quem quer o panorama completo.
+- **Descartados**: os que foram postos de parte, com o motivo à vista. Nada foi
+  apagado — qualquer um volta à fila com um clique. Também tem pesquisa.
+- **Vista geral**: as cinco colunas (kanban), para quem quer o panorama completo.
+
+### O documento todo, não só a primeira folha
+
+Um documento com várias páginas mostra-se com um **visor**: as miniaturas de
+todas as páginas por cima, o contador (`2 / 5`), setas, e o teclado. A lógica é
+bidimensional e vale a pena guardá-la:
+
+| tecla | faz |
+|---|---|
+| `←` `→` | muda de **documento** |
+| `↑` `↓` | muda de **página** dentro do documento |
+| `V` | valida |
+| `P` | publica |
+
+Clicar numa página abre-a em grande. O número de páginas aparece também em cada
+ficha da lista, antes sequer de abrir.
+
+> Até à 0.15 o painel mostrava **só a primeira página**, sem o dizer. Quem
+> validava um edital de cinco folhas via uma, e assinava uma certidão a afirmar
+> que o tinha afixado. Se vens de uma versão anterior, vale a pena reabrir o que
+> publicaste e conferir o resto.
+
+### Descartar, que não é apagar
+
+Um documento que não deve ir ao expositor — duplicado, engano, ou um registo
+antigo sem original nem data — sai da fila por **Descartar**. Pede **motivo**,
+que é obrigatório: guardar a linha e perder a razão seria guardar a parte que não
+interessa. O registo fica em «Descartados», com quem, quando e porquê no jornal
+de auditoria, e volta à fila quando se quiser.
+
+**Um edital publicado não se descarta.** Sai do ecrã por «Retirar do ecrã», que é
+o que carimba a desafixação e o que a certidão cita. O botão nem aparece nos
+publicados, em vez de aparecer e dar erro.
 
 Detalhes de usabilidade: cada estado tem o seu **carimbo** (Rascunho, Validado,
-Publicado, Retirado); os campos com leitura automática pouco fiável ficam
+Publicado, Retirado, Descartado); os campos com leitura automática pouco fiável ficam
 **assinalados a confirmar**; a atualização automática (20 s) **não apaga** o que
 estiver a ser escrito num formulário aberto; e o painel **arranca de imediato** —
 a composição das imagens 4K acontece em segundo plano, sem prender a interface.

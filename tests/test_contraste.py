@@ -45,6 +45,8 @@ PARES = [
     ("carimbo Validado",          "{--validado}",     "#eaf6ee",          AA_NORMAL),
     ("carimbo Publicado",         "{--publicado}",    "#e7f1eb",          AA_NORMAL),
     ("carimbo Retirado",          "{--retirado}",     "#f0ede4",          AA_NORMAL),
+    ("carimbo Descartado",        "{--descartado}",   "#eae7dd",          AA_NORMAL),
+    ("contador de páginas",       "#d8ebe0",          "{--verde-selo}",   AA_NORMAL),
     ("aviso 'a confirmar'",       "{--alerta}",       "{--alerta-fundo}", AA_NORMAL),
     ("nota de confiança",         "{--alerta}",       "{--papel-ficha}",  AA_NORMAL),
     ("botão Retirar (perigo)",    "{--alerta}",       "{--papel-ficha}",  AA_NORMAL),

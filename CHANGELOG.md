@@ -212,3 +212,57 @@ editais é vertical, e uma melhoria que estragasse esses seria mau negócio.
   terceira-parte numa clonagem limpa. A CI dizia verde e o computador de quem
   escrevia dizia vermelho, pelo mesmo código. Declarado em `pyproject.toml`
   (`src` e `known-first-party`), é igual em todo o lado.
+
+## 0.15.0 — O que a pessoa vê, e o que pode desfazer
+
+Dois defeitos apanhados no primeiro uso a sério, ambos do mesmo tipo: buracos
+entre o que o sistema faz e o que quem está ao teclado consegue ver ou desmanchar.
+
+### Corrigido
+- **O painel mostrava apenas a primeira página de cada documento.** A função que
+  escolhia a imagem devolvia `ficheiros_previa[0]` e mais nada. As
+  pré-visualizações das outras páginas eram geradas, guardadas e servidas — e
+  ignoradas. Não havia setas, nem contador, nem forma de lá chegar.
+
+  Não é cosmética. A vista de validação é o **único** ecrã onde uma pessoa
+  confere o que vai afixar, e mostrava-lhe uma folha de um documento com cinco.
+  Ao publicar, a aplicação emite uma certidão com o nome dessa pessoa a dizer que
+  foi ela que afixou aquele edital. Certificava-se o que não se tinha visto.
+
+  Passa a haver um visor com todas as páginas: miniaturas, contador, setas e
+  teclado (`↑ ↓` dentro do documento, `← →` entre documentos). As miniaturas são
+  deliberadamente visíveis em vez de um contador discreto — o problema não era
+  chegar às outras páginas, era não se saber que existiam. Pela mesma razão, o
+  número de páginas aparece agora em cada ficha da lista.
+
+  A barra ficou **acima** da imagem depois de uma primeira tentativa a ter posto
+  por baixo: num ecrã de 1080 caía abaixo da dobra, e uma pista que só se vê
+  depois de rolar não é uma pista.
+
+- **A máquina de estados não tinha saída.** O mapa de transições ia de rascunho
+  a retirado e nunca para fora; o que entrava no registo ficava lá para sempre.
+  Descobriu-se pela pior via: a migração do modelo antigo criou rascunhos de
+  editais sem data de publicação e sem ficheiro de origem, que não se conseguem
+  validar nem publicar, e que ficavam eternamente na fila «Por validar» a tapar
+  o trabalho a sério.
+
+### Acrescentado
+- **Estado `descartado`**, com secção própria no painel. Descartar **não é
+  apagar**, de propósito: a linha fica no registo, o motivo é obrigatório e vai
+  ao jornal de auditoria, e um clique repõe o documento na fila. Um registo de
+  editais municipais não deve perder linhas — deve marcá-las.
+- Um edital **publicado não se descarta**, e é a regra que interessa: sai do
+  ecrã por «Retirar», que é o que carimba a desafixação e o que a certidão cita.
+  Descartá-lo fá-lo-ia desaparecer do expositor sem ficar registado quem o
+  desafixou nem quando — o buraco que a Onda 2 existiu para tapar. O botão nem
+  aparece, em vez de aparecer e dar erro.
+- 27 testes novos: 15 do descarte (reversibilidade, motivo obrigatório, rasto de
+  auditoria, e a recusa de descartar um publicado), 10 do visor e 2 pares de
+  contraste. 299 no total.
+
+### Nota sobre a cobertura dos testes do visor
+Os testes do visor são análise estática do `painel.html`: garantem que a forma
+exata do defeito não volta — indexar a primeira página, ou um dos dois sítios de
+desenho ficar para trás numa alteração futura. **Não provam que funciona no
+browser**; isso foi verificado a olho, com um documento de três páginas, num
+ecrã de 1366×768. Vale na mesma: o defeito nasceu de uma linha com `[0]`.
