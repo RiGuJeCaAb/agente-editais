@@ -11,6 +11,7 @@
     --papel:#f4f1e8; --papel-ficha:#fffdf7; --papel-2:#e9e4d5;
     --tinta:#23291f; --tinta-suave:#64675c; --linha:#ddd6c4;
     --rascunho:#766c57; --validado:#297e50; --publicado:#0D4D33; --retirado:#736b5a;
+    --descartado:#5e5a50;
     --alerta:#926823; --alerta-fundo:#fbf3e2;
     --sombra-ficha:0 1px 2px rgba(6,39,26,.04),0 8px 24px rgba(6,39,26,.08);
     --sombra-carta:0 2px 6px rgba(6,39,26,.06),0 20px 50px rgba(6,39,26,.14);
@@ -81,6 +82,7 @@
   .carimbo.validado{color:var(--validado);border-color:var(--validado);background:#eaf6ee}
   .carimbo.publicado{color:var(--publicado);border-color:var(--publicado);background:#e7f1eb}
   .carimbo.retirado{color:var(--retirado);border-color:var(--retirado);background:#f0ede4}
+  .carimbo.descartado{color:var(--descartado);border-color:var(--descartado);background:#eae7dd}
 
   .grelha{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:16px}
   .ficha{background:var(--papel-ficha);border:1px solid var(--linha);border-radius:12px;
@@ -91,6 +93,11 @@
   .ficha.e-validado::before{background:var(--validado)}
   .ficha.e-publicado::before{background:var(--publicado)}
   .ficha.e-retirado::before{background:var(--retirado)}
+  .ficha.e-descartado::before{background:var(--descartado)}
+  /* Um descartado é passado: mostra-se, mas não compete pela atenção com o
+     trabalho a sério. Esbatido e sem relevo, em vez de escondido. */
+  .ficha.e-descartado{opacity:.72}
+  .ficha.e-descartado:hover{opacity:1}
   .ficha:hover{transform:translateY(-3px);box-shadow:var(--sombra-carta);border-color:var(--ouro)}
   .ficha .cab{display:flex;justify-content:space-between;align-items:flex-start;gap:10px;margin-bottom:9px}
   .ficha .reg{font-family:var(--serif);font-size:13px;color:var(--ouro-escuro);font-weight:700;letter-spacing:.02em}
@@ -100,17 +107,42 @@
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
   .ficha .meta{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--tinta-suave);
     border-top:1px dashed var(--linha);padding-top:9px}
-  .ficha .meta .l{display:flex;justify-content:space-between}
+  .ficha .meta .l{display:flex;justify-content:space-between;gap:10px}
+  .ficha .meta .l.motivo{flex-direction:column;gap:2px;align-items:flex-start;
+    border-top:1px dashed var(--linha);margin-top:4px;padding-top:6px}
+  .ficha .meta .l.motivo b{font-weight:600;font-style:italic;text-align:left}
   .ficha .meta b{color:var(--tinta);font-weight:600}
   .ficha .aviso{margin-top:10px;display:inline-flex;align-items:center;gap:5px;font-size:11px;
     color:var(--alerta);background:var(--alerta-fundo);border:1px solid #e9d3a3;border-radius:20px;padding:3px 9px;font-weight:600}
 
   .foco{display:grid;grid-template-columns:1.05fr .95fr;gap:28px;align-items:start;max-width:1200px}
   .foco .doc{background:var(--verde-selo);border-radius:14px;padding:16px;box-shadow:var(--sombra-carta);position:sticky;top:96px}
-  .foco .doc img{width:100%;border-radius:8px;display:block;background:var(--papel-2);min-height:200px}
+  .foco .doc img{width:100%;border-radius:8px;display:block;background:var(--papel-2);min-height:200px;
+    max-height:calc(100vh - 230px);object-fit:contain}
   /* Pré-visualização clicável: cursor de lupa e leve realce ao passar. */
   .previa-img{cursor:zoom-in;transition:filter .15s}
   .previa-img:hover{filter:brightness(1.04)}
+  /* Visor de páginas. Existe porque o painel mostrava só a primeira página de
+     cada documento e nada dizia que havia mais — validava-se às cegas a partir
+     da segunda folha. As miniaturas são deliberadamente visíveis em vez de um
+     contador discreto: o problema não era chegar às outras páginas, era não se
+     saber que existiam. */
+  .visor-barra{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+  .visor-barra button{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.22);
+    color:#fff;width:32px;height:32px;border-radius:8px;cursor:pointer;font-size:15px;
+    line-height:1;flex:0 0 auto;transition:.15s}
+  .visor-barra button:hover:not(:disabled){background:rgba(255,255,255,.26);border-color:var(--ouro)}
+  .visor-barra button:disabled{opacity:.3;cursor:not-allowed}
+  .visor-barra .conta{color:#d8ebe0;font-size:12.5px;font-weight:600;white-space:nowrap}
+  .visor-tiras{display:flex;gap:6px;overflow-x:auto;padding:2px 0;flex:1 1 auto;scrollbar-width:thin}
+  /* O seletor leva o `.foco .doc` à frente de propósito: sem ele, a regra
+     `.foco .doc img{width:100%}` ganha em especificidade e as miniaturas saem do
+     tamanho da folha inteira. Aconteceu, e via-se logo. */
+  .foco .doc .visor-tiras img{height:56px;width:auto;min-height:0;max-height:56px;
+    border-radius:4px;cursor:pointer;display:block;flex:0 0 auto;object-fit:cover;object-position:top;
+    border:2px solid transparent;filter:saturate(.25) brightness(.92);transition:.15s;background:#fff}
+  .foco .doc .visor-tiras img:hover{filter:none}
+  .foco .doc .visor-tiras img.atual{border-color:var(--ouro);filter:none}
   /* Lightbox de ampliação da pré-visualização. */
   .lightbox{position:fixed;inset:0;z-index:100;background:rgba(7,42,28,.92);
     display:none;align-items:center;justify-content:center;padding:32px}
@@ -199,6 +231,7 @@
   .coluna h3 .cnt{margin-left:auto;font-family:var(--serif);color:var(--tinta);font-weight:700}
   .coluna.c-rascunho h3 .pt{background:var(--rascunho)} .coluna.c-validado h3 .pt{background:var(--validado)}
   .coluna.c-publicado h3 .pt{background:var(--publicado)} .coluna.c-retirado h3 .pt{background:var(--retirado)}
+  .coluna.c-descartado h3 .pt{background:var(--descartado)}
   .coluna .ficha{margin-bottom:10px}
   .coluna .ficha .assunto{font-size:13.5px;-webkit-line-clamp:2}
 
@@ -254,6 +287,9 @@
       <button data-sec="arquivo">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="18" height="4" rx="1"/><path d="M5 7v13a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V7M10 11h4"/></svg>
         <span class="txt">Arquivo</span><span class="badge" id="b-arquivo">0</span></button>
+      <button data-sec="descartados">
+        <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 7h16M10 11v6M14 11v6"/><path d="M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12"/><path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+        <span class="txt">Descartados</span><span class="badge" id="b-descartados">0</span></button>
       <button data-sec="contas" style="display:none">
         <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="3.4"/><path d="M4.5 20a7.5 7.5 0 0 1 15 0"/></svg>
         <span class="txt">Contas</span></button>
@@ -296,21 +332,65 @@
     ecra:{titulo:'No ecrã',desc:'Editais publicados no expositor neste momento.',busca:false},
     validar:{titulo:'Por validar',desc:'Documentos recebidos à espera da sua validação.',busca:false},
     arquivo:{titulo:'Arquivo',desc:'Editais retirados do ecrã. Ficam guardados para consulta.',busca:true},
+    descartados:{titulo:'Descartados',desc:'Postos de parte, com o motivo. Nada foi apagado: qualquer um volta à fila.',busca:true},
     geral:{titulo:'Vista geral',desc:'Todos os editais, por estado.',busca:false},
     contas:{titulo:'Contas',desc:'Quem tem acesso ao painel. O nome de quem publica fica na certidão de afixação.',busca:false},
   };
   const fmtData=d=>{if(!d)return '—';const p=d.split('-');return p.length===3?`${p[2]}/${p[1]}/${p[0]}`:d;};
   const esc=s=>(s||'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  // Escolhe a melhor imagem para pré-visualizar um registo:
-  //  1º a pré-visualização leve (existe já no rascunho — o que interessa p/ validar);
-  //  2º o PNG final tratado (só existe depois de publicar);
-  //  senão, null (mostra-se texto).
-  function fontePrevia(r){
+  // TODAS as imagens de um registo, na ordem do documento:
+  //  1º as pré-visualizações leves (existem já no rascunho — é o que interessa
+  //     para validar, e há uma por PÁGINA);
+  //  2º os PNG finais tratados (só existem depois de publicar, e há um por ECRÃ,
+  //     que pode levar até três folhas);
+  //  senão, lista vazia (mostra-se texto).
+  //
+  // Devolvia só a primeira. Era esse o defeito: o operador validava e publicava
+  // documentos de que tinha visto uma página, e assinava uma certidão a dizer
+  // que os tinha afixado.
+  function paginasDe(r){
     if(r.ficheiros_previa && r.ficheiros_previa.length)
-      return '/previa/'+encodeURIComponent(r.ficheiros_previa[0]);
+      return r.ficheiros_previa.map(n=>'/previa/'+encodeURIComponent(n));
     if(r.ficheiros_png && r.ficheiros_png.length)
-      return '/saida/'+encodeURIComponent(r.ficheiros_png[0]);
-    return null;
+      return r.ficheiros_png.map(n=>'/saida/'+encodeURIComponent(n));
+    return [];
+  }
+  // Página que o visor está a mostrar, e de que registo. Guardar o id junto do
+  // índice é o que impede a recarga automática de 20 em 20 segundos de atirar
+  // quem está a ler a página 3 de volta para a 1 — e o que garante que mudar de
+  // documento recomeça na primeira.
+  let visorRid=null, paginaIdx=0;
+  function visorHTML(r, vazio){
+    const pgs=paginasDe(r);
+    if(r.id!==visorRid){ visorRid=r.id; paginaIdx=0; }
+    if(paginaIdx>=pgs.length) paginaIdx=Math.max(0, pgs.length-1);
+    if(!pgs.length)
+      return `<div class="doc-vazio">${esc(vazio)}</div>`;
+    const src=pgs[paginaIdx];
+    const img=`<img src="${src}" alt="Documento, página ${paginaIdx+1} de ${pgs.length}"
+      class="previa-img" data-full="${src}">`;
+    if(pgs.length===1) return img;
+    const tiras=pgs.map((u,i)=>
+      `<img src="${u}" alt="Página ${i+1}" data-pagina="${i}"
+        class="${i===paginaIdx?'atual':''}">`).join('');
+    // A barra vai ACIMA da imagem. Esteve por baixo durante uma tarde e foi
+    // parar abaixo da dobra num ecrã de 1080: quem validava continuava sem
+    // saber que havia mais páginas, que era exatamente o defeito a corrigir.
+    // Uma pista que só se vê depois de rolar não é uma pista.
+    return `
+      <div class="visor-barra">
+        <button id="pgPrev" ${paginaIdx===0?'disabled':''} aria-label="Página anterior">‹</button>
+        <span class="conta">${paginaIdx+1} / ${pgs.length}</span>
+        <div class="visor-tiras">${tiras}</div>
+        <button id="pgNext" ${paginaIdx===pgs.length-1?'disabled':''} aria-label="Página seguinte">›</button>
+      </div>`+img;
+  }
+  // Liga os controlos do visor. Chamada depois de cada render que use visorHTML.
+  function ligarVisor(redesenhar){
+    document.getElementById('pgPrev')?.addEventListener('click',()=>{paginaIdx--;redesenhar();});
+    document.getElementById('pgNext')?.addEventListener('click',()=>{paginaIdx++;redesenhar();});
+    document.querySelectorAll('.visor-tiras [data-pagina]').forEach(m=>
+      m.addEventListener('click',()=>{paginaIdx=+m.dataset.pagina;redesenhar();}));
   }
   function toast(msg,erro){const t=document.getElementById('toast');t.className='toast ver'+(erro?' erro':'');
     t.innerHTML=(erro?'⚠ ':'✓ ')+esc(msg);setTimeout(()=>t.classList.remove('ver'),2400);}
@@ -340,6 +420,7 @@
     document.getElementById('b-ecra').textContent=grupo('publicado').length;
     document.getElementById('b-validar').textContent=grupo('rascunho').length;
     document.getElementById('b-arquivo').textContent=grupo('retirado').length;
+    document.getElementById('b-descartados').textContent=grupo('descartado').length;
     document.querySelector('[data-sec="validar"]').classList.toggle('destaque',grupo('rascunho').length>0);
   }
   function irPara(sec){
@@ -358,6 +439,7 @@
     if(secAtual==='ecra') return renderLista(grupo('publicado'),'No ecrã, tudo tranquilo','Quando validar e publicar um edital, ele aparece aqui — e no expositor.');
     if(secAtual==='validar') return renderFoco();
     if(secAtual==='arquivo') return renderArquivo();
+    if(secAtual==='descartados') return renderDescartados();
     if(secAtual==='geral') return renderKanban();
     if(secAtual==='contas') return renderContas();
   }
@@ -373,18 +455,14 @@
     if(focoIdx>=fila.length)focoIdx=fila.length-1;
     const r=fila[focoIdx];
     const duv=cs=>(r.campos_duvidosos||[]).includes(cs)?'duvidoso':'';
-    // Preferir a pré-visualização LEVE (existe já no rascunho); se não houver,
-    // usar o PNG final (editais já publicados); só em último caso, texto vazio.
-    const imgSrc=fontePrevia(r);
-    const previa=imgSrc
-      ? `<img src="${imgSrc}" alt="Documento" class="previa-img" data-full="${imgSrc}">`
-      : `<div class="doc-vazio">Pré-visualização a ser gerada…<br>Confirme os dados e valide.</div>`;
+    // Todas as páginas, não só a primeira: é aqui que se decide afixar.
+    const previa=visorHTML(r,'Pré-visualização a ser gerada… Confirme os dados e valide.');
     c.innerHTML=`
       <div class="foco-nav">
         <button id="fPrev" ${focoIdx===0?'disabled':''} aria-label="Anterior">‹</button>
         <button id="fNext" ${focoIdx===fila.length-1?'disabled':''} aria-label="Seguinte">›</button>
         <span class="pos">Documento <b>${focoIdx+1}</b> de <b>${fila.length}</b> por validar</span>
-        <span class="atalhos" title="Atalhos de teclado">← → navegar · <b>V</b> validar · <b>P</b> publicar</span>
+        <span class="atalhos" title="Atalhos de teclado">← → documento · ↑ ↓ página · <b>V</b> validar · <b>P</b> publicar</span>
       </div>
       <div class="foco">
         <div class="doc">${previa}</div>
@@ -408,13 +486,14 @@
           <div class="acoes">
             <button class="btn btn-neutro" data-acao="guardar">Guardar</button>
             <button class="btn btn-validar larga" data-acao="validado">✓ Validar edital</button>
+            <button class="btn btn-neutro" data-acao="descartado">Descartar</button>
           </div>
           ${historicoHTML(r)}
         </div>
       </div>`;
     document.getElementById('fPrev')?.addEventListener('click',()=>{focoIdx--;render();});
     document.getElementById('fNext')?.addEventListener('click',()=>{focoIdx++;render();});
-    ligarAcoesFoco(r);ligarPrazos();
+    ligarVisor(render);ligarAcoesFoco(r);ligarPrazos();
   }
   function renderArquivo(){
     const c=document.getElementById('conteudo');
@@ -425,9 +504,19 @@
       termoBusca?'Nenhum edital corresponde à procura.':'Os editais retirados do ecrã aparecem aqui.');return;}
     c.innerHTML='<div class="grelha">'+regs.map(fichaHTML).join('')+'</div>';ligarFichas();
   }
+  function renderDescartados(){
+    const c=document.getElementById('conteudo');
+    let regs=grupo('descartado');
+    if(termoBusca){const q=termoBusca.toLowerCase();
+      regs=regs.filter(r=>(r.assunto||'').toLowerCase().includes(q)||(r.numero||'').toLowerCase().includes(q));}
+    if(!regs.length){c.innerHTML=estadoVazio(termoBusca?'Sem resultados':'Nada descartado',
+      termoBusca?'Nenhum descartado corresponde à procura.':'Quando puser um documento de parte, ele fica aqui — com o motivo, e pronto a voltar.');return;}
+    c.innerHTML='<div class="grelha">'+regs.map(fichaHTML).join('')+'</div>';ligarFichas();
+  }
   function renderKanban(){
     const c=document.getElementById('conteudo');
-    const cols=[['rascunho','Rascunho'],['validado','Validado'],['publicado','Publicado'],['retirado','Retirado']];
+    const cols=[['rascunho','Rascunho'],['validado','Validado'],['publicado','Publicado'],
+                ['retirado','Retirado'],['descartado','Descartado']];
     c.innerHTML='<div class="kanban">'+cols.map(([e,t])=>{
       const regs=grupo(e);
       return `<div class="coluna c-${e}"><h3><span class="pt"></span>${t}<span class="cnt">${regs.length}</span></h3>
@@ -511,16 +600,28 @@
     window.location.href='/entrar';
   }
 
+  // Motivo com que um registo foi descartado: é o último evento do histórico
+  // que aponta para «descartado». Vive no histórico e não num campo próprio,
+  // porque descartar e repor pode acontecer mais do que uma vez e o que
+  // interessa é o motivo desta vez.
+  function motivoDescarte(r){
+    const evs=(r.historico||[]).filter(h=>h.para==='descartado');
+    return evs.length ? (evs[evs.length-1].nota||'') : '';
+  }
   function fichaHTML(r){
     const duv=(r.campos_duvidosos||[]).length;
     const aviso=duv?`<div class="aviso">⚠ ${duv} campo${duv>1?'s':''} a confirmar</div>`:'';
+    const motivo=r.estado==='descartado'?motivoDescarte(r):'';
+    const linhaMotivo=motivo?`<div class="l motivo"><span>Motivo do descarte</span><b>${esc(motivo)}</b></div>`:'';
     return `<div class="ficha e-${r.estado}" data-id="${r.id}">
       <div class="cab"><div class="reg">${r.numero?esc(r.numero):'—'}<small>Registo #${r.id}</small></div>
         <span class="carimbo ${r.estado}">${LABELS[r.estado]||r.estado}</span></div>
       <div class="assunto">${esc(r.assunto)||'<em style="color:var(--tinta-suave)">sem assunto</em>'}</div>
       <div class="meta">
+        <div class="l"><span>Páginas</span><b>${r.num_paginas||'—'}</b></div>
         <div class="l"><span>Publicação</span><b>${fmtData(r.data_publicacao)}</b></div>
         <div class="l"><span>Retirada</span><b>${fmtData(r.data_retirada)}</b></div>
+        ${linhaMotivo}
       </div>${aviso}</div>`;
   }
   // Os instantes que a certidão vai citar, à vista de quem está a trabalhar.
@@ -559,20 +660,22 @@
   function abrirDetalhe(r){
     if(r.estado==='rascunho'){irPara('validar');const fila=grupo('rascunho');focoIdx=Math.max(0,fila.findIndex(x=>x.id===r.id));render();return;}
     const duv=cs=>(r.campos_duvidosos||[]).includes(cs)?'duvidoso':'';
-    const imgSrc=fontePrevia(r);
-    const previa=imgSrc
-      ? `<img src="${imgSrc}" alt="Documento" class="previa-img" data-full="${imgSrc}">`
-      : `<div class="doc-vazio">Sem pré-visualização.</div>`;
+    const previa=visorHTML(r,'Sem pré-visualização.');
     // A certidão só existe depois de haver afixação para certificar. Antes
     // disso o botão não aparece, em vez de aparecer e dar erro.
     const certidao = r.afixado_em
       ? `<a class="btn btn-certidao" href="/certidao/${r.id}" target="_blank" rel="noopener">Certidão de afixação</a>`
       : '';
+    // Um publicado NÃO se descarta: sai do ecrã por «Retirar», que é o que
+    // carimba a desafixação e alimenta a certidão. O botão nem aparece, para
+    // ninguém ter de descobrir pela mensagem de erro.
     const acoes = r.estado==='publicado'
       ? `<button class="btn btn-neutro" data-acao="guardar">Guardar</button>${certidao}<button class="btn btn-perigo larga" data-acao="retirado">Retirar do ecrã</button>`
       : r.estado==='validado'
-      ? `<button class="btn btn-neutro" data-acao="guardar">Guardar</button><button class="btn btn-acao" data-acao="publicado">▲ Publicar no ecrã</button><button class="btn btn-neutro" data-acao="rascunho">Devolver</button>`
-      : `${certidao}<button class="btn btn-acao larga" data-acao="publicado">Repor no ecrã</button>`;
+      ? `<button class="btn btn-neutro" data-acao="guardar">Guardar</button><button class="btn btn-acao" data-acao="publicado">▲ Publicar no ecrã</button><button class="btn btn-neutro" data-acao="rascunho">Devolver</button><button class="btn btn-neutro" data-acao="descartado">Descartar</button>`
+      : r.estado==='descartado'
+      ? `<button class="btn btn-acao larga" data-acao="rascunho">Repor na fila</button>`
+      : `${certidao}<button class="btn btn-acao larga" data-acao="publicado">Repor no ecrã</button><button class="btn btn-neutro" data-acao="descartado">Descartar</button>`;
     const c=document.getElementById('conteudo');
     c.innerHTML=`<div class="foco-nav"><button id="voltar" aria-label="Voltar">‹</button><span class="pos">Voltar a ${SEC[secAtual].titulo}</span></div>
       <div class="foco"><div class="doc">${previa}</div>
@@ -590,7 +693,7 @@
         ${historicoHTML(r)}
       </div></div>`;
     document.getElementById('voltar').addEventListener('click',()=>render());
-    ligarAcoesFoco(r);ligarPrazos();
+    ligarVisor(()=>abrirDetalhe(r));ligarAcoesFoco(r);ligarPrazos();
   }
   // O tipo de documento decide o prazo proposto e a norma citada na certidão.
   // Fica ANTES das datas de propósito: escolher o tipo é o que dá sentido ao
@@ -688,10 +791,21 @@
       const assunto=(r.assunto||'este edital').slice(0,60);
       if(!confirm(`Retirar do ecrã?\n\n"${assunto}"\n\nDeixa de aparecer no expositor. O ficheiro fica guardado no arquivo e pode ser reposto depois.`)) return;
     }
+    // Descartar pede motivo, e o servidor recusa sem ele. É pedido aqui para a
+    // pessoa o escrever enquanto sabe porquê — daqui a seis meses, quem abrir o
+    // registo só tem esta frase para perceber o que aconteceu.
+    let nota='';
+    if(a==='descartado'){
+      const assunto=(r.assunto||'este documento').slice(0,60);
+      nota=prompt(`Descartar "${assunto}"?\n\nSai da fila mas NÃO é apagado: fica em «Descartados», com o motivo, e volta com um clique.\n\nMotivo:`,'');
+      if(nota===null) return;                       // cancelou
+      if(!nota.trim()){toast('Descartar exige um motivo',true);return;}
+    }
     const res=await(await fetch('/api/estado',{method:'POST',headers:CAB_ESCRITA,
-      body:JSON.stringify({id:r.id,estado:a})})).json();
+      body:JSON.stringify({id:r.id,estado:a,nota:nota})})).json();
     if(!res.ok){toast(res.erro||'Ação não permitida',true);return;}
-    const nomes={validado:'Edital validado',publicado:'Publicado no ecrã',rascunho:'Devolvido a rascunho',retirado:'Retirado do ecrã'};
+    const nomes={validado:'Edital validado',publicado:'Publicado no ecrã',rascunho:'Devolvido à fila',
+                 retirado:'Retirado do ecrã',descartado:'Descartado — está em «Descartados»'};
     toast(nomes[a]||'Feito');await carregar();render();
   }
   document.querySelectorAll('#nav button').forEach(b=>b.addEventListener('click',()=>irPara(b.dataset.sec)));
@@ -719,6 +833,11 @@
       if(lb.classList.contains('aberto')){ fecharLightbox(); return; } }
     const aEditar=document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName);
     if(aEditar) return;
+    // Vertical = dentro do documento, horizontal = entre documentos. As setas
+    // de página valem em qualquer secção, porque o visor também está na vista
+    // de detalhe de um edital já publicado.
+    if(e.key==='ArrowDown'){document.getElementById('pgNext')?.click();e.preventDefault();}
+    if(e.key==='ArrowUp'){document.getElementById('pgPrev')?.click();e.preventDefault();}
     if(secAtual==='validar'){
       if(e.key==='ArrowRight')document.getElementById('fNext')?.click();
       if(e.key==='ArrowLeft')document.getElementById('fPrev')?.click();

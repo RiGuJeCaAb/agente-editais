@@ -41,32 +41,55 @@ from datetime import date, datetime
 import armazenamento as arm
 import prazos as pr
 
-# Os quatro estados do ciclo de vida. Usar constantes (e não strings soltas pelo
+# Os estados do ciclo de vida. Usar constantes (e não strings soltas pelo
 # código) evita gralhas silenciosas do tipo "Publicado" vs "publicado".
-RASCUNHO  = "rascunho"
-VALIDADO  = "validado"
-PUBLICADO = "publicado"
-RETIRADO  = "retirado"
+RASCUNHO   = "rascunho"
+VALIDADO   = "validado"
+PUBLICADO  = "publicado"
+RETIRADO   = "retirado"
+DESCARTADO = "descartado"
 
-ESTADOS = (RASCUNHO, VALIDADO, PUBLICADO, RETIRADO)
+ESTADOS = (RASCUNHO, VALIDADO, PUBLICADO, RETIRADO, DESCARTADO)
 
 # Rótulos legíveis para o painel (PT-PT), separados dos valores internos.
 ESTADO_LABEL = {
-    RASCUNHO:  "Rascunho",
-    VALIDADO:  "Validado",
-    PUBLICADO: "Publicado",
-    RETIRADO:  "Retirado",
+    RASCUNHO:   "Rascunho",
+    VALIDADO:   "Validado",
+    PUBLICADO:  "Publicado",
+    RETIRADO:   "Retirado",
+    DESCARTADO: "Descartado",
 }
 
 # Transições autorizadas: de que estado se pode ir para que estados. Qualquer
 # tentativa fora deste mapa é rejeitada por mover_estado() — a máquina de estados
 # é a rede de segurança contra fluxos inválidos (ex.: publicar sem validar).
+#
+# DESCARTADO entrou porque a máquina não tinha saída nenhuma: o que entrava
+# ficava para sempre, e um registo que só cresce enche-se de lixo. A migração do
+# modelo antigo trouxe o caso concreto — editais sem data de publicação e sem
+# ficheiro de origem, que não se conseguem validar nem publicar, e que ficavam
+# eternamente na fila «Por validar» a tapar o trabalho a sério.
+#
+# Descartar NÃO é apagar, de propósito: a linha fica no registo, com o motivo e
+# no jornal de auditoria, e volta atrás com um clique. Um registo de editais
+# municipais não deve perder linhas — deve marcá-las.
+#
+# PUBLICADO não descarta, e esta é a regra que interessa: um edital que está no
+# expositor sai de lá por RETIRADO, que é o que carimba `desafixado_em` e o que
+# a certidão de desafixação cita. Descartá-lo fá-lo-ia desaparecer do ecrã sem
+# que ficasse registado quem o desafixou nem quando — exatamente o buraco que a
+# Onda 2 existiu para tapar. Quem quiser descartar um publicado, retira-o
+# primeiro, e o ato fica documentado.
 TRANSICOES = {
-    RASCUNHO:  {VALIDADO},
-    VALIDADO:  {PUBLICADO, RASCUNHO},
-    PUBLICADO: {RETIRADO},
-    RETIRADO:  {PUBLICADO},
+    RASCUNHO:   {VALIDADO, DESCARTADO},
+    VALIDADO:   {PUBLICADO, RASCUNHO, DESCARTADO},
+    PUBLICADO:  {RETIRADO},
+    RETIRADO:   {PUBLICADO, DESCARTADO},
+    DESCARTADO: {RASCUNHO},
 }
+
+# Estados que a fila de trabalho e o expositor ignoram por completo.
+ESTADOS_INATIVOS = (DESCARTADO,)
 
 # Limiar abaixo do qual um campo lido automaticamente é considerado "duvidoso" e
 # o painel o assinala a pedir verificação. 0.6 é o ponto onde uma heurística de
@@ -453,6 +476,14 @@ class RegistoEntrada:
             if novo_estado == VALIDADO and not reg.get("data_publicacao"):
                 return {"ok": False,
                         "erro": "Falta a data de publicação (obrigatória).",
+                        "registo": reg}
+            # Descartar exige motivo escrito. Não apagar só vale a pena se daqui
+            # a seis meses alguém conseguir saber porque é que aquele edital saiu
+            # da fila; sem motivo, o registo guarda a linha e perde a razão, que
+            # é a parte que interessa.
+            if novo_estado == DESCARTADO and not (nota or "").strip():
+                return {"ok": False,
+                        "erro": "Descartar exige um motivo.",
                         "registo": reg}
             # Carimbar os instantes que a certidão vai citar. A primeira
             # publicação é a afixação; as reposições seguintes não a reescrevem,
