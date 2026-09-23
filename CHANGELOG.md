@@ -357,3 +357,69 @@ foi feita à mão sobre o diff, e encontrou três coisas:
 37 novos, 336 no total. Os dois que mais interessam não testam funcionalidade,
 testam **contenção**: `--conferir` não mexe num único ficheiro nem num único
 estado, e a exportação não apaga uma pasta que não tenha sido ela a criar.
+
+## 0.17.0 — Onda 3 (3/4): ler aos bocados, e dizer em que vai
+
+### Corrigido
+- **A leitura de um documento carregava todas as páginas rasterizadas de uma
+  vez.** Medido a sério, com o RSS do processo e não com o `tracemalloc` — que
+  não vê estes buffers, porque são do PyMuPDF em C:
+
+  | páginas | antes | agora |
+  |---|---|---|
+  | 5 | 126 MB · 0,13 s | 48 MB · 0,15 s |
+  | 20 | 392 MB · 2,19 s | 48 MB · 0,60 s |
+  | 50 | **903 MB** · 5,10 s | **48 MB** · 1,49 s |
+
+  Linear e sem tecto: 100 páginas pediam quase 2 GB. Num portátil de serviço
+  isso não é lentidão, é o processo a morrer — e morre no documento grande, que é
+  o que ninguém quer ter de voltar a tratar. Passa a ser **constante**.
+
+  A peça que torna isto possível é o tamanho de cada página sair do PDF **sem
+  rasterizar nada**, e é só disso que o agrupamento por orientação precisa.
+  Decide-se primeiro o que vai com o quê, e só então se rasterizam as (até três)
+  páginas do ecrã que se está a compor.
+
+  Os metadados também deixam de exigir rasterização: num PDF com texto
+  pesquisável, que é a maioria dos editais, lêem-se em **0,057 s e 6 MB** contra
+  os 3,76 s e 900 MB de antes. Só um documento sem texto — uma digitalização, um
+  printscreen — obriga a rasterizar uma página, para o OCR ter de onde ler.
+
+- **O painel não dizia nada enquanto trabalhava.** Compor os ecrãs de um edital
+  de vinte páginas leva dezenas de segundos entre carregar em «Publicar» e a
+  imagem aparecer na televisão. Durante esse tempo quem estava ao teclado tinha
+  duas hipóteses igualmente más: esperar sem saber se alguma coisa estava a
+  acontecer, ou carregar outra vez — que é o que as pessoas fazem, e com razão.
+
+### Acrescentado
+- `lib/progresso.py` e uma faixa no painel: «A compor os ecrãs de
+  «edital_grande.pdf» (3 de 8)». Enquanto há trabalho, o painel sonda de 3 em 3
+  segundos em vez de 20 — uma barra que só se mexe de vinte em vinte segundos
+  não é progresso, é um cartaz. Acabado o trabalho, volta ao ritmo lento.
+
+  Não é uma fila de tarefas, e não finge sê-lo: o agente faz uma coisa de cada
+  vez, e o que faltava responder é «está a fazer o quê, e em que ponto». Uma
+  fila com prioridades e cancelamento resolveria um problema que este posto não
+  tem.
+- `tratamento.agrupar_indices()`: a regra de agrupamento a trabalhar sobre
+  dimensões em vez de imagens. `agrupar_ecras()` passou a delegar aqui, para a
+  regra viver num sítio só — uma segunda cópia era o caminho certo para os dois
+  agrupamentos discordarem um dia, e para o ecrã da televisão ficar diferente do
+  que o painel mostrou.
+- 31 testes novos, 368 no total.
+
+### Garantido
+**A composição é idêntica ao bit.** Seis formas de documento — uma, duas, três e
+cinco verticais, uma deitada, e um misto — compostas pelos dois caminhos e
+comparadas pelo resumo SHA-256 de cada PNG: **9 imagens, 9 iguais, 0 diferentes.**
+O teste corre em cada execução, e não foi uma verificação de uma vez.
+
+Esta peça é desempenho, e uma melhoria de desempenho que muda o que aparece na
+televisão não é uma melhoria — é uma regressão com um gráfico bonito.
+
+### O que esta peça NÃO resolve
+A composição 4K continua a custar **~2,5 s e ~650 MB de pico por ecrã**, e isso
+não mudou. A diferença é que esse custo é **por ecrã** e não por documento: era
+o crescimento sem tecto da leitura que matava o processo, e é esse que
+desapareceu. Um documento de trezentas páginas passa a ser lento; deixa de ser
+impossível.

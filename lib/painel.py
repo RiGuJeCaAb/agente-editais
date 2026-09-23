@@ -38,6 +38,7 @@ from urllib.parse import urlparse
 import certidao as cert_mod
 import diario
 import prazos as pr_mod
+import progresso as prog
 import registo as reg_mod
 import utilizadores as utl
 
@@ -346,9 +347,15 @@ class PainelServer:
                 if rota in ("/", "/index.html", "/painel"):
                     return servidor._servir_html(self)
                 if rota == "/api/registos":
+                    # O progresso viaja com os registos, na sondagem que o
+                    # painel já faz, em vez de numa rota própria: uma segunda
+                    # sondagem a bater no servidor de dois em dois segundos, só
+                    # para saber se há trabalho em curso, era pagar um custo
+                    # permanente por uma informação que quase sempre é «nada».
                     return self._json({"registos": servidor.registo.todos(),
                                        "estados": reg_mod.ESTADO_LABEL,
                                        "tipos": pr_mod.tipos_para_painel(),
+                                       "progresso": prog.frase(),
                                        "sessao": {"nome": sessao["nome"],
                                                   "nome_completo": sessao["nome_completo"],
                                                   "papel": sessao["papel"]}})

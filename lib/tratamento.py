@@ -121,15 +121,39 @@ def agrupar_ecras(paginas):
     Returns:
         list[list[PIL.Image.Image]]: um bloco por ecrã.
     """
+    blocos = agrupar_indices([p.size for p in paginas])
+    return [[paginas[i] for i in bloco] for bloco in blocos]
+
+
+def agrupar_indices(dimensoes):
+    """Distribui páginas por ecrãs conhecendo apenas as dimensões de cada uma.
+
+    É a mesma regra de `agrupar_ecras`, a trabalhar sobre (largura, altura) em
+    vez de imagens. Existe porque as dimensões de um PDF lêem-se sem rasterizar
+    nada: decide-se primeiro o que vai com o quê, e só depois se rasteriza — e só
+    as páginas do ecrã que se está a compor. É o que permite tratar um documento
+    de cem páginas com três em memória em vez de cem.
+
+    `agrupar_ecras` passou a delegar aqui, para a regra viver num sítio só. Uma
+    segunda cópia da regra era o caminho certo para o agrupamento em streaming e
+    o agrupamento normal discordarem um dia, e para o ecrã da televisão ficar
+    diferente do que o painel mostrou.
+
+    Args:
+        dimensoes (list[tuple[int, int]]): (largura, altura) de cada página.
+
+    Returns:
+        list[list[int]]: um bloco de índices por ecrã.
+    """
     ecras, atual = [], []
-    for pagina in paginas:
-        if e_horizontal(pagina):
+    for i, (largura, altura) in enumerate(dimensoes):
+        if altura > 0 and (largura / altura) >= RACIO_HORIZONTAL:
             if atual:
                 ecras.append(atual)
                 atual = []
-            ecras.append([pagina])          # ecrã só para ela
+            ecras.append([i])               # ecrã só para ela
             continue
-        atual.append(pagina)
+        atual.append(i)
         if len(atual) == MAX_POR_ECRA:
             ecras.append(atual)
             atual = []

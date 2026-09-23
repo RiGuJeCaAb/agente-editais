@@ -308,6 +308,7 @@ agente_editais/
     ├── diario.py        # registo técnico (níveis, rotação)
     ├── documentos.py    # conversão + extração de metadados
     ├── conferencia.py   # compara o registo com o disco (relata, não corrige)
+    ├── progresso.py     # o que o agente está a fazer agora, para o painel mostrar
     ├── entrada.html     # página de início de sessão
     ├── exportacao.py    # pastas por estado, construídas a partir do registo
     ├── migracao.py      # traz o modelo antigo para o registo (código com prazo)
@@ -323,7 +324,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 336 testes
+pytest          # 368 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -475,6 +476,25 @@ ficha da lista, antes sequer de abrir.
 > validava um edital de cinco folhas via uma, e assinava uma certidão a afirmar
 > que o tinha afixado. Se vens de uma versão anterior, vale a pena reabrir o que
 > publicaste e conferir o resto.
+
+### Enquanto o agente trabalha
+
+Compor os ecrãs 4K de um edital demora — cerca de **2,5 segundos por ecrã**, e um
+documento de vinte páginas dá oito ecrãs. O painel mostra uma faixa a dizer em
+que vai:
+
+> A compor os ecrãs de «edital_grande.pdf» (3 de 8)
+
+Enquanto há trabalho, o painel actualiza-se de 3 em 3 segundos; em repouso, de 20
+em 20. Não é preciso carregar outra vez em «Publicar»: se a faixa está lá, está a
+andar.
+
+**Documentos grandes.** Até à 0.17 a leitura carregava todas as páginas para
+memória ao mesmo tempo — cerca de 18 MB por página, sem tecto, o que fazia um
+documento de 50 páginas pedir 900 MB e um de 100 quase 2 GB. Passou a ler uma
+página de cada vez: **48 MB, seja o documento de 5 ou de 500 páginas.** O que
+continua a custar é a composição, ~650 MB por ecrã — mas por ecrã, não por
+documento.
 
 ### Descartar, que não é apagar
 

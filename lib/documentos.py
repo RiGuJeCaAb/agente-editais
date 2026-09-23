@@ -239,6 +239,158 @@ def to_pages_and_text(path, workdir):
     raise ValueError(f"Formato não suportado: {ext}")
 
 
+# ===========================================================================
+# Leitura em streaming: uma página de cada vez, em vez do documento inteiro.
+#
+# `to_pages_and_text` devolve a lista completa de páginas já rasterizadas, e foi
+# assim desde o início. Medido a sério, custa ~18 MB por página, linear e sem
+# tecto: 50 páginas pedem 950 MB e 100 pedem quase 2 GB. Num portátil de serviço
+# isso não é lentidão, é o processo a morrer — e morre precisamente no documento
+# grande, que é o que ninguém quer ter de voltar a tratar.
+#
+# Quem consome as páginas nunca precisa delas todas ao mesmo tempo:
+#   - a ingestão faz uma pré-visualização por página e deita a página fora;
+#   - a composição junta até três páginas num ecrã, e depois passa ao seguinte.
+#
+# A peça que torna isto possível é `dimensoes_das_paginas`: o tamanho de cada
+# página sai do PDF sem rasterizar coisa nenhuma, e é só disso que o agrupamento
+# por orientação precisa. Decide-se primeiro o que vai com o quê, e só depois se
+# rasteriza — e só o que faz falta.
+# ===========================================================================
+def dimensoes_das_paginas(path, workdir, zoom=3.0):
+    """Dimensões de cada página, SEM rasterizar nenhuma.
+
+    Para um PDF, sai do retângulo da página multiplicado pelo zoom — a mesma
+    conta que a rasterização faria, sem pagar os píxeis. Para uma imagem, o PIL
+    lê o cabeçalho sem descodificar o corpo.
+
+    Args:
+        path (str): caminho do documento.
+        workdir (str): pasta de trabalho (para a conversão de Word).
+        zoom (float): o mesmo fator da rasterização, para as contas baterem.
+
+    Returns:
+        list[tuple[int, int]]: (largura, altura) de cada página, em píxeis.
+
+    Raises:
+        ValueError: se a extensão não for suportada.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext in WORD_EXT:
+        path, ext = _word_to_pdf(path, workdir), ".pdf"
+    if ext in PDF_EXT:
+        if fitz is None:
+            raise RuntimeError("PyMuPDF não instalado (pip install pymupdf)")
+        doc = fitz.open(path)
+        try:
+            # round() e não int(): é o que o get_pixmap faz ao arredondar a
+            # matriz, e a diferença de um píxel mudaria a orientação de uma
+            # página quase quadrada.
+            return [(round(p.rect.width * zoom), round(p.rect.height * zoom))
+                    for p in doc]
+        finally:
+            doc.close()
+    if ext in IMG_EXT:
+        with Image.open(path) as im:
+            return [im.size]
+    raise ValueError(f"Formato não suportado: {ext}")
+
+
+def paginas_uma_a_uma(path, workdir, indices=None, zoom=3.0):
+    """Gera as páginas de um documento, uma de cada vez.
+
+    Quem consome fica com uma página em memória em vez do documento inteiro. Com
+    `indices`, rasteriza só as que pedir — é o que permite à composição tratar um
+    ecrã de cada vez sem tocar no resto do documento.
+
+    Args:
+        path (str): caminho do documento.
+        workdir (str): pasta de trabalho (para a conversão de Word).
+        indices (list[int]|None): índices a rasterizar, ou None para todas.
+        zoom (float): fator de ampliação (3.0 ≈ 216 dpi, como o resto do agente).
+
+    Yields:
+        tuple[int, PIL.Image.Image]: (índice da página, página rasterizada).
+
+    Raises:
+        ValueError: se a extensão não for suportada.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext in WORD_EXT:
+        path, ext = _word_to_pdf(path, workdir), ".pdf"
+    if ext in PDF_EXT:
+        if fitz is None:
+            raise RuntimeError("PyMuPDF não instalado (pip install pymupdf)")
+        doc = fitz.open(path)
+        try:
+            quais = range(len(doc)) if indices is None else indices
+            for i in quais:
+                pix = doc[i].get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+                yield i, Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+                # Largar o pixmap explicitamente: o buffer é do PyMuPDF, em C, e
+                # o contador de referências do Python não sabe o tamanho dele.
+                # Sem isto, a libertação fica ao critério do coletor e o pico de
+                # memória volta a ser o do documento inteiro.
+                del pix
+        finally:
+            doc.close()
+        return
+    if ext in IMG_EXT:
+        if indices is None or 0 in indices:
+            yield 0, Image.open(path).convert("RGB")
+        return
+    raise ValueError(f"Formato não suportado: {ext}")
+
+
+def ler_metadados(path, workdir):
+    """Texto e número de páginas de um documento, sem o rasterizar inteiro.
+
+    É a variante em streaming de `ler_documento`: devolve o que os metadados
+    precisam — o texto e a contagem — sem as páginas. Para um PDF com texto
+    pesquisável, que é a maioria dos editais, não se rasteriza nada de todo.
+    Só um documento sem texto (uma digitalização, um printscreen) obriga a
+    rasterizar UMA página para o OCR.
+
+    Quem precisar das imagens pede-as a seguir, uma de cada vez, a
+    `paginas_uma_a_uma`.
+
+    Args:
+        path (str): caminho do documento.
+        workdir (str): pasta de trabalho (para a conversão de Word).
+
+    Returns:
+        dict: {"text": str, "ocr": bool, "paginas": int}
+
+    Raises:
+        ValueError: se a extensão não for suportada.
+    """
+    ext = os.path.splitext(path)[1].lower()
+    if ext in WORD_EXT:
+        path, ext = _word_to_pdf(path, workdir), ".pdf"
+    if ext in PDF_EXT:
+        if fitz is None:
+            raise RuntimeError("PyMuPDF não instalado (pip install pymupdf)")
+        doc = fitz.open(path)
+        try:
+            n = len(doc)
+            # O texto vem de TODAS as páginas: o número, a data ou o assunto
+            # podem estar em qualquer uma, não só na primeira.
+            texto = "\n".join(p.get_text() for p in doc)
+        finally:
+            doc.close()
+        if len(texto.strip()) >= 20 or not n:
+            return {"text": texto, "ocr": False, "paginas": n}
+        # Sem texto útil: é digitalização. Rasteriza-se a primeira página, e só
+        # essa, para o OCR ter de onde ler.
+        for _i, pagina in paginas_uma_a_uma(path, workdir, indices=[0]):
+            return {"text": _ocr_imagem(pagina), "ocr": True, "paginas": n}
+        return {"text": texto, "ocr": False, "paginas": n}
+    if ext in IMG_EXT:
+        with Image.open(path) as im:
+            return {"text": _ocr_imagem(im.convert("RGB")), "ocr": True, "paginas": 1}
+    raise ValueError(f"Formato não suportado: {ext}")
+
+
 def to_image_and_text(path, workdir):
     """Atalho de compatibilidade: devolve apenas a 1ª página + texto.
 
