@@ -176,13 +176,24 @@ def test_o_timbre_e_reconhecido_como_entidade():
     "ASSEMBLEIA MUNICIPAL DE MOIMENTA DA BEIRA",
     "JUNTA DE FREGUESIA DE LEOMIL",
     "União das Freguesias de Moimenta e Ariz",
+    "REPÚBLICA PORTUGUESA",
+])
+def test_a_instituicao_e_timbre_esteja_onde_estiver(linha):
+    """O nome da instituição nunca é o assunto de coisa nenhuma."""
+    assert doc.e_cabecalho(linha) is True
+    assert doc.e_cabecalho(linha, no_topo=True) is True
+
+
+@pytest.mark.parametrize("linha", [
     "Divisão de Obras e Urbanismo",
     "Departamento de Ação Social",
     "Gabinete de Apoio ao Munícipe",
-    "REPÚBLICA PORTUGUESA",
+    "Divisão Administrativa e Financeira",
 ])
-def test_reconhece_as_linhas_de_timbre(linha):
-    assert doc.e_cabecalho(linha) is True
+def test_a_unidade_so_e_timbre_no_alto_da_folha(linha):
+    """O serviço emissor vive no timbre, e o timbre vive no alto."""
+    assert doc.e_cabecalho(linha, no_topo=True) is True
+    assert doc.e_cabecalho(linha) is False
 
 
 @pytest.mark.parametrize("linha", [
@@ -190,12 +201,53 @@ def test_reconhece_as_linhas_de_timbre(linha):
     "Aviso aos munícipes sobre a recolha de resíduos verdes",
     "FICHA DE PROJETO",
     "Regulamento municipal de trânsito",
+    # Estes são o motivo de haver duas listas em vez de uma. São títulos de
+    # edital perfeitamente vulgares numa câmara, e começam todos por uma palavra
+    # que também abre o nome de um serviço. A primeira versão desta correção
+    # engolia-os aos sete, e o teste que devia apanhá-lo só usava títulos que
+    # não começavam por essas palavras — passava com o buraco aberto.
+    "SERVIÇOS MÍNIMOS DURANTE A GREVE DOS TRABALHADORES",
+    "SERVIÇO DE ÁGUAS — INTERRUPÇÃO DO ABASTECIMENTO",
+    "UNIDADE DE SAÚDE FAMILIAR — NOVO HORÁRIO",
+    "DEPARTAMENTO DE OBRAS — ABERTURA DE CONCURSO PÚBLICO",
+    "GABINETE DE APOIO AO EMPRESÁRIO — CANDIDATURAS ABERTAS",
+    "SETOR DA EDUCAÇÃO — TRANSPORTES ESCOLARES 2026/2027",
+    "DIVISÃO DE URBANISMO — CONSULTA PÚBLICA DO PDM",
 ])
-def test_nao_confunde_um_assunto_com_um_timbre(linha):
+def test_um_titulo_de_edital_nunca_e_timbre_fora_do_alto(linha):
     """«DELIBERAÇÕES DA ASSEMBLEIA MUNICIPAL ...» começa por uma palavra de
     matéria e só depois nomeia o órgão: é assunto, e tem de continuar a sê-lo.
-    Uma exclusão demasiado larga calaria o assunto verdadeiro."""
+    Uma exclusão demasiado larga calaria o assunto verdadeiro — que é trocar um
+    defeito por outro, e por um pior, porque este é silencioso."""
     assert doc.e_cabecalho(linha) is False
+
+
+def test_um_edital_pode_chamar_se_servicos_minimos():
+    """O caso que a primeira versão da correção partia: abaixo do marcador
+    «EDITAL» o que vem é o título, sempre, custe o que custar à heurística."""
+    m = doc.extract_metadata(
+        "MUNICÍPIO DE MOIMENTA DA BEIRA\n"
+        "Divisão Administrativa\n"
+        "EDITAL\n"
+        "SERVIÇOS MÍNIMOS DURANTE A GREVE DOS TRABALHADORES\n"
+        "Número: 2026-0031\n", fallback_name="edital.pdf")
+    assert m["assunto"] == "SERVIÇOS MÍNIMOS DURANTE A GREVE DOS TRABALHADORES"
+    assert m["confianca"]["assunto"] == 0.9
+
+
+def test_o_caso_ambiguo_sai_com_pouca_confianca():
+    """Sem «EDITAL» e com o título a começar por palavra de unidade logo a
+    seguir ao timbre, nenhuma regra de texto acerta — a olho distingue-se pelo
+    corpo de letra, que o texto extraído não tem.
+
+    O que NÃO se pode é acertar por acaso e apresentar o resultado como certo.
+    A confiança fica abaixo do limiar, o painel assinala e a certidão declara
+    que ninguém confirmou. Este teste fixa esse contrato, não o acerto."""
+    m = doc.extract_metadata(
+        "MUNICÍPIO DE MOIMENTA DA BEIRA\n\n"
+        "SERVIÇOS MÍNIMOS DURANTE A GREVE\n"
+        "Aviso aos utentes\n", fallback_name="aviso.pdf")
+    assert m["confianca"]["assunto"] <= 0.5
 
 
 def test_um_edital_normal_nao_muda_de_assunto():

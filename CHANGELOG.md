@@ -350,9 +350,54 @@ conferir pelo selo junto do serviço emissor, e diz isso na cara: «Não constit
 assinatura eletrónica». Uma linha de assinatura convidaria a tratá-la como
 documento assinado, que não é. Decidido na conversa de 23/09/2026.
 
+### Corrigido na revisão à mão, antes de entrar
+
+O Sourcery voltou a ficar sem orçamento e este trabalho também não teve revisão
+automática. A revisão à mão encontrou **um defeito na própria correção**, e pior
+do que o defeito que ela vinha corrigir.
+
+A lista que passou a reconhecer o timbre incluía as palavras que abrem o nome de
+um serviço — «Divisão», «Departamento», «Gabinete», «Serviços», «Setor»,
+«Unidade» — e excluía do assunto qualquer linha começada por elas, em qualquer
+ponto da folha. Só que essas mesmas palavras abrem títulos de edital
+perfeitamente vulgares:
+
+```
+SERVIÇOS MÍNIMOS DURANTE A GREVE DOS TRABALHADORES
+DIVISÃO DE URBANISMO — CONSULTA PÚBLICA DO PDM
+DEPARTAMENTO DE OBRAS — ABERTURA DE CONCURSO PÚBLICO
+```
+
+Sete de sete títulos plausíveis desapareciam, e desapareciam **em silêncio**: o
+assunto passava a ser a linha seguinte, que podia ser qualquer coisa. Trocar o
+timbre impresso como assunto por um assunto certo apagado é trocar um defeito
+por um pior, porque o primeiro vê-se e o segundo não.
+
+O teste que devia ter apanhado isto existia — e passou, porque só experimentava
+títulos que não começavam por essas palavras. É o mesmo padrão da peça anterior:
+o teste cobre o caso fácil e a docstring fala do difícil.
+
+A correção da correção são **duas listas em vez de uma**:
+
+- **Instituições** («MUNICÍPIO DE …», «CÂMARA MUNICIPAL …», «JUNTA DE FREGUESIA
+  …»): excluídas onde quer que apareçam. O nome da instituição nunca é o assunto
+  de coisa nenhuma, e era este o defeito original.
+- **Unidades orgânicas** («Divisão de …», «Serviços …»): só contam como timbre
+  nas **três primeiras linhas** da folha, que é onde o timbre vive — e nunca
+  abaixo do marcador «EDITAL», porque abaixo dele o que vem é o título, por
+  construção.
+
+Fica um caso que nenhuma regra de texto resolve: um documento **sem** o marcador
+«EDITAL» cujo título comece por uma palavra de unidade e esteja logo a seguir ao
+timbre. A olho distingue-se pelo corpo de letra e pela posição na folha; no texto
+extraído de um PDF, não. Aí não se inventa certeza — o assunto sai com confiança
+0,5, abaixo do limiar, o painel assinala-o para confirmação e a certidão declara
+que ninguém o confirmou. Há um teste que fixa esse contrato, e não o acerto.
+
 ### Testes
 
-31 novos, 368 no total.
+41 novos, 378 no total. Os dezanove que guardam a segunda correção foram corridos
+contra a primeira: os dezanove falham lá e passam aqui.
 
 ## 0.16.0 — O registo manda, o disco acompanha
 
