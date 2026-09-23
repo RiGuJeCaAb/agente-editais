@@ -136,3 +136,80 @@ def test_ocr_ausente_nao_derruba_nada(monkeypatch):
     monkeypatch.setattr(builtins, "__import__", sem_pytesseract)
     from PIL import Image
     assert doc._ocr_imagem(Image.new("RGB", (10, 10))) == ""
+
+
+# ---------------------------------------------------------------------------
+# O timbre não é o assunto
+#
+# Saiu uma certidão do município cujo ASSUNTO era «MUNICÍPIO DE MOIMENTA DA
+# BEIRA»: o nome da câmara impresso duas vezes, uma como timbre e outra como
+# matéria daquilo que ela própria afixou. A heurística de recurso aceitava a
+# primeira linha com letras que chegassem, e numa folha timbrada a primeira
+# linha é sempre o timbre. Pior: a entidade emissora era procurada numa lista
+# fechada de quatro nomes onde «MUNICÍPIO DE ...» não estava, por isso nem
+# sequer era reconhecida como entidade — e nada a impedia de virar assunto.
+# ---------------------------------------------------------------------------
+FOLHA_TIMBRADA = """MUNICÍPIO DE MOIMENTA DA BEIRA
+Divisão de Obras e Urbanismo
+
+FICHA DE PROJETO
+Escola Secundária de Moimenta da Beira
+Data: 18/09/2026
+"""
+
+
+def test_o_timbre_nao_vira_assunto():
+    m = doc.extract_metadata(FOLHA_TIMBRADA,
+                             fallback_name="escola secundaria_ficha de projeto.pdf")
+    assert m["assunto"] == "FICHA DE PROJETO"
+
+
+def test_o_timbre_e_reconhecido_como_entidade():
+    m = doc.extract_metadata(FOLHA_TIMBRADA, fallback_name="x.pdf")
+    assert m["entidade"] == "MUNICÍPIO DE MOIMENTA DA BEIRA"
+
+
+@pytest.mark.parametrize("linha", [
+    "MUNICÍPIO DE MOIMENTA DA BEIRA",
+    "Município de Moimenta da Beira",
+    "CÂMARA MUNICIPAL DE MOIMENTA DA BEIRA",
+    "ASSEMBLEIA MUNICIPAL DE MOIMENTA DA BEIRA",
+    "JUNTA DE FREGUESIA DE LEOMIL",
+    "União das Freguesias de Moimenta e Ariz",
+    "Divisão de Obras e Urbanismo",
+    "Departamento de Ação Social",
+    "Gabinete de Apoio ao Munícipe",
+    "REPÚBLICA PORTUGUESA",
+])
+def test_reconhece_as_linhas_de_timbre(linha):
+    assert doc.e_cabecalho(linha) is True
+
+
+@pytest.mark.parametrize("linha", [
+    "DELIBERAÇÕES DA ASSEMBLEIA MUNICIPAL COM EFICÁCIA EXTERNA",
+    "Aviso aos munícipes sobre a recolha de resíduos verdes",
+    "FICHA DE PROJETO",
+    "Regulamento municipal de trânsito",
+])
+def test_nao_confunde_um_assunto_com_um_timbre(linha):
+    """«DELIBERAÇÕES DA ASSEMBLEIA MUNICIPAL ...» começa por uma palavra de
+    matéria e só depois nomeia o órgão: é assunto, e tem de continuar a sê-lo.
+    Uma exclusão demasiado larga calaria o assunto verdadeiro."""
+    assert doc.e_cabecalho(linha) is False
+
+
+def test_um_edital_normal_nao_muda_de_assunto():
+    """A correção não pode mexer no caso que já funcionava."""
+    m = doc.extract_metadata(EDITAL, fallback_name="edital_am_17.pdf")
+    assert m["confianca"]["assunto"] == 0.9
+    assert "DELIBERAÇÕES" in m["assunto"]
+
+
+def test_uma_folha_que_so_tem_timbre_nao_inventa_assunto():
+    """Sem matéria nenhuma, o nome do ficheiro e confiança baixa — e não o
+    timbre com um ar de assunto legítimo."""
+    m = doc.extract_metadata("CÂMARA MUNICIPAL DE MOIMENTA DA BEIRA\n",
+                             fallback_name="scan_0042.pdf")
+    assert "MUNICÍPIO" not in m["assunto"].upper()
+    assert "CÂMARA" not in m["assunto"].upper()
+    assert m["confianca"]["assunto"] <= 0.2

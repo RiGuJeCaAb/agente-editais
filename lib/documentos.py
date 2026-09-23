@@ -344,10 +344,24 @@ def extract_metadata(text, fallback_name="", fonte_ocr=False):
 
     # Entidade emissora: útil para contexto/arquivo. Lista fechada das que
     # aparecem nestes editais; re.I para apanhar maiúsculas/minúsculas.
+    # Entidade emissora, por esta ordem e não pela outra: primeiro o ÓRGÃO, e só
+    # depois o timbre. Num edital da Assembleia Municipal em papel do município,
+    # quem emite é a assembleia — o timbre diz a instituição, o órgão diz quem
+    # praticou o ato, e é o segundo que a certidão tem de citar. Cheguei a pôr o
+    # timbre à frente e um teste apanhou-o logo.
     ment = re.search(r"(ASSEMBLEIA MUNICIPAL|C[ÂA]MARA MUNICIPAL|"
                      r"REP[ÚU]BLICA PORTUGUESA|DI[ÁA]RIO DA REP[ÚU]BLICA)", flat, re.I)
     if ment:
         meta["entidade"] = ment.group(1).upper()
+    else:
+        # Sem órgão nomeado, vale o timbre. Antes ficava vazia: procurava-se uma
+        # lista fechada de quatro nomes onde «MUNICÍPIO DE ...» não estava, por
+        # isso o timbre não era reconhecido como entidade — e nada o impedia de
+        # ser tomado por assunto, que foi como acabou numa certidão.
+        for linha in text.splitlines():
+            if e_cabecalho(linha):
+                meta["entidade"] = _clean_subject(linha).upper()
+                break
 
     # Assunto: heurística própria, que devolve também a sua própria confiança.
     assunto, conf_assunto = _guess_subject(text, fallback_name)
@@ -403,17 +417,54 @@ def _guess_subject(text, fallback_name):
                 continue
             # Considera-se assunto uma linha com pelo menos 8 letras (evita apanhar
             # números soltos, códigos ou pontuação como se fossem título).
-            if len(re.sub(r"[^A-Za-zÀ-ÿ]", "", linha)) >= 8:
+            if len(re.sub(r"[^A-Za-zÀ-ÿ]", "", linha)) >= 8 and not e_cabecalho(linha):
                 return _clean_subject(linha), 0.9   # caso normal: confiança alta
 
     # Recurso: se o marcador "EDITAL" não apareceu, aceita a primeira linha
     # com corpo de texto razoável (>=12 letras). Confiança média — pode falhar.
+    # O timbre é saltado: é a primeira linha de qualquer folha da câmara, e sem
+    # esta exclusão era ele o assunto de todo o documento que não fosse edital.
     for linha in lines:
+        if e_cabecalho(linha):
+            continue
         if len(re.sub(r"[^A-Za-zÀ-ÿ]", "", linha)) >= 12:
             return _clean_subject(linha), 0.5
 
     # Último recurso: nome do ficheiro humanizado. Confiança baixa.
     return _humanize(fallback_name), 0.2
+
+
+# Linhas que dizem QUEM emite o documento, e nunca O QUE ele trata: o timbre da
+# entidade, a divisão, o serviço. Uma certidão do município saiu com o assunto
+# «MUNICÍPIO DE MOIMENTA DA BEIRA» — o nome da câmara impresso duas vezes, uma
+# como timbre e outra como assunto daquilo que ela própria afixou. A linha mais
+# alta de uma folha timbrada é quase sempre o timbre, e o texto de recurso
+# apanhava-a por ser a primeira com letras que chegassem.
+#
+# Serve duas coisas ao mesmo tempo: reconhecer a entidade emissora, e excluí-la
+# de ser tomada por assunto. Uma lista só, para as duas não divergirem.
+CABECALHOS = re.compile(
+    r"^\s*("
+    r"MUNIC[ÍI]PIO(\s+DE\b.*)?|C[ÂA]MARA\s+MUNICIPAL(\s+DE\b.*)?|"
+    r"ASSEMBLEIA\s+MUNICIPAL(\s+DE\b.*)?|"
+    r"(JUNTA\s+DE\s+)?FREGUESIA(\s+DE\b.*)?|"
+    r"UNI[ÃA]O\s+DAS\s+FREGUESIAS\b.*|"
+    r"REP[ÚU]BLICA\s+PORTUGUESA|DI[ÁA]RIO\s+DA\s+REP[ÚU]BLICA|"
+    r"(DIVIS[ÃA]O|DEPARTAMENTO|GABINETE|SERVI[ÇC]OS?|SETOR|SECTOR|UNIDADE)\b.*"
+    r")\s*$", re.I)
+
+
+# Diz se uma linha é timbre ou serviço emissor, e não assunto.
+def e_cabecalho(linha) -> bool:
+    """Reconhece a linha que nomeia quem emite o documento.
+
+    Args:
+        linha (str): uma linha de texto do documento.
+
+    Returns:
+        bool: True se a linha nomeia a entidade ou o serviço, e não a matéria.
+    """
+    return bool(CABECALHOS.match(_clean_subject(linha)))
 
 
 def _clean_subject(s):
