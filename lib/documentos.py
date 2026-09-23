@@ -21,6 +21,7 @@ acessível no PATH do sistema.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
 import shutil
@@ -117,19 +118,41 @@ def _word_to_pdf(path, workdir):
             "LibreOffice não encontrado. Instala com:\n"
             "  Ubuntu/Debian: sudo apt install libreoffice\n"
             "  Windows: instalar LibreOffice e garantir soffice no PATH")
+    base = os.path.splitext(os.path.basename(path))[0]
+    # O PDF convertido fica com um nome que identifica o ORIGINAL: caminho,
+    # tamanho e instante da última alteração. Duas razões, e as duas doeram:
+    #
+    #  1. O LibreOffice nomeia a saída pelo nome-base do original, e dois
+    #     documentos chamados 'edital.docx' em pastas diferentes escreviam por
+    #     cima um do outro. Passava despercebido só porque cada chamada
+    #     reconvertia, e a última a escrever era sempre a que se ia ler a
+    #     seguir — mas bastava reaproveitar para o segundo edital sair com o
+    #     conteúdo do primeiro na televisão.
+    #  2. Com o nome preso à identidade, uma segunda conversão do mesmo
+    #     documento é desnecessária e salta-se. Desde que a leitura passou a
+    #     ser por página, um .docx era reconvertido uma vez por ecrã: dez
+    #     páginas davam cinco arranques do LibreOffice onde antes havia um, e
+    #     cada arranque custa segundos.
+    st = os.stat(path)
+    chave = hashlib.sha1(
+        f"{os.path.realpath(path)}|{st.st_size}|{st.st_mtime_ns}".encode()
+    ).hexdigest()[:12]
+    destino = os.path.join(workdir, f"{base}-{chave}.pdf")
+    if os.path.exists(destino):
+        return destino
     # timeout defensivo: um documento corrompido pode fazer o soffice pendurar-se;
     # 120s é folgado para um edital e evita que o agente fique bloqueado para sempre.
     subprocess.run(
         [soffice, "--headless", "--convert-to", "pdf", "--outdir", workdir, path],
         check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
         timeout=120)
-    # O LibreOffice nomeia o PDF com o mesmo nome-base do original; reconstruímos
-    # esse caminho para o devolver a quem chamou.
-    base = os.path.splitext(os.path.basename(path))[0]
     out_pdf = os.path.join(workdir, base + ".pdf")
     if not os.path.exists(out_pdf):
         raise RuntimeError(f"Falha a converter {path} para PDF")
-    return out_pdf
+    # Renomear em vez de deixar ficar: é o que torna o nome-base irrelevante e
+    # a conversão seguinte do mesmo documento dispensável.
+    os.replace(out_pdf, destino)
+    return destino
 
 
 def _ocr_imagem(img):
@@ -283,11 +306,21 @@ def dimensoes_das_paginas(path, workdir, zoom=3.0):
             raise RuntimeError("PyMuPDF não instalado (pip install pymupdf)")
         doc = fitz.open(path)
         try:
-            # round() e não int(): é o que o get_pixmap faz ao arredondar a
-            # matriz, e a diferença de um píxel mudaria a orientação de uma
-            # página quase quadrada.
-            return [(round(p.rect.width * zoom), round(p.rect.height * zoom))
-                    for p in doc]
+            # A conta é a MESMA que o get_pixmap faz — a matriz aplicada ao
+            # retângulo da página, e depois o retângulo inteiro que o contém —
+            # e não uma imitação dela. Escrevi isto primeiro com round(), a
+            # afirmar em comentário que era o que o PyMuPDF fazia; não era, e
+            # erra por um píxel em dois terços das páginas. Num A4 isso não se
+            # vê, mas numa página quase quadrada um píxel decide a orientação,
+            # e a orientação decide se a página vai sozinha para um ecrã ou
+            # acompanhada. Quatro páginas assim davam dois ecrãs em vez de
+            # quatro, e ninguém ia perceber porquê.
+            matriz = fitz.Matrix(zoom, zoom)
+            medidas = []
+            for p in doc:
+                caixa = (p.rect * matriz).irect
+                medidas.append((caixa.width, caixa.height))
+            return medidas
         finally:
             doc.close()
     if ext in IMG_EXT:

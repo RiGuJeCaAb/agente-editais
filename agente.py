@@ -271,6 +271,20 @@ def varrer_para_registo(cfg, reg, logo_im):
         int: número de rascunhos criados.
     """
     novos = 0
+    try:
+        novos = _varrer_para_registo(cfg, reg)
+    finally:
+        # try/finally e não uma linha no fim: se um documento rebentar de uma
+        # forma que o except de dentro não apanhe, a faixa do painel ficaria a
+        # anunciar para sempre um trabalho que já não existe — e, pior, o painel
+        # continuaria a sondar de três em três segundos por causa dela.
+        progresso.parado()
+    return novos
+
+
+def _varrer_para_registo(cfg, reg):
+    """O corpo de varrer_para_registo, para o progresso poder ser limpo num finally."""
+    novos = 0
     for nome in sorted(os.listdir(cfg["entrada"])):
         path = os.path.join(cfg["entrada"], nome)
         if not os.path.isfile(path):
@@ -447,6 +461,18 @@ def publicar_registos(cfg, reg, logo_im):
     Returns:
         int: número de ecrãs ativos na TV.
     """
+    try:
+        return _publicar_registos(cfg, reg, logo_im)
+    finally:
+        # Como em varrer_para_registo: a faixa do painel é acesa aqui dentro e
+        # tem de se apagar mesmo que isto rebente a meio. Uma faixa acesa sem
+        # trabalho por trás não é só um cartaz errado — prende o painel a sondar
+        # de três em três segundos até alguém reiniciar o serviço.
+        progresso.parado()
+
+
+def _publicar_registos(cfg, reg, logo_im):
+    """O corpo de publicar_registos, para o progresso poder ser limpo num finally."""
     # Aplica primeiro as retiradas automáticas por data (publicado → retirado).
     retirados = reg.aplicar_retiradas_automaticas()
     if retirados:
@@ -457,7 +483,10 @@ def publicar_registos(cfg, reg, logo_im):
 
     publicados = reg.por_estado(reg_mod.PUBLICADO)
     slides = []
-    for feitos, r in enumerate(publicados):
+    for feitos, r in enumerate(publicados, start=1):
+        # start=1: com enumerate a começar em zero, o painel abria em «0 de 4» e
+        # acabava em «3 de 4» — nunca chegava ao fim, e parecia ter encravado
+        # no último edital. É o k-ésimo de N a ser tratado, como nas outras fases.
         progresso.a_publicar(feitos, len(publicados))
         # Caso 1: nunca teve PNG — primeira publicação, compõe de novo.
         # Grava-se por definir_pngs() e não por mutação do dicionário: desde que
@@ -569,6 +598,22 @@ def recuperar_do_arquivo(cfg, nomes):
     return recuperados
 
 
+def _limpar_ecras(cfg, nomes):
+    """Apaga da pasta de saída os ecrãs indicados, sem se queixar dos que faltam.
+
+    Args:
+        cfg (dict): configuração.
+        nomes (list[str]): nomes de ficheiros PNG em cfg["saida"].
+    """
+    for n in nomes:
+        try:
+            os.remove(os.path.join(cfg["saida"], n))
+        except OSError:
+            # Já não estava lá, ou não se deixa apagar: não há nada a fazer com
+            # isso aqui, e a composição já falhou por outra razão mais séria.
+            pass
+
+
 def _compor_edital(cfg, r, logo_im, reg=None):
     """Rasteriza o documento de um registo e compõe os seus ecrãs (PNG).
 
@@ -638,6 +683,12 @@ def _compor_edital(cfg, r, logo_im, reg=None):
         except Exception as ex:
             _agente.warning(f"falha a compor o registo #{r['id']} "
                             f"({r['ficheiro_origem']}), ecrã {bi}: {ex}")
+            # Os ecrãs já gravados vão atrás. Devolver [] deixa o registo sem
+            # PNG nenhum, e os ficheiros ficariam na pasta de saída sem ninguém
+            # que os reclamasse: a televisão não os mostra, o arquivo não os
+            # conhece e o --conferir não dá por eles, porque só olha do registo
+            # para o disco e não ao contrário.
+            _limpar_ecras(cfg, nomes)
             return []
         seed = 3 + (r["id"] * 7 + bi)   # padrão de fundo estável por edital/ecrã
         comp = trat.compose_sheets(paginas, seed=seed, logo_im=logo_im,

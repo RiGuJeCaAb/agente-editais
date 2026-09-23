@@ -324,7 +324,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 368 testes
+pytest          # 385 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -487,13 +487,15 @@ que vai:
 
 Enquanto há trabalho, o painel actualiza-se de 3 em 3 segundos; em repouso, de 20
 em 20. Não é preciso carregar outra vez em «Publicar»: se a faixa está lá, está a
-andar.
+andar — e quando o trabalho acaba a faixa desaparece, que é como se sabe que
+acabou.
 
 **Documentos grandes.** Até à 0.17 a leitura carregava todas as páginas para
 memória ao mesmo tempo — cerca de 18 MB por página, sem tecto, o que fazia um
-documento de 50 páginas pedir 900 MB e um de 100 quase 2 GB. Passou a ler uma
-página de cada vez: **48 MB, seja o documento de 5 ou de 500 páginas.** O que
-continua a custar é a composição, ~650 MB por ecrã — mas por ecrã, não por
+documento de 50 páginas pedir 955 MB e um de 100 pedir 1,8 GB. Passou a ler uma
+página de cada vez: **pico de 102 MB, seja o documento de 5 ou de 500 páginas**
+— e metade disso são os módulos carregados, antes de se ler fosse o que fosse.
+O que continua a custar é a composição, ~650 MB por ecrã — mas por ecrã, não por
 documento.
 
 ### Descartar, que não é apagar

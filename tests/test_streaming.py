@@ -2,7 +2,7 @@
 test_streaming.py — Ler o documento aos bocados, sem mudar um píxel do que sai.
 
 A leitura carregava todas as páginas rasterizadas de uma vez. Medido a sério,
-custava ~18 MB por página, linear e sem tecto: 50 páginas pediam 903 MB e 100
+custava ~18 MB por página, linear e sem tecto: 50 páginas pediam 955 MB e 100
 pediam quase 2 GB. Num portátil de serviço isso não é lentidão, é o processo a
 morrer — e morre no documento grande, que é o que ninguém quer ter de repetir.
 
@@ -198,3 +198,127 @@ def test_a_composicao_em_streaming_e_identica_ao_bit(nome, paginas, tmp_path):
         novos.append(hashlib.sha256(f.read_bytes()).hexdigest())
 
     assert novos == antigos, f"{nome}: a composição mudou"
+
+
+# ---------------------------------------------------------------------------
+# As dimensões previstas, nos casos difíceis
+#
+# O teste acima usava A4 a 595x842, que ao zoom 3 dá números inteiros redondos:
+# passava com qualquer arredondamento, e a docstring dele falava justamente do
+# caso que não cobria. Estes são os casos que o apanham.
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("larg,alt,rodar", [
+    (595, 842, 0),          # A4, o caso fácil
+    (595, 842, 90),         # rodada: o retângulo da página já vem trocado
+    (595, 842, 270),
+    (595.276, 841.89, 0),   # A4 em milímetros exactos, com parte fracionária
+    (300.5, 300.1, 0),      # quase quadrada, e a decidir-se por um píxel
+    (299.14, 299.181, 0),   # esta trocava de orientação com round()
+    (300.68, 300.889, 0),
+])
+def test_a_dimensao_prevista_e_a_dimensao_real(tmp_path, larg, alt, rodar):
+    """Prevista e real têm de ser o MESMO número, não um número parecido.
+
+    Escrito com round(), isto errava por um píxel em dois terços das páginas.
+    Num A4 não se vê; numa página quase quadrada o píxel decide a orientação, e
+    a orientação decide se a folha vai sozinha para um ecrã ou acompanhada.
+    """
+    import fitz
+    caminho = str(tmp_path / "p.pdf")
+    d = fitz.open()
+    pagina = d.new_page(width=larg, height=alt)
+    if rodar:
+        pagina.set_rotation(rodar)
+    d.save(caminho)
+    d.close()
+    prevista = doc.dimensoes_das_paginas(caminho, str(tmp_path))[0]
+    real = next(iter(doc.paginas_uma_a_uma(caminho, str(tmp_path))))[1].size
+    assert prevista == real
+
+
+def test_a_orientacao_prevista_nunca_difere_da_real(tmp_path):
+    """O agrupamento decide-se pelas previstas e compõe-se com as reais.
+
+    Se as duas discordassem, quatro páginas quase quadradas dariam dois ecrãs
+    em vez de quatro — e sem nada no registo a dizer porquê.
+    """
+    import fitz
+    caminho = str(tmp_path / "q.pdf")
+    trocas = 0
+    for milesimos in range(0, 1000, 37):
+        larg, alt = 300.0 + milesimos / 1000, 300.0 + (999 - milesimos) / 1000
+        d = fitz.open()
+        d.new_page(width=larg, height=alt)
+        d.save(caminho)
+        d.close()
+        prevista = doc.dimensoes_das_paginas(caminho, str(tmp_path))[0]
+        real = next(iter(doc.paginas_uma_a_uma(caminho, str(tmp_path))))[1].size
+        if (prevista[0] >= prevista[1]) != (real[0] >= real[1]):
+            trocas += 1
+    assert trocas == 0
+
+
+# ---------------------------------------------------------------------------
+# A conversão de Word não se repete
+#
+# Ler por página quer dizer voltar ao documento uma vez por ecrã. Num PDF isso
+# custa abrir um ficheiro; num .docx custa arrancar o LibreOffice, que demora
+# segundos. Dez páginas chegaram a dar cinco arranques onde antes havia um.
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def word_falso(tmp_path, monkeypatch):
+    """Um .docx e um LibreOffice de mentira que conta quantas vezes arranca."""
+    import shutil as sh
+    origem = fazer_pdf(tmp_path / "convertido.pdf", [(*A4, f"p{i}") for i in range(1, 11)])
+    arranques = []
+
+    def run_falso(cmd, **_kw):
+        arranques.append(cmd)
+        saida = cmd[cmd.index("--outdir") + 1]
+        base = os.path.splitext(os.path.basename(cmd[-1]))[0]
+        sh.copy(origem, os.path.join(saida, base + ".pdf"))
+        return None
+
+    monkeypatch.setattr(doc.subprocess, "run", run_falso)
+    monkeypatch.setattr(doc.shutil, "which", lambda n: "/usr/bin/soffice")
+    return arranques
+
+
+def test_o_libreoffice_arranca_uma_vez_por_documento(tmp_path, word_falso):
+    """Ler as dimensões e depois cada ecrã não pode reconverter de cada vez."""
+    docx = tmp_path / "edital.docx"
+    docx.write_bytes(b"PK\x03\x04nao-e-mesmo-um-docx")
+    dims = doc.dimensoes_das_paginas(str(docx), str(tmp_path))
+    for bloco in trat.agrupar_indices(dims):
+        _ = [im for _i, im in
+             doc.paginas_uma_a_uma(str(docx), str(tmp_path), indices=bloco)]
+    assert len(word_falso) == 1
+
+
+def test_dois_word_com_o_mesmo_nome_nao_se_atropelam(tmp_path, word_falso):
+    """'edital.docx' em duas pastas dava o MESMO PDF na pasta de trabalho.
+
+    Passava despercebido porque cada chamada reconvertia por cima. Com a
+    conversão a ser reaproveitada, o segundo edital sairia na televisão com o
+    conteúdo do primeiro — que é o tipo de erro que só se descobre afixado.
+    """
+    for pasta in ("a", "b"):
+        (tmp_path / pasta).mkdir()
+        (tmp_path / pasta / "edital.docx").write_bytes(b"PK\x03\x04" + pasta.encode())
+    um = doc._word_to_pdf(str(tmp_path / "a" / "edital.docx"), str(tmp_path))
+    dois = doc._word_to_pdf(str(tmp_path / "b" / "edital.docx"), str(tmp_path))
+    assert um != dois
+    assert len(word_falso) == 2
+
+
+def test_um_word_alterado_volta_a_ser_convertido(tmp_path, word_falso):
+    """A conversão guardada é a daquele conteúdo, não a daquele nome."""
+    import time
+    docx = tmp_path / "edital.docx"
+    docx.write_bytes(b"PK\x03\x04versao-um")
+    primeiro = doc._word_to_pdf(str(docx), str(tmp_path))
+    time.sleep(0.01)
+    docx.write_bytes(b"PK\x03\x04versao-dois-com-mais-texto")
+    segundo = doc._word_to_pdf(str(docx), str(tmp_path))
+    assert primeiro != segundo
+    assert len(word_falso) == 2
