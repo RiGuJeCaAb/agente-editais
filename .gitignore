@@ -17,6 +17,9 @@ utilizadores.json
 
 # Pastas de trabalho e saída.
 diario/
+# A exportação por estado é uma vista do registo: reconstrói-se com um comando
+# e não tem nada que fazer num repositório.
+exportacao/
 entrada/*
 !entrada/_COLOCAR_DOCUMENTOS_AQUI.txt
 saida/

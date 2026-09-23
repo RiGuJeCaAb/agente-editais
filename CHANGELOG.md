@@ -266,3 +266,72 @@ exata do defeito não volta — indexar a primeira página, ou um dos dois síti
 desenho ficar para trás numa alteração futura. **Não provam que funciona no
 browser**; isso foi verificado a olho, com um documento de três páginas, num
 ecrã de 1366×768. Vale na mesma: o defeito nasceu de uma linha com `[0]`.
+
+## 0.16.0 — O registo manda, o disco acompanha
+
+O registo de entrada é a verdade sobre cada edital: tem os estados, as datas,
+quem afixou e o rasto de auditoria. O disco tem os ficheiros. Esta onda trata do
+espaço entre os dois.
+
+### A decisão que ficou tomada
+
+O posto pediu que um edital mudasse de pasta conforme o estado — de `entrada/`
+para `publicados/`, e daí para `retirados/`. A razão é boa e é operacional: quem
+lá trabalha quer abrir o Explorador e ver o que está afixado, sem depender de
+uma aplicação.
+
+Não foi feito assim, e vale a pena registar porquê. Nesse desenho, **a pasta
+onde um ficheiro está passa a ser uma segunda afirmação sobre o estado do
+edital**, ao lado da que está no registo. E duas afirmações sobre a mesma coisa
+divergem — não é «se», é «quando»: alguém arrasta um ficheiro, o antivírus põe
+outro em quarentena, uma mudança falha a meio. A partir daí, qual manda? O
+registo grava de forma atómica e diz quem fez o quê; uma mudança de pasta não
+faz nem uma coisa nem outra, e não sabe dizer **quem** publicou — que é a
+pergunta a que esta aplicação existe para responder.
+
+A saída: **o registo manda, e as pastas são uma exportação.** O posto tem a
+vista que queria, reconstrutível a pedido, e o sistema continua a ter uma só
+verdade. Se divergirem, volta-se a gerar e fica resolvido.
+
+### Acrescentado
+- **`--exportar-pastas`** (`lib/exportacao.py`) constrói `exportacao/publicados/`
+  e `exportacao/retirados/` a partir do registo, com o documento original
+  nomeado `AAAA-MM-DD_numero_assunto.pdf` — a data à cabeça porque é assim que
+  alguém procura um edital: «foi aí por junho». Junta um `INDICE.csv` com tudo
+  o que a pasta não sabe dizer, incluindo **quem afixou e quando**.
+
+  Cada subpasta leva um `_GERADO_PELO_AGENTE.txt` que explica que é uma vista e
+  que mover ficheiros de lá não muda o estado de nada. É também a marca de
+  segurança: **a exportação recusa-se a limpar uma pasta que não tenha a
+  marca**, porque apaga ficheiros e o caminho vem do config, que alguém pode ter
+  apontado para o sítio errado.
+
+  Os PNG compostos ficam em `saida/`, onde a televisão os lê: duplicá-los
+  gastaria o dobro do disco para mostrar a mesma coisa. Vão nomeados no índice.
+
+- **`--conferir`** (`lib/conferencia.py`) compara o registo com o disco e
+  relata: registos cujo original não está em lado nenhum, os rascunhos que por
+  isso **não têm saída** (sem data não se validam, sem documento não se
+  publicam — a forma exata dos zombies que a migração deixou), e os ficheiros
+  que nenhum registo reclama em `saida/`, `previas/` e `originais/`.
+
+  **Não apaga, não move, não corrige.** É deliberado: as decisões sobre um
+  edital municipal são de quem responde por ele, e uma ferramenta que arruma
+  sozinha é uma ferramenta em que é preciso confiar cegamente. Esta só tem de
+  ser lida. Devolve 1 quando encontra alguma coisa, para dar para agendar.
+
+### Corrigido
+- **A pasta `entrada/` nunca se esvaziava.** Os ficheiros ficavam lá para sempre
+  depois de recebidos, e ao fim de umas semanas ninguém conseguia responder a
+  olho a «o que é que chegou de novo?» — que é metade do trabalho do posto.
+
+  Passam para `entrada/tratados/` assim que o rascunho existe. O que torna isto
+  seguro é a **ordem**: quando o ficheiro sai, já há uma cópia idêntica ao byte
+  em `originais/`, endereçada pelo SHA-256, e é dela que a composição lê. Mover
+  e não apagar, como em todo o resto. Falhar a mudança é inofensivo — o registo
+  já existe e o hash impede a reingestão — por isso avisa e não interrompe nada.
+
+### Testes
+30 novos, 329 no total. Os dois que mais interessam não testam funcionalidade,
+testam **contenção**: `--conferir` não mexe num único ficheiro nem num único
+estado, e a exportação não apaga uma pasta que não tenha sido ela a criar.

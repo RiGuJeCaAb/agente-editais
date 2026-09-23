@@ -60,10 +60,18 @@ python agente.py --painel
 
 # ver as contas que existem
 python agente.py --utilizadores
+
+# conferir o registo contra o disco (relata; não apaga nada)
+python agente.py --conferir
+
+# reconstruir as pastas publicados/ e retirados/ para consulta no Explorador
+python agente.py --exportar-pastas
 ```
 
 **Fluxo diário típico:**
-1. Atiras os PDFs novos para `entrada/`.
+1. Atiras os PDFs novos para `entrada/`. Assim que o agente os recebe, passam
+   para `entrada/tratados/` — a pasta de entrada fica só com o que ainda não foi
+   visto, que é como se responde a «o que chegou de novo?» sem abrir nada.
 2. Abres o painel, secção **Por validar**. Cada documento aparece um de cada vez,
    com a pré-visualização ao lado e os metadados extraídos já preenchidos.
 3. Confirmas ou corriges o assunto, o número e o **tipo de documento** — é o tipo
@@ -105,6 +113,59 @@ ausência deles no expositor.
 Os ficheiros de origem são **renomeados** para `.migrado`, não apagados. Se a
 migração tiver lido alguma coisa ao contrário, os dados continuam lá para se
 conferir — e o painel mostra os editais migrados como quaisquer outros.
+
+---
+
+## 3.2 Conferir e exportar
+
+### `--conferir` — o que está desalinhado
+
+O registo manda, mas o disco tem os ficheiros, e as duas coisas separam-se: uma
+pasta que alguém limpou à mão, uma migração que trouxe editais cujos originais já
+não existem, um PNG que sobreviveu ao registo que o gerou.
+
+```bash
+python agente.py --conferir
+```
+
+Relata quatro coisas:
+
+| | o que quer dizer |
+|---|---|
+| **Sem original** | o documento não está no arquivo nem nas pastas de entrada. Estes editais não se conseguem compor, e por isso não vão ao ecrã |
+| **Sem saída** | rascunhos sem data **e** sem original. Não se validam nem se publicam: ficam na fila para sempre. É a forma exata dos que a migração deixou |
+| **Ecrãs / pré-visualizações órfãs** | ficheiros em `saida/` e `previas/` que nenhum registo reclama |
+| **Originais órfãos** | documentos arquivados que nenhum registo aponta |
+
+**Não apaga, não move, não corrige** — é um relatório. As decisões sobre um
+edital são de quem responde por ele. Devolve `1` quando encontra alguma coisa,
+o que dá para agendar e só chamar a atenção quando houver.
+
+### `--exportar-pastas` — a vista no Explorador
+
+```bash
+python agente.py --exportar-pastas
+```
+
+Constrói `exportacao/publicados/` e `exportacao/retirados/` com o documento
+original de cada edital, nomeado `AAAA-MM-DD_numero_assunto.pdf` — a data à
+cabeça para o gestor de ficheiros os ordenar sozinho, que é como alguém procura
+um edital: «foi aí por junho». Junta um `INDICE.csv` (abre no Excel) com tudo o
+que a pasta não sabe dizer, incluindo **quem afixou e quando**.
+
+> **Estas pastas são uma vista, não a verdade.** Mover um ficheiro de lá não
+> retira nem publica nada — o estado muda-se no painel, onde fica documentado
+> quem o fez. Se as pastas e o registo divergirem, corre-se o comando outra vez
+> e fica resolvido.
+>
+> Houve a hipótese de fazer ao contrário: mover o ficheiro de pasta a cada
+> mudança de estado, e a pasta ser o estado. Não se fez, porque passaria a haver
+> duas afirmações sobre o mesmo edital — e duas afirmações divergem. A pasta não
+> sabe dizer quem publicou; o registo sabe.
+
+Cada subpasta leva um `_GERADO_PELO_AGENTE.txt` a explicar isto. É também a
+marca de segurança: a exportação **recusa-se a limpar uma pasta que não tenha a
+marca**, porque apaga ficheiros e o caminho vem do `config.json`.
 
 ---
 
@@ -228,6 +289,7 @@ agente_editais/
 ├── agente.py            # orquestrador (CLI)
 ├── config.json          # (opcional) overrides
 ├── assets/              # logótipo (sym_ok.png, txt_ok.png)
+├── exportacao/          # pastas por estado — VISTA do registo, gerada a pedido
 ├── registo_entrada.json # registo de editais + histórico (gravação atómica)
 ├── registo_auditoria.jsonl # trilho de auditoria, apenas-acrescento
 ├── utilizadores.json    # contas do painel (senhas derivadas, nunca em claro)
@@ -245,7 +307,9 @@ agente_editais/
     ├── certidao.py      # certidão de afixação em PDF
     ├── diario.py        # registo técnico (níveis, rotação)
     ├── documentos.py    # conversão + extração de metadados
+    ├── conferencia.py   # compara o registo com o disco (relata, não corrige)
     ├── entrada.html     # página de início de sessão
+    ├── exportacao.py    # pastas por estado, construídas a partir do registo
     ├── migracao.py      # traz o modelo antigo para o registo (código com prazo)
     ├── originais.py     # arquivo imutável dos documentos
     ├── painel.py        # servidor do painel + API
@@ -259,7 +323,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 299 testes
+pytest          # 329 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
