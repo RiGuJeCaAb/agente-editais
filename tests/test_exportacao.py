@@ -181,3 +181,90 @@ def test_a_marca_avisa_que_mover_ficheiros_nao_muda_nada(posto):
     assert "GERADA" in marca
     assert "não muda" in marca.lower() or "NÃO é aqui" in marca
     assert "painel" in marca
+
+
+# ---------------------------------------------------------------------------
+# Defeitos apanhados na revisão do PR #6
+# ---------------------------------------------------------------------------
+def test_dois_editais_com_o_mesmo_nome_nao_se_apagam(posto):
+    """A exportação dizia «2 publicados» e escrevia 1 ficheiro.
+
+    Dois editais podem ter o mesmo número, a mesma data e o mesmo assunto — o
+    mesmo edital registado duas vezes com ficheiros diferentes, que acontece. O
+    segundo escrevia por cima do primeiro, e o índice apontava as duas linhas
+    para o ficheiro sobrevivente. Perder um documento em silêncio é o pior que
+    uma exportação pode fazer, porque quem a lê julga que está a ver tudo.
+    """
+    edital(posto, "2026-0050", "CORTE DE ÁGUA", reg_mod.PUBLICADO,
+           nome="a.pdf", conteudo=b"%PDF versao A")
+    edital(posto, "2026-0050", "CORTE DE ÁGUA", reg_mod.PUBLICADO,
+           nome="b.pdf", conteudo=b"%PDF versao B")
+    r = exportacao.exportar(posto["cfg"], posto["reg"])
+    pdfs = _pdfs(os.path.join(posto["cfg"]["exportacao"], "publicados"))
+    assert r["publicados"] == 2
+    assert len(pdfs) == 2, "um edital escreveu por cima do outro"
+    # E os dois ficheiros têm mesmo conteúdo diferente: não são duas cópias.
+    pasta = os.path.join(posto["cfg"]["exportacao"], "publicados")
+    conteudos = {open(os.path.join(pasta, n), "rb").read() for n in pdfs}
+    assert conteudos == {b"%PDF versao A", b"%PDF versao B"}
+
+
+def test_o_indice_aponta_para_ficheiros_que_existem(posto):
+    """Cada linha do índice tem de corresponder a um ficheiro em disco."""
+    edital(posto, "2026-0050", "CORTE DE ÁGUA", reg_mod.PUBLICADO,
+           nome="a.pdf", conteudo=b"%PDF A")
+    edital(posto, "2026-0050", "CORTE DE ÁGUA", reg_mod.PUBLICADO,
+           nome="b.pdf", conteudo=b"%PDF B")
+    r = exportacao.exportar(posto["cfg"], posto["reg"])
+    with open(r["indice"], encoding="utf-8-sig", newline="") as f:
+        linhas = list(csv.DictReader(f, delimiter=";"))
+    caminhos = [x["ficheiro_exportado"] for x in linhas if x["ficheiro_exportado"]]
+    assert len(set(caminhos)) == len(caminhos), "duas linhas apontam ao mesmo ficheiro"
+    for c in caminhos:
+        assert os.path.isfile(os.path.join(r["raiz"], c)), f"o índice cita {c}, que não existe"
+
+
+def test_uma_pasta_recusada_nao_deixa_a_outra_a_meio(posto):
+    """Validar à medida que se limpa deixava a exportação em dois tempos.
+
+    Uma pasta com o retrato de agora, a outra com o de ontem, e uma mensagem de
+    erro a explicar só metade. As duas conferem-se antes de se tocar em alguma.
+    """
+    edital(posto, "2026-0050", "PUBLICADO", reg_mod.PUBLICADO)
+    exportacao.exportar(posto["cfg"], posto["reg"])   # estado bom de partida
+    publicados = os.path.join(posto["cfg"]["exportacao"], "publicados")
+    antes = sorted(os.listdir(publicados))
+
+    # Alguém põe um ficheiro seu em retirados/, que é a SEGUNDA a ser tratada.
+    retirados = os.path.join(posto["cfg"]["exportacao"], "retirados")
+    os.remove(os.path.join(retirados, exportacao.MARCA))
+    with open(os.path.join(retirados, "MEU.pdf"), "wb") as f:
+        f.write(b"trabalho de alguem")
+
+    with pytest.raises(RuntimeError):
+        exportacao.exportar(posto["cfg"], posto["reg"])
+    assert sorted(os.listdir(publicados)) == antes, "publicados/ foi mexida na mesma"
+    assert os.path.isfile(os.path.join(retirados, "MEU.pdf"))
+
+
+def test_limpar_recusa_uma_pasta_que_deixou_de_ser_nossa(posto):
+    """A janela entre conferir e apagar, apanhada pela revisão do PR #7.
+
+    Conferir as duas pastas à cabeça evita o estado a meio, mas abre um
+    intervalo entre a verificação e a limpeza — e o intervalo da segunda pasta é
+    o tempo inteiro de copiar a primeira. Uma pasta vazia sem marca passa na
+    conferência; se alguém lá largar um ficheiro nesse intervalo, ele seria
+    apagado sem a marca ter existido alguma vez.
+
+    `_limpar` confere outra vez à porta. Este teste exercita-a diretamente,
+    porque a corrida em si não se reproduz de forma determinista — o que se pode
+    fixar é a invariante: esta função nunca apaga numa pasta que não seja nossa.
+    """
+    pasta = posto["pasta"] / "exportacao" / "publicados"
+    pasta.mkdir(parents=True)
+    intruso = pasta / "chegou_entretanto.pdf"
+    intruso.write_bytes(b"o trabalho de alguem")
+
+    with pytest.raises(RuntimeError, match=exportacao.MARCA):
+        exportacao._limpar(str(pasta))
+    assert intruso.exists()

@@ -27,8 +27,12 @@ import registo as reg_mod
 
 _log = diario.obter("CONFERIR")
 
-# Extensões que a pasta de saída tem e que não são ecrãs de editais.
-_NAO_E_ECRA = (".html", ".json", ".zip")
+# Um ecrã de edital é um PNG. A pasta de saída tem mais coisas — a página da
+# TV, o slides.json, os ZIP de arquivo — e o que lá aparecer amanhã não se sabe:
+# uma cópia .bak.1 de uma gravação atómica, por exemplo, não acaba em .json e
+# seria contada como ecrã órfão se a lista fosse de exclusões. Listar o que
+# CONTA em vez do que não conta é a inversão que torna isto estável.
+_EXTENSAO_DE_ECRA = ".png"
 
 
 # Diz se o original de um registo existe em algum sítio de onde se possa ler.
@@ -119,7 +123,7 @@ def conferir(cfg: dict, registo) -> dict[str, Any]:
                 impossiveis.append(resumo)
 
     png_no_disco = {n for n in _ficheiros(cfg.get("saida", ""))
-                    if not n.lower().endswith(_NAO_E_ECRA)}
+                    if n.lower().endswith(_EXTENSAO_DE_ECRA)}
     previas_no_disco = _ficheiros(cfg.get("previas", ""))
 
     originais_orfaos = []
