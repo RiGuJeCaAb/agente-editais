@@ -169,3 +169,25 @@ def test_conferir_nao_apaga_nem_muda_nada(posto):
     depois = sorted(os.path.join(raiz, n)
                     for raiz, _p, ns in os.walk(posto["pasta"]) for n in ns)
     assert depois == antes_ficheiros, "a conferência mexeu em ficheiros"
+
+
+# ---------------------------------------------------------------------------
+# Defeito apanhado na revisão do PR #6
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("nome", [
+    "slides.json.bak.1",          # cópia de uma gravação atómica
+    "index.html.bak.2",
+    "registo.tmp",
+    "LEIAME",                     # sem extensão nenhuma
+])
+def test_so_os_png_contam_como_ecras_orfaos(posto, nome):
+    """A lista era de exclusões, e o que lá aparecesse amanhã contava como ecrã.
+
+    Uma cópia `.bak.1` de uma gravação atómica não acaba em `.json`, e era
+    relatada como um ecrã que nenhum registo reclama — a mandar alguém procurar
+    um problema que não existe. Um relatório que grita por nada deixa de ser
+    lido, e aí deixa de apanhar o que interessa.
+    """
+    (posto["pasta"] / "saida" / nome).write_bytes(b"x")
+    r = conferencia.conferir(posto["cfg"], posto["reg"])
+    assert r["png_orfaos"] == []

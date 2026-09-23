@@ -364,11 +364,18 @@ def _tirar_da_entrada(cfg, caminho, nome):
     """
     destino = os.path.join(cfg["tratados"], nome)
     # Nome livre: dois editais podem chegar com o mesmo nome em meses
-    # diferentes, e o segundo não pode apagar o primeiro.
+    # diferentes, e o segundo não pode apagar o primeiro. O carimbo temporal
+    # sozinho não chegava — dois no mesmo segundo davam o mesmo nome e o
+    # os.replace passava por cima em silêncio. Improvável, e mesmo assim um
+    # caminho por onde se perde um documento; o contador fecha-o de vez.
     if os.path.exists(destino):
         raiz, ext = os.path.splitext(nome)
-        destino = os.path.join(cfg["tratados"],
-                               f"{raiz}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}")
+        marca = datetime.now().strftime("%Y%m%d%H%M%S")
+        n = 0
+        while os.path.exists(destino):
+            sufixo = marca if n == 0 else f"{marca}_{n}"
+            destino = os.path.join(cfg["tratados"], f"{raiz}_{sufixo}{ext}")
+            n += 1
     try:
         os.replace(caminho, destino)
         return destino

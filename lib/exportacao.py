@@ -87,30 +87,73 @@ def nome_exportado(r: dict, extensao: str) -> str:
     return f"{data}_{numero}_{assunto}{extensao}"
 
 
-# Esvazia uma subpasta da exportação, e só se ela for mesmo da exportação.
-def _limpar(pasta: str) -> None:
-    """Apaga o conteúdo de uma subpasta gerada, depois de confirmar que o é.
+# Garante que um nome não pisa outro já escrito na mesma pasta.
+def _nome_livre(nome: str, r: dict, usados: set[str]) -> str:
+    """Desambigua um nome já ocupado acrescentando-lhe o número do registo.
 
-    A confirmação não é cerimónia: esta função apaga ficheiros, e o caminho vem
-    da configuração, que alguém pode ter apontado para o sítio errado. Sem a
-    marca, não se toca — e a exportação diz porquê em vez de falhar calada.
+    Dois editais podem ter o mesmo número, a mesma data e o mesmo assunto — o
+    mesmo edital registado duas vezes com ficheiros diferentes, que acontece. Sem
+    isto, o segundo escrevia por cima do primeiro: a exportação dizia «2
+    publicados», ficava um ficheiro em disco, e o índice apontava as duas linhas
+    para ele. Perder um documento em silêncio é o pior que uma exportação pode
+    fazer, porque quem a lê julga que está a ver tudo.
+
+    O número do registo só entra quando é preciso: o caso comum fica com o nome
+    legível, e a desambiguação é visível quando existe.
 
     Args:
-        pasta: subpasta a limpar.
+        nome: nome proposto.
+        r: registo, para o número de desempate.
+        usados: nomes já escritos nesta pasta.
+
+    Returns:
+        str: um nome que ainda não está em uso.
+    """
+    if nome not in usados:
+        return nome
+    raiz, ext = os.path.splitext(nome)
+    candidato = f"{raiz}_reg{r['id']:04d}{ext}"
+    # Cinto e suspensórios: dois registos não partilham id, mas se um dia
+    # partilharem, é preferível um nome feio a um documento a menos.
+    n = 2
+    while candidato in usados:
+        candidato = f"{raiz}_reg{r['id']:04d}_{n}{ext}"
+        n += 1
+    return candidato
+
+
+# Esvazia uma subpasta da exportação, e só se ela for mesmo da exportação.
+def _conferir_se_e_nossa(pasta: str) -> None:
+    """Recusa-se a deixar limpar uma pasta que não foi esta ferramenta a criar.
+
+    Não é cerimónia: a exportação apaga ficheiros, e o caminho vem da
+    configuração, que alguém pode ter apontado para o sítio errado. Sem a marca,
+    não se toca — e diz-se porquê, em vez de falhar calado ou de levar à frente
+    o trabalho de outra pessoa.
+
+    Uma pasta vazia sem marca passa: não há nada a perder, e obrigar a criar a
+    marca à mão seria cerimónia a sério.
+
+    Args:
+        pasta: subpasta a verificar.
 
     Raises:
-        RuntimeError: se a pasta existir e não tiver a marca.
+        RuntimeError: se a pasta tiver ficheiros e não tiver a marca.
     """
     if not os.path.isdir(pasta):
-        os.makedirs(pasta, exist_ok=True)
         return
-    if not os.path.exists(os.path.join(pasta, MARCA)):
-        if os.listdir(pasta):
-            raise RuntimeError(
-                f"'{pasta}' tem ficheiros e não foi gerada por aqui (falta o "
-                f"{MARCA}). A exportação não lhe toca. Escolha outra pasta em "
-                f"'exportacao' no config.json, ou esvazie essa à mão.")
+    if os.path.exists(os.path.join(pasta, MARCA)):
         return
+    if os.listdir(pasta):
+        raise RuntimeError(
+            f"'{pasta}' tem ficheiros e não foi gerada por aqui (falta o "
+            f"{MARCA}). A exportação não lhe toca. Escolha outra pasta em "
+            f"'exportacao' no config.json, ou esvazie essa à mão.")
+
+
+def _limpar(pasta: str) -> None:
+    """Esvazia uma subpasta da exportação. Conferir primeiro com _conferir_se_e_nossa."""
+    os.makedirs(pasta, exist_ok=True)
     for nome in os.listdir(pasta):
         alvo = os.path.join(pasta, nome)
         if os.path.isfile(alvo):
@@ -139,18 +182,27 @@ def exportar(cfg: dict, registo) -> dict[str, Any]:
     sem_original: list[int] = []
     linhas: list[dict] = []
 
+    # Conferir as duas pastas ANTES de tocar em qualquer uma. Validar à medida
+    # que se limpa deixava a exportação a meio quando a segunda era recusada:
+    # uma pasta com o retrato de agora, a outra com o de ontem, e uma mensagem
+    # de erro a explicar só metade.
+    for sub in PASTAS.values():
+        _conferir_se_e_nossa(os.path.join(raiz, sub))
+
     for estado, sub in PASTAS.items():
         pasta = os.path.join(raiz, sub)
         _limpar(pasta)
         with open(os.path.join(pasta, MARCA), "w", encoding="utf-8") as f:
             f.write(_TEXTO_DA_MARCA)
+        usados: set[str] = {MARCA}
 
         for r in registo.por_estado(estado):
             extensao = os.path.splitext(r.get("ficheiro_origem") or "")[1] or ".pdf"
             origem = orig.procurar(cfg.get("originais", ""), r.get("sha256", ""), extensao)
             destino = ""
             if origem:
-                destino = nome_exportado(r, extensao)
+                destino = _nome_livre(nome_exportado(r, extensao), r, usados)
+                usados.add(destino)
                 try:
                     shutil.copy2(origem, os.path.join(pasta, destino))
                     contagem[sub] += 1
