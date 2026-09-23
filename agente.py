@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.15.0"
+VERSAO = "0.16.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -84,10 +84,17 @@ _tv = diario.obter("TV")
 # assim o utilizador altera tempos, título e limites sem tocar no código.
 CONFIG = {
     "entrada":  os.path.join(BASE, "entrada"),
+    # Para onde vai um documento depois de virar rascunho. Fica DENTRO de
+    # entrada/ e não ao lado por uma razão prática: quem larga ficheiros na
+    # pasta vê ali mesmo o que já foi recebido, sem ter de procurar noutro sítio.
+    "tratados": os.path.join(BASE, "entrada", "tratados"),
     "saida":    os.path.join(BASE, "saida"),
     "arquivo":  os.path.join(BASE, "arquivo"),   # ZIP permanente dos retirados
     "previas":  os.path.join(BASE, "previas"),   # pré-visualizações leves p/ o painel
     "originais": os.path.join(BASE, "originais"), # arquivo imutável dos documentos
+    # Pastas por estado, para consulta no explorador de ficheiros. São uma VISTA
+    # do registo, reconstruída a pedido — nunca a verdade. Ver lib/exportacao.py.
+    "exportacao": os.path.join(BASE, "exportacao"),
     "fundos":   os.path.join(BASE, "fundos"),    # cache dos fundos metálicos pré-desenhados
     "trabalho": os.path.join(BASE, "trabalho"),
     # Ficheiros do modelo antigo. Já não são escritos — só lidos uma vez, pela
@@ -163,7 +170,8 @@ def load_config():
             _config.error(
                 f"Erro de sintaxe no config.json: {e}. O ficheiro foi IGNORADO e o "
                 f"agente vai usar os valores por omissão. Corrija-o e reinicie.")
-    for k in ("entrada", "saida", "arquivo", "previas", "fundos", "originais", "trabalho"):
+    for k in ("entrada", "tratados", "saida", "arquivo", "previas", "fundos",
+              "originais", "trabalho"):
         os.makedirs(cfg[k], exist_ok=True)
 
     # A senha partilhada foi retirada na Onda 2. Se ainda estiver no config,
@@ -290,6 +298,9 @@ def varrer_para_registo(cfg, reg, logo_im):
             previas = _gerar_previas(cfg, r["id"], pages)
             if previas:
                 reg.definir_previas(r["id"], previas)
+            # Só agora, com o rascunho criado e o original arquivado, é que o
+            # ficheiro sai da pasta de entrada.
+            _tirar_da_entrada(cfg, path, nome)
             ocr_nota = " [via OCR]" if doc_lido["ocr"] else ""
             duv = ", ".join(r["campos_duvidosos"]) or "nenhum"
             print(f"[RASCUNHO #{r['id']}] {nome}{ocr_nota}: {len(pages)} pág | "
@@ -298,6 +309,72 @@ def varrer_para_registo(cfg, reg, logo_im):
         except Exception as ex:
             _agente.error(f"{nome}: {ex}")
     return novos
+
+
+def _procurar_na_entrada(cfg, nome):
+    """Procura um documento pelo nome na pasta de entrada e na de tratados.
+
+    Só serve de recurso: o arquivo imutável é a primeira fonte, e desde a Onda 2
+    todos os registos novos lá têm o seu original. Isto existe para os registos
+    anteriores, que só têm o nome do ficheiro.
+
+    Args:
+        cfg (dict): configuração.
+        nome (str): nome do ficheiro de origem, como o registo o guardou.
+
+    Returns:
+        str|None: caminho do ficheiro, ou None se não estiver em nenhuma das duas.
+    """
+    if not nome:
+        return None
+    for pasta in (cfg["entrada"], cfg["tratados"]):
+        caminho = os.path.join(pasta, nome)
+        if os.path.isfile(caminho):
+            return caminho
+    return None
+
+
+def _tirar_da_entrada(cfg, caminho, nome):
+    """Move um documento já recebido de entrada/ para entrada/tratados/.
+
+    Chamada DEPOIS de o rascunho existir e de o original estar no arquivo
+    imutável. A ordem é o que torna isto seguro: quando o ficheiro sai da pasta
+    de entrada, já há uma cópia idêntica ao byte em originais/, endereçada pelo
+    seu SHA-256, e é dela que a composição lê. O que fica em entrada/ depois da
+    ingestão não tem função nenhuma.
+
+    Existe porque a pasta nunca se esvaziava. Ao fim de umas semanas ninguém
+    conseguia responder a olho à pergunta que interessa — «o que é que chegou de
+    novo?» — e a resposta a essa pergunta é metade do trabalho do posto.
+
+    Mover e não apagar, como em todo o resto do projeto: se alguma coisa correu
+    mal na leitura, o ficheiro de origem continua ali ao lado.
+
+    Falhar aqui é inofensivo e por isso não interrompe nada: o registo já existe,
+    e a varredura seguinte reconhece o ficheiro pelo hash e não o volta a ingerir.
+    Fica o aviso, para não ser um silêncio.
+
+    Args:
+        cfg (dict): configuração.
+        caminho (str): caminho atual do ficheiro, em entrada/.
+        nome (str): nome do ficheiro.
+
+    Returns:
+        str|None: caminho de destino, ou None se não foi possível mover.
+    """
+    destino = os.path.join(cfg["tratados"], nome)
+    # Nome livre: dois editais podem chegar com o mesmo nome em meses
+    # diferentes, e o segundo não pode apagar o primeiro.
+    if os.path.exists(destino):
+        raiz, ext = os.path.splitext(nome)
+        destino = os.path.join(cfg["tratados"],
+                               f"{raiz}_{datetime.now().strftime('%Y%m%d%H%M%S')}{ext}")
+    try:
+        os.replace(caminho, destino)
+        return destino
+    except OSError as ex:
+        _agente.warning(f"{nome} ficou na pasta de entrada: {ex}")
+        return None
 
 
 def _gerar_previas(cfg, rid, pages, larg=900):
@@ -494,8 +571,11 @@ def _compor_edital(cfg, r, logo_im, reg=None):
     extensao = os.path.splitext(r["ficheiro_origem"])[1]
     origem = orig.procurar(cfg["originais"], r.get("sha256", ""), extensao)
     if not origem:
-        origem = os.path.join(cfg["entrada"], r["ficheiro_origem"])
-        if os.path.exists(origem):
+        # Recurso para registos anteriores ao arquivo: o ficheiro pode estar
+        # ainda na pasta de entrada, ou já em entrada/tratados/ se entretanto
+        # passou por uma varredura desta versão.
+        origem = _procurar_na_entrada(cfg, r["ficheiro_origem"])
+        if origem:
             # Registo anterior ao arquivo: aproveita-se esta passagem para o
             # arquivar, de modo que a próxima já não dependa da pasta de entrada.
             try:
@@ -1161,6 +1241,97 @@ def carregar_logo(cfg):
     _agente.warning("log\u00f3tipo n\u00e3o encontrado em assets/ \u2014 sa\u00edda sem logo.")
     return None
 
+def comando_conferir(cfg):
+    """Relata o que está desalinhado entre o registo e o disco.
+
+    Não apaga nem corrige nada, e isso é o desenho: as decisões sobre um edital
+    municipal são de quem responde por ele. Isto diz o que há, e diz por onde se
+    resolve.
+
+    Args:
+        cfg (dict): configuração.
+
+    Returns:
+        int: 0 se não houver nada a assinalar, 1 se houver.
+    """
+    import conferencia
+
+    reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
+    r = conferencia.conferir(cfg, reg)
+
+    e = r["registos"]["por_estado"]
+    print(f"\nREGISTO — {r['registos']['total']} editais")
+    print("  " + " · ".join(f"{reg_mod.ESTADO_LABEL[k].lower()}: {v}"
+                            for k, v in e.items()))
+    mb = r["arquivo"]["bytes"] / (1024 * 1024)
+    print(f"  arquivo imutável: {r['arquivo']['documentos']} documentos, {mb:.1f} MB")
+
+    if r["sem_original"]:
+        print(f"\nSEM ORIGINAL — {len(r['sem_original'])} registo(s)")
+        print("  O documento não está no arquivo nem nas pastas de entrada.")
+        print("  Estes editais NÃO se conseguem compor, e por isso não vão ao ecrã.")
+        for x in r["sem_original"]:
+            falta = "" if x["tem_data"] else "  [e sem data de publicação]"
+            print(f"  #{x['id']:<4} {x['estado']:<11} {x['numero'] or '(sem número)':<12} "
+                  f"{x['assunto'] or '(sem assunto)'}{falta}")
+            print(f"       ficheiro que falta: {x['ficheiro_origem'] or '(não registado)'}")
+
+    if r["rascunhos_impossiveis"]:
+        print(f"\nSEM SAÍDA — {len(r['rascunhos_impossiveis'])} rascunho(s)")
+        print("  Sem data de publicação não se validam; sem original não se publicam.")
+        print("  Ficam na fila «Por validar» para sempre. Ou se lhes dá a data e se")
+        print("  repõe o ficheiro em entrada/, ou se descartam no painel com o motivo.")
+        print("  ids: " + ", ".join(f"#{x['id']}" for x in r["rascunhos_impossiveis"]))
+
+    for chave, titulo, onde in (
+            ("png_orfaos", "ECRÃS ÓRFÃOS", "saida/"),
+            ("previas_orfas", "PRÉ-VISUALIZAÇÕES ÓRFÃS", "previas/"),
+            ("originais_orfaos", "ORIGINAIS ÓRFÃOS", "originais/")):
+        if r[chave]:
+            print(f"\n{titulo} — {len(r[chave])} ficheiro(s) em {onde}")
+            print("  Nenhum registo os reclama. Não são apagados por aqui.")
+            for nome in r[chave][:12]:
+                print(f"  {nome}")
+            if len(r[chave]) > 12:
+                print(f"  … e mais {len(r[chave]) - 12}")
+
+    if not conferencia.ha_problemas(r):
+        print("\nTudo alinhado: cada registo tem o seu documento, e cada ficheiro")
+        print("em disco tem o seu registo.\n")
+        return 0
+    print("\nNada foi apagado nem alterado. Isto é um relatório.\n")
+    return 1
+
+
+def comando_exportar_pastas(cfg):
+    """Reconstrói as pastas publicados/ e retirados/ a partir do registo.
+
+    Args:
+        cfg (dict): configuração.
+
+    Returns:
+        int: 0 em caso de sucesso, 1 se a exportação foi recusada.
+    """
+    import exportacao
+
+    reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
+    try:
+        r = exportacao.exportar(cfg, reg)
+    except RuntimeError as ex:
+        _agente.error(f"{ex}")
+        return 1
+    print(f"\nExportado para {r['raiz']}")
+    print(f"  publicados: {r['publicados']}")
+    print(f"  retirados:  {r['retirados']}")
+    print(f"  índice:     {r['indice']}")
+    if r["sem_original"]:
+        print(f"\n  {len(r['sem_original'])} edital(is) sem original arquivado ficaram")
+        print("  só no índice, sem ficheiro. Use --conferir para os ver.")
+    print("\nEstas pastas são uma VISTA do registo, construída agora. Mover um")
+    print("ficheiro de lá não muda o estado de nada — isso faz-se no painel.\n")
+    return 0
+
+
 def main():
     """Ponto de entrada da linha de comandos.
 
@@ -1185,6 +1356,10 @@ def main():
                     help="com --criar-utilizador: dá-lhe também a gestão de contas")
     ap.add_argument("--utilizadores", action="store_true",
                     help="lista as contas de acesso ao painel")
+    ap.add_argument("--conferir", action="store_true",
+                    help="compara o registo com o disco e relata o que não bate certo")
+    ap.add_argument("--exportar-pastas", action="store_true",
+                    help="reconstrói as pastas publicados/ e retirados/ a partir do registo")
     ap.add_argument("--versao", action="version", version=f"agente de editais {VERSAO}")
     args = ap.parse_args()
 
@@ -1195,6 +1370,10 @@ def main():
         return comando_criar_utilizador(cfg, args.criar_utilizador, args.administrador)
     if args.utilizadores:
         return comando_listar_utilizadores(cfg)
+    if args.conferir:
+        return comando_conferir(cfg)
+    if args.exportar_pastas:
+        return comando_exportar_pastas(cfg)
 
     if not args.painel:
         # Sem argumentos, mostra a ajuda em vez de não fazer nada em silêncio.
