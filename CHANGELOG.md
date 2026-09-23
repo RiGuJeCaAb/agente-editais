@@ -331,7 +331,29 @@ verdade. Se divergirem, volta-se a gerar e fica resolvido.
   e não apagar, como em todo o resto. Falhar a mudança é inofensivo — o registo
   já existe e o hash impede a reingestão — por isso avisa e não interrompe nada.
 
+### Corrigido na própria onda, antes de entrar
+O revisor automático esgotou o orçamento e não reviu este trabalho. A revisão
+foi feita à mão sobre o diff, e encontrou três coisas:
+
+- **A exportação apagava um edital em silêncio.** Dois registos com o mesmo
+  número, data e assunto — o mesmo edital registado duas vezes com ficheiros
+  diferentes, que acontece — davam o mesmo nome de ficheiro, e o segundo
+  escrevia por cima do primeiro. A exportação dizia «2 publicados», ficava um
+  ficheiro, e o índice apontava as duas linhas para ele. Perder um documento em
+  silêncio é o pior que uma exportação pode fazer, porque quem a lê julga que
+  está a ver tudo. O número do registo entra agora no nome quando é preciso.
+- **Uma pasta recusada deixava a outra a meio.** As subpastas eram validadas à
+  medida que se limpavam; se a segunda fosse recusada, a primeira já tinha o
+  retrato de agora e a segunda o de ontem. Conferem-se as duas antes de se tocar
+  em alguma.
+- **O `--conferir` ia relatar ficheiros que não são ecrãs.** A lista era de
+  exclusões (`.html`, `.json`, `.zip`), e uma cópia `.bak.1` de uma gravação
+  atómica não acaba em `.json` — apareceria como ecrã órfão, a mandar alguém
+  procurar um problema que não existe. Passa a contar o que É um ecrã. Um
+  relatório que grita por nada deixa de ser lido, e aí deixa de apanhar o que
+  interessa.
+
 ### Testes
-30 novos, 329 no total. Os dois que mais interessam não testam funcionalidade,
+37 novos, 336 no total. Os dois que mais interessam não testam funcionalidade,
 testam **contenção**: `--conferir` não mexe num único ficheiro nem num único
 estado, e a exportação não apaga uma pasta que não tenha sido ela a criar.
