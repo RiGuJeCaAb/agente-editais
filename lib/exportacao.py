@@ -152,7 +152,31 @@ def _conferir_se_e_nossa(pasta: str) -> None:
 
 
 def _limpar(pasta: str) -> None:
-    """Esvazia uma subpasta da exportação. Conferir primeiro com _conferir_se_e_nossa."""
+    """Esvazia uma subpasta da exportação, conferindo outra vez antes de apagar.
+
+    A verificação repete-se aqui de propósito, e a razão é uma regressão desta
+    mesma onda. Ao passar a conferir as duas pastas à cabeça — para uma recusa na
+    segunda não deixar a primeira já reescrita — abriu-se uma janela entre o
+    conferir e o apagar. A janela da segunda pasta é o tempo inteiro de copiar a
+    primeira, que com muitos editais são segundos. Uma pasta vazia sem marca
+    passa na conferência; se alguém lá largar um ficheiro nesse intervalo, o
+    ficheiro era apagado sem a marca ter existido alguma vez.
+
+    Conferir à porta da limpeza reduz a janela ao que separa esta chamada do
+    primeiro `os.remove` — microssegundos, e o que resta só se fecharia com
+    bloqueio de ficheiros, que não se justifica para uma pasta que se
+    reconstrói com um comando.
+
+    Fica a conferência de cima na mesma: é ela que evita o estado a meio, que é
+    o problema que acontece de facto. Esta é a que evita o raro.
+
+    Args:
+        pasta: subpasta a esvaziar.
+
+    Raises:
+        RuntimeError: se entretanto a pasta deixou de ser nossa.
+    """
+    _conferir_se_e_nossa(pasta)
     os.makedirs(pasta, exist_ok=True)
     for nome in os.listdir(pasta):
         alvo = os.path.join(pasta, nome)

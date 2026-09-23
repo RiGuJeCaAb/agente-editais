@@ -245,3 +245,26 @@ def test_uma_pasta_recusada_nao_deixa_a_outra_a_meio(posto):
         exportacao.exportar(posto["cfg"], posto["reg"])
     assert sorted(os.listdir(publicados)) == antes, "publicados/ foi mexida na mesma"
     assert os.path.isfile(os.path.join(retirados, "MEU.pdf"))
+
+
+def test_limpar_recusa_uma_pasta_que_deixou_de_ser_nossa(posto):
+    """A janela entre conferir e apagar, apanhada pela revisão do PR #7.
+
+    Conferir as duas pastas à cabeça evita o estado a meio, mas abre um
+    intervalo entre a verificação e a limpeza — e o intervalo da segunda pasta é
+    o tempo inteiro de copiar a primeira. Uma pasta vazia sem marca passa na
+    conferência; se alguém lá largar um ficheiro nesse intervalo, ele seria
+    apagado sem a marca ter existido alguma vez.
+
+    `_limpar` confere outra vez à porta. Este teste exercita-a diretamente,
+    porque a corrida em si não se reproduz de forma determinista — o que se pode
+    fixar é a invariante: esta função nunca apaga numa pasta que não seja nossa.
+    """
+    pasta = posto["pasta"] / "exportacao" / "publicados"
+    pasta.mkdir(parents=True)
+    intruso = pasta / "chegou_entretanto.pdf"
+    intruso.write_bytes(b"o trabalho de alguem")
+
+    with pytest.raises(RuntimeError, match=exportacao.MARCA):
+        exportacao._limpar(str(pasta))
+    assert intruso.exists()
