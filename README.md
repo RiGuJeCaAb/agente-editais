@@ -859,6 +859,24 @@ Se o consumo da subscrição incomodar, a linha a mexer é o gatilho:
 `types: [opened, synchronize]` passa a `types: [opened]` e revê-se uma vez por
 PR em vez de a cada push.
 
+**Um push durante uma revisão cancela a anterior.** Sem o grupo de concorrência,
+uma sequência rápida de correções punha três revisões a correr ao mesmo tempo
+sobre o mesmo ramo — todas a gastar subscrição e só a última a interessar.
+
+**A revisão vive num só comentário, que se atualiza.** São precisos os dois
+parâmetros, e o que faz o trabalho é o `track_progress`: com um `prompt`, a ação
+corre em modo de automação e não cria comentário nenhum, e nesse modo o
+`use_sticky_comment` não tem o que governar. Pela mesma razão, `gh pr comment`
+não está na lista de ferramentas — se estivesse, a promessa de um só comentário
+dependia de o modelo obedecer ao prompt em vez de ser estrutural.
+
+**O checkout não deixa credenciais para trás** (`persist-credentials: false`).
+O `actions/checkout@v6` guarda o token num ficheiro sob `$RUNNER_TEMP` e
+aponta-lhe a partir do `git config`. Quem revê tem leitura de ficheiros e recebe
+pela frente texto escrito por qualquer pessoa que abra uma PR neste repositório
+público; a revisão não faz operações git autenticadas, portanto o token não
+precisa de lá estar.
+
 ### A revisão à mão continua
 
 Não é um remendo à espera de ferramenta melhor. Em sete PRs seguidas, a revisão à

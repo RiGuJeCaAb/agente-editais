@@ -892,8 +892,41 @@ PRs daqui levam correções a meio da revisão e é precisamente aí que entram 
 defeitos. Se o consumo da subscrição incomodar, tira-se o `synchronize` e passa a
 uma revisão por PR.
 
-O comentário é fixo e atualiza-se em vez de se empilhar (`use_sticky_comment`).
-Três revisões acumuladas sobre o mesmo ficheiro não se leem.
+O comentário é fixo e atualiza-se em vez de se empilhar. São precisos **dois**
+parâmetros, e o que faz o trabalho é o `track_progress`: com um `prompt`, a ação
+corre em modo de automação e não cria comentário nenhum, e nesse modo o
+`use_sticky_comment` sozinho não tem o que governar.
+
+O `gh pr comment` não está na lista de ferramentas, de propósito. O exemplo
+oficial com `track_progress` mantém-no, mas aí a promessa de um só comentário
+depende de o modelo obedecer ao prompt. Sem a ferramenta, passa a ser estrutural.
+
+**Um push durante uma revisão cancela a anterior.** Sem o grupo de concorrência,
+uma sequência rápida de correções punha três revisões a correr ao mesmo tempo,
+todas a gastar subscrição e só a última a interessar.
+
+**O checkout não deixa credenciais para trás.** O `actions/checkout@v6` guarda o
+token num ficheiro sob `$RUNNER_TEMP` e aponta-lhe do `git config`. Quem revê tem
+leitura de ficheiros e recebe pela frente texto escrito por qualquer pessoa que
+abra uma PR neste repositório público. A revisão não faz operações git
+autenticadas: `persist-credentials: false`.
+
+### A primeira revisão automática foi ao próprio revisor
+
+Vale a pena registar como isto foi parar aqui, porque é o argumento todo desta
+peça em miniatura. As três correções acima **não são minhas**: são achados do
+CodeRabbit sobre a versão anterior deste mesmo ficheiro, na PR que o trouxe.
+
+A do comentário único era a mais séria, e era um defeito a sério: o que estava
+escrito no `use_sticky_comment` prometia uma coisa que o modo de automação não
+fazia, e este CHANGELOG dizia-o com todas as letras. Estava errado.
+
+A verificação seguinte foi minha e nasceu da correção: ao explicar por escrito
+porque é que o `gh pr comment` saía da lista, pus o comentário **dentro** do
+bloco literal do `claude_args` — onde uma linha começada por `#` não é
+comentário nenhum, é texto passado ao CLI. Cinco linhas de lixo à frente dos
+argumentos. Apanhado a imprimir o que o CLI receberia mesmo, em vez de a olhar
+para o ficheiro.
 
 ### Porque não o CodeRabbit, que também ficou ligado
 
