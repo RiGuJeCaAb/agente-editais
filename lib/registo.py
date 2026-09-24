@@ -143,7 +143,13 @@ class RegistoEntrada:
             for campo, valor in (("tipo", pr.TIPO_POR_OMISSAO), ("sha256", ""),
                                  ("afixado_em", None),
                                  ("afixado_por", None), ("desafixado_em", None),
-                                 ("desafixado_por", None), ("disponivel_em", None)):
+                                 ("desafixado_por", None), ("disponivel_em", None),
+                                 # Desde a peça 4. Fica vazio nos registos
+                                 # antigos, e é a publicação seguinte que o
+                                 # preenche — não se inventa aqui um desenho a
+                                 # partir de um PNG já composto, porque isso
+                                 # seria adivinhar onde as folhas assentaram.
+                                 ("ecras", [])):
                 if campo not in reg:
                     reg[campo] = valor
                     mudou = True
@@ -247,7 +253,15 @@ class RegistoEntrada:
                 # Metadados de apoio à decisão:
                 "confianca": conf,
                 "campos_duvidosos": self._campos_duvidosos(conf),
-                "ficheiros_png": [],            # preenchidos quando publica
+                # O desenho de cada ecrã: que folhas o compõem, onde assentam
+                # no palco de 3840x2160, e se há canto livre para o logótipo. É
+                # disto que a televisão vive desde a peça 4 — ela é que compõe.
+                "ecras": [],                    # preenchidos quando publica
+                # Os PNG 4K compostos. Mudaram de momento na peça 4: deixaram de
+                # se fazer ao publicar e passaram a fazer-se na RETIRADA, à porta
+                # do arquivo. Enquanto o edital está afixado, esta lista está
+                # vazia — quem quiser ver o que está no ecrã olha para os ecrãs.
+                "ficheiros_png": [],            # preenchidos ao arquivar
                 "ficheiros_previa": [],         # pré-visualizações leves p/ o painel
                 # Auditoria:
                 "criado_em": _agora(),
@@ -337,7 +351,7 @@ class RegistoEntrada:
     # auditoria) porque não são decisões de ninguém: são resultados do
     # processamento. Ter a lista explícita evita que uma chamada distraída a
     # definir() escreva no estado ou no histórico por esta porta.
-    CAMPOS_DE_SISTEMA = {"ficheiros_previa", "ficheiros_png", "sha256"}
+    CAMPOS_DE_SISTEMA = {"ficheiros_previa", "ficheiros_png", "ecras", "sha256"}
 
     def definir(self, rid, **campos):
         """Grava campos produzidos pelo agente num registo.
@@ -404,6 +418,15 @@ class RegistoEntrada:
     def definir_pngs(self, rid, nomes):
         """Atalho legível para gravar os nomes dos PNG compostos."""
         self.definir(rid, ficheiros_png=list(nomes))
+
+    def definir_ecras(self, rid, ecras):
+        """Atalho legível para gravar o desenho dos ecrãs deste edital.
+
+        Args:
+            rid (int): id do registo.
+            ecras (list[dict]): um por ecrã, com as folhas e as suas caixas.
+        """
+        self.definir(rid, ecras=list(ecras))
 
     # ---- edição de campos -------------------------------------------------
     def editar(self, rid, campos, utilizador="painel"):

@@ -608,3 +608,100 @@ que ninguém o confirmou. Há um teste que fixa esse contrato, e não o acerto.
 guardam a segunda correção foram corridos contra a primeira: os dezanove falham
 lá e passam aqui.
 
+## 0.19.0 — Onda 3 (4/4): quem compõe o ecrã é a televisão
+
+Compunha-se em Python uma imagem de 3840×2160 por ecrã — fundo, sombras e
+folhas cozidos num PNG de 3 MB — e mandava-se para a televisão. Era o passo mais
+caro de publicar, e o mais desnecessário dos dois que existiam.
+
+### O que se descobriu antes de mudar fosse o que fosse
+
+A página da televisão **já desenhava** um fundo verde com veias douradas, em
+canvas. Esse fundo estava 100 % tapado: num televisor 16:9, o PNG opaco de 16:9
+cobre o ecrã todo. Confirmado a medir a imagem no browser — 1920×1080 numa janela
+de 1920×1080 — e a fotografar a página com o PNG escondido, que é o que mostra o
+que estava por baixo.
+
+Pagava-se duas vezes pelo mesmo fundo, e via-se o mais caro.
+
+### Corrigido
+
+- **Publicar deixa de compor.** A televisão passa a receber as folhas já
+  ajustadas à sua caixa e as coordenadas onde assentam, e compõe o ecrã ela
+  própria: as folhas posicionadas sobre o fundo que já desenhava, com as sombras
+  em `box-shadow` — os dois níveis que o numpy fazia com dois desfoques
+  gaussianos sobre uma máscara de 3840×2160, e que aqui custam zero.
+
+  Medido com o mesmo guião e instalação nova dos dois lados:
+
+  | páginas | ecrãs | antes | agora |
+  |---|---|---|---|
+  | 3 | 1 | 12,01 s · 1131 MB | **0,42 s · 441 MB** |
+  | 20 | 7 | 73,82 s · 1213 MB | **2,16 s · 441 MB** |
+  | 50 | 17 | **117,76 s** · 1214 MB | **5,20 s** · 442 MB |
+
+  Estes números incluem o aquecimento da cache de fundos, que uma instalação
+  nova paga e as seguintes não. Em regime, por ecrã e com a cache quente, são
+  3,02 s e 546 MB contra 0,36 s e 200 MB. As duas medições estão aqui porque uma
+  sozinha exagerava: a primeira a favor, a segunda contra.
+
+  Em disco, um edital de 50 páginas passa de 51,65 MB de PNG para 6,66 MB de
+  folhas.
+
+- **O PNG 4K mudou de momento, não desapareceu.** Faz-se na **retirada**, à porta
+  do arquivo. O ZIP de arquivo permanente continua a receber exatamente o mesmo
+  ficheiro que recebia antes — é ele a prova do que esteve afixado — mas o custo
+  saiu de onde havia alguém à espera e passou para uma arrumação onde não há.
+  Decidido na conversa de 24/09/2026.
+
+- **O ZIP do expositor ficava vazio de imagens.** Agrupava os PNG dos editais
+  publicados, que passaram a não existir enquanto o edital está afixado. Sem
+  correção, passaria a levar o registo e mais nada, sem se queixar — que é a pior
+  forma de uma cópia de segurança falhar. Passa a levar as folhas, o `slides.json`
+  e o registo: com as três coisas reconstrói-se o expositor noutra máquina.
+
+- **O `--conferir` denunciava o logótipo e não via as folhas.** O logótipo passou
+  a ser servido como imagem à parte, e era reclamado por registo nenhum: seria
+  apontado como órfão a cada execução, e um relatório que se queixa sempre da
+  mesma coisa deixa de ser lido. As folhas, sendo JPEG, não eram sequer contadas
+  — uma folha deixada para trás por um registo apagado não era denunciada por
+  ninguém.
+
+### Acrescentado
+
+- `tratamento.caixas_do_ecra()` e `folhas_do_ecra()`: a regra de onde cada folha
+  assenta, num sítio só. Há dois consumidores das mesmas coordenadas — a
+  composição que vai para o arquivo e o browser que desenha o ecrã — e uma
+  segunda cópia da regra era o caminho certo para o arquivo deixar de provar o
+  que esteve afixado. Mesma lição do `agrupar_indices`, na peça anterior.
+- `tratamento.ha_espaco_para_o_logotipo()`: a mesma pergunta de sempre —
+  «o canto está livre?» — respondida por geometria em vez de amostragem de
+  píxeis, porque quem compõe no browser não tem imagem para amostrar.
+- Campo `ecras` no registo, com migração. Fica vazio nos registos anteriores: era
+  possível inventar um desenho a partir do PNG já composto, mas isso é adivinhar
+  onde as folhas assentaram, e a publicação seguinte sabe-o de facto.
+
+### Garantido
+
+**As coordenadas são as mesmas nos dois lados.** O que a televisão desenha, medido
+no browser, é o que o Python calcula: com o ecrã a metade da escala, as folhas em
+x=81, 1319 e 2557 aparecem em 41, 660 e 1279. Se divergissem, a imagem arquivada
+deixava de ser prova do que esteve afixado — e é só para isso que ela existe.
+
+**A composição 4K não mudou um píxel.** A extração da regra das caixas foi
+verificada a comparar o resumo SHA-256 de um PNG composto antes e outro depois:
+idênticos ao byte. Fazia falta prová-lo por fora, porque o teste de «idêntico ao
+bit» da peça 3 compara os dois caminhos um com o outro na mesma execução, e não
+apanharia uma alteração que afectasse os dois por igual.
+
+### Removido
+
+`recuperar_do_arquivo()`. Existia para trazer de volta do ZIP os PNG de um edital
+reposto no ecrã, em vez de os recompor. As folhas refazem-se em 0,36 s, que é
+menos do que abrir o ZIP — e deixa o arquivo de ser fonte de coisas substituíveis.
+
+### Testes
+
+28 novos, 454 no total. Os catorze de `test_compor_no_browser.py` foram corridos
+contra o código anterior: onze falham lá e passam aqui.
+

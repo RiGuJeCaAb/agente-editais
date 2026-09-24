@@ -250,7 +250,14 @@ def exportar(cfg: dict, registo) -> dict[str, Any]:
                 "desafixado_por": r.get("desafixado_por") or "",
                 "sha256": r.get("sha256") or "",
                 "ficheiro_exportado": os.path.join(sub, destino) if destino else "",
-                "ecras_na_tv": " ".join(r.get("ficheiros_png") or []),
+                # Quantos ecrãs o edital ocupa no expositor, e não os nomes
+                # dos ficheiros. Citava os PNG compostos; desde a peça 4 eles só
+                # existem depois da retirada, por isso a coluna ficava vazia
+                # justamente para os editais que estão afixados — que são os que
+                # interessam a quem abre esta folha. O número responde à
+                # pergunta que se faz aqui, e não depende de ficheiros que vão e
+                # vêm da pasta de saída.
+                "ecras_na_tv": len(r.get("ecras") or []),
             })
 
     linhas.sort(key=lambda x: (x["data_publicacao"], x["id"]))

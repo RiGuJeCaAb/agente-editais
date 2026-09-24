@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.18.0"
+VERSAO = "0.19.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -479,7 +479,7 @@ def _publicar_registos(cfg, reg, logo_im):
         _agente.info(f"AUTO retirados por data: {retirados}")
 
     # Arruma a pasta: PNG de retirados vão para o arquivo e saem de saida/.
-    arquivar_retirados(cfg, reg)
+    arquivar_retirados(cfg, reg, logo_im)
 
     publicados = reg.por_estado(reg_mod.PUBLICADO)
     slides = []
@@ -488,53 +488,58 @@ def _publicar_registos(cfg, reg, logo_im):
         # acabava em «3 de 4» — nunca chegava ao fim, e parecia ter encravado
         # no último edital. É o k-ésimo de N a ser tratado, como nas outras fases.
         progresso.a_publicar(feitos, len(publicados))
-        # Caso 1: nunca teve PNG — primeira publicação, compõe de novo.
-        # Grava-se por definir_pngs() e não por mutação do dicionário: desde que
+        # Prepara as folhas se ainda não existirem, ou se alguma se perdeu da
+        # pasta de saída — o que acontece a um edital que esteve retirado e foi
+        # reposto. Refazê-las custa 0,36 s por ecrã, por isso não há aqui
+        # recuperação de arquivo nenhuma: é mais barato voltar a fazer do que ir
+        # buscar, e evita o ZIP ficar a ser fonte de coisas substituíveis.
+        #
+        # Grava-se por definir_ecras() e não por mutação do dicionário: desde que
         # por_estado() devolve cópias, escrever no resultado não chega ao registo.
-        if not r.get("ficheiros_png"):
-            r["ficheiros_png"] = _compor_edital(cfg, r, logo_im, reg)
-            reg.definir_pngs(r["id"], r["ficheiros_png"])
-        # Caso 2: tem nome de PNG registado mas o ficheiro não está na pasta
-        # (foi arquivado quando esteve retirado) — recupera-o do ZIP de arquivo.
-        else:
-            faltam = [p for p in r["ficheiros_png"]
-                      if not os.path.exists(os.path.join(cfg["saida"], p))]
-            if faltam:
-                recuperados = recuperar_do_arquivo(cfg, faltam)
-                # Se algum não estava no arquivo (arquivo perdido?), recompõe tudo.
-                if len(recuperados) != len(faltam):
-                    _arquivo.info(f"recomposição de recurso para #{r['id']} "
-                          f"(nem tudo estava arquivado)")
-                    r["ficheiros_png"] = _compor_edital(cfg, r, logo_im, reg)
-                    reg.definir_pngs(r["id"], r["ficheiros_png"])
-        # Cada ecrã (PNG) do edital é um slide, com assunto + data de publicação.
-        for png in r["ficheiros_png"]:
-            slides.append({"src": png, "assunto": r["assunto"],
+        faltam = [f["src"] for e in r.get("ecras") or []
+                  for f in e["folhas"]
+                  if not os.path.exists(os.path.join(cfg["saida"], f["src"]))]
+        if not r.get("ecras") or faltam:
+            r["ecras"] = _preparar_ecras(cfg, r, logo_im, reg)
+            reg.definir_ecras(r["id"], r["ecras"])
+        # Cada ecrã do edital é um slide. Vai o desenho, e não um nome de
+        # imagem: quem compõe agora é a televisão.
+        for ecra in r["ecras"]:
+            slides.append({"ecra": ecra, "assunto": r["assunto"],
                            "pub": r["data_publicacao"] or ""})
         # O edital entrou mesmo na rotação do expositor. É o registo de
         # disponibilidade que acompanha a certidão em anexo — a confirmação
         # material, distinta do instante oficial de afixação, que é o da
-        # publicação no painel. Só se marca se houve PNG: um edital publicado
+        # publicação no painel. Só se marca se houve ecrã: um edital publicado
         # cujo ficheiro de origem desapareceu não chega a ficar visível.
-        if r["ficheiros_png"]:
+        if r["ecras"]:
             reg.marcar_disponivel(r["id"])
 
-    _escrever_pagina_tv(cfg, slides)
+    _escrever_pagina_tv(cfg, slides, logo_im)
     _escrever_zip_publicados(cfg, reg, publicados)
     return len(slides)
 
 
-def arquivar_retirados(cfg, reg):
-    """Move os PNG de editais RETIRADOS para o ZIP de arquivo e limpa a pasta.
+def arquivar_retirados(cfg, reg, logo_im=None):
+    """Compõe o PNG 4K de cada edital RETIRADO e arquiva-o; limpa a pasta.
 
-    Poupa espaço em disco: um edital fora do ecrã não precisa de ocupar a pasta
-    saida/ como ficheiro solto. Antes de apagar, garante SEMPRE que cada PNG está
-    guardado no ZIP de arquivo permanente (arquivo/arquivo_editais.zip), para
-    poder ser reposto mais tarde sem recompor.
+    É aqui que a composição 4K passou a acontecer, na peça 4. Antes fazia-se ao
+    publicar, com alguém à espera, e a imagem ficava na pasta de saída à espera
+    de um dia ser arquivada. Agora a televisão compõe o ecrã sozinha e esta
+    imagem existe por uma razão só: ser o registo, no arquivo permanente, do que
+    esteve afixado. Faz-se portanto quando esse período acaba — que é o instante
+    em que há um facto completo para registar, e em que ninguém está à espera.
+
+    O que vai para o ZIP é exatamente o mesmo ficheiro que lá ia antes.
+
+    As folhas soltas do edital saem da pasta de saída na mesma passagem. Não vão
+    para o arquivo: são intermédias e refazem-se em 0,36 s; o que prova o que
+    esteve no ecrã é o PNG.
 
     Args:
         cfg (dict): configuração.
         reg (RegistoEntrada): registo de entrada.
+        logo_im: logótipo a aplicar na composição (ou None).
     """
     import zipfile
     os.makedirs(cfg["arquivo"], exist_ok=True)
@@ -548,6 +553,18 @@ def arquivar_retirados(cfg, reg):
 
     movidos = 0
     for r in reg.por_estado(reg_mod.RETIRADO):
+        # Compor agora, se ainda não há imagem deste período de afixação. O
+        # teste é por lista vazia e não por ficheiro em falta: um PNG já
+        # arquivado numa passagem anterior deixou de estar na pasta de saída, e
+        # voltar a compô-lo por isso era refazer o mesmo trabalho a cada ciclo.
+        if not r.get("ficheiros_png"):
+            nomes = _compor_edital(cfg, r, logo_im, reg)
+            if nomes:
+                reg.definir_pngs(r["id"], nomes)
+                r["ficheiros_png"] = nomes
+        # As folhas soltas já não servem para nada: o edital saiu do ecrã.
+        _limpar_ecras(cfg, [f["src"] for e in r.get("ecras") or []
+                            for f in e["folhas"]])
         for png in r.get("ficheiros_png", []):
             caminho = os.path.join(cfg["saida"], png)
             if not os.path.exists(caminho):
@@ -568,36 +585,6 @@ def arquivar_retirados(cfg, reg):
               f"(libertados de saida/)")
 
 
-def recuperar_do_arquivo(cfg, nomes):
-    """Extrai PNG específicos do ZIP de arquivo de volta para a pasta saida/.
-
-    Usado quando um edital retirado é reposto no ecrã: em vez de recompor a
-    imagem 4K do zero, recupera-se o PNG exato que foi arquivado.
-
-    Args:
-        cfg (dict): configuração.
-        nomes (list[str]): nomes dos PNG a recuperar.
-
-    Returns:
-        list[str]: nomes efetivamente recuperados (os que existiam no arquivo).
-    """
-    import zipfile
-    zpath = os.path.join(cfg["arquivo"], "arquivo_editais.zip")
-    if not os.path.exists(zpath):
-        return []
-    recuperados = []
-    with zipfile.ZipFile(zpath, "r") as z:
-        no_zip = set(z.namelist())
-        for nome in nomes:
-            if nome in no_zip:
-                # extrai diretamente para saida/, preservando o nome.
-                z.extract(nome, cfg["saida"])
-                recuperados.append(nome)
-    if recuperados:
-        _arquivo.info(f"{len(recuperados)} PNG recuperados do arquivo para o ecrã")
-    return recuperados
-
-
 def _limpar_ecras(cfg, nomes):
     """Apaga da pasta de saída os ecrãs indicados, sem se queixar dos que faltam.
 
@@ -614,21 +601,23 @@ def _limpar_ecras(cfg, nomes):
             pass
 
 
-def _compor_edital(cfg, r, logo_im, reg=None):
-    """Rasteriza o documento de um registo e compõe os seus ecrãs (PNG).
+def _original_do_registo(cfg, r, reg=None):
+    """Encontra o documento de origem de um registo, onde quer que ele esteja.
 
-    Relê o ficheiro de origem a partir da pasta de entrada, parte as páginas em
-    blocos de até 3 e gera um PNG por bloco, com o tratamento visual habitual.
+    Existe como função própria porque há dois caminhos que precisam do mesmo
+    original: o que prepara os ecrãs para a televisão, ao publicar, e o que
+    compõe a imagem 4K para o arquivo, ao retirar. Duas cópias desta busca
+    acabariam por divergir, e a que divergisse deixava de encontrar o documento
+    de que a certidão fala.
 
     Args:
         cfg (dict): configuração.
-        r (dict): registo de entrada (já publicado).
-        logo_im: logótipo a aplicar (ou None).
+        r (dict): registo de entrada.
         reg (RegistoEntrada|None): registo, para gravar o sha256 quando um
             original antigo é arquivado nesta passagem.
 
     Returns:
-        list[str]: nomes dos PNG gerados (na pasta de saída).
+        str|None: caminho do documento, ou None se não estiver em lado nenhum.
     """
     # O arquivo imutável é a PRIMEIRA fonte, e a pasta de entrada só o recurso.
     # Era ao contrário, e por isso limpar a pasta de entrada tornava impossível
@@ -654,6 +643,113 @@ def _compor_edital(cfg, r, logo_im, reg=None):
     if not origem or not os.path.exists(origem):
         _agente.warning(f"original em falta para o registo #{r['id']}: "
               f"{r['ficheiro_origem']} — não está no arquivo nem na pasta de entrada.")
+        return None
+    return origem
+
+
+# Nome de uma folha solta na pasta de saída.
+def nome_folha(rid, ecra, indice):
+    """Nome do ficheiro de uma folha, único por registo, ecrã e posição.
+
+    Leva o id do registo em vez de um carimbo temporal, ao contrário do PNG
+    composto: as folhas são substituíveis — refazem-se em 0,36 s — e o que se
+    quer delas é que uma republicação escreva por cima das antigas em vez de
+    deixar lixo na pasta. O PNG do arquivo é que precisa de carimbo, porque cada
+    período de afixação tem o seu.
+
+    Args:
+        rid (int): id do registo.
+        ecra (int): número do ecrã dentro do edital (1-based).
+        indice (int): posição da folha dentro do ecrã (1-based).
+
+    Returns:
+        str: nome do ficheiro JPEG.
+    """
+    return f"folha_{rid:04d}_{ecra:02d}_{indice:02d}.jpg"
+
+
+def _preparar_ecras(cfg, r, logo_im, reg=None):
+    """Grava as folhas soltas de um edital e devolve o desenho de cada ecrã.
+
+    É o que substituiu a composição 4K no caminho da publicação. Em vez de uma
+    imagem de 3840×2160 por ecrã, ficam na pasta de saída as folhas já ajustadas
+    à sua caixa, e o desenho diz à televisão onde cada uma assenta no palco.
+
+    Medido num ecrã de três folhas, com a cache de fundos quente:
+    3,02 s e 546 MB de pico para compor o PNG, contra 0,36 s e 200 MB para as
+    folhas — e 0,75 MB de ficheiros em vez de 3,14 MB.
+
+    Args:
+        cfg (dict): configuração.
+        r (dict): registo de entrada.
+        logo_im: logótipo, só para saber se há canto livre para ele.
+        reg (RegistoEntrada|None): registo, para o arquivamento tardio do
+            original (ver _original_do_registo).
+
+    Returns:
+        list[dict]: um por ecrã, com "folhas" (src, x, y, w, h) e "logotipo".
+    """
+    origem = _original_do_registo(cfg, r, reg)
+    if not origem:
+        return []
+    try:
+        dimensoes = doc.dimensoes_das_paginas(origem, cfg["trabalho"])
+    except Exception as ex:
+        _agente.warning(f"falha a ler o registo #{r['id']} ({r['ficheiro_origem']}): {ex}")
+        return []
+    blocos = trat.agrupar_indices(dimensoes)
+    ecras, escritas = [], []
+    for bi, bloco in enumerate(blocos, start=1):
+        progresso.a_compor(r["id"], r["ficheiro_origem"], bi, len(blocos))
+        try:
+            paginas = [im for _i, im in
+                       doc.paginas_uma_a_uma(origem, cfg["trabalho"], indices=bloco)]
+        except Exception as ex:
+            _agente.warning(f"falha a preparar o registo #{r['id']} "
+                            f"({r['ficheiro_origem']}), ecrã {bi}: {ex}")
+            # As folhas já gravadas vão atrás, pela mesma razão de sempre: um
+            # ficheiro na pasta de saída que o registo não reclama não é de
+            # ninguém, e o --conferir não dá por ele.
+            _limpar_ecras(cfg, escritas)
+            return []
+        folhas = []
+        for i, (caixa, folha) in enumerate(trat.folhas_do_ecra(paginas), start=1):
+            nome = nome_folha(r["id"], bi, i)
+            # JPEG e não PNG: é uma folha de papel digitalizada, onde o JPEG a 90
+            # é indistinguível a olho e pesa um quarto. O PNG do arquivo continua
+            # sem perdas, que é onde isso importa.
+            folha.save(os.path.join(cfg["saida"], nome), "JPEG", quality=90)
+            escritas.append(nome)
+            x, y, w, h = caixa
+            folhas.append({"src": nome, "x": x, "y": y, "w": w, "h": h})
+        ecras.append({"folhas": folhas,
+                      "logotipo": trat.ha_espaco_para_o_logotipo(
+                          trat.caixas_do_ecra(paginas), logo_im)})
+        del paginas
+    return ecras
+
+
+def _compor_edital(cfg, r, logo_im, reg=None):
+    """Rasteriza o documento de um registo e compõe os seus ecrãs em PNG 4K.
+
+    Desde a peça 4 isto já NÃO acontece ao publicar. A televisão passou a
+    receber as folhas soltas e a compor o ecrã ela própria, e esta composição
+    ficou para a RETIRADA, à porta do arquivo: o ZIP continua a receber
+    exatamente o mesmo ficheiro que recebia antes, e o custo — três segundos e
+    meio giga por ecrã — saiu de onde havia alguém à espera.
+
+    Args:
+        cfg (dict): configuração.
+        r (dict): registo de entrada.
+        logo_im: logótipo a aplicar (ou None).
+        reg (RegistoEntrada|None): registo, para gravar o sha256 quando um
+            original antigo é arquivado nesta passagem.
+
+    Returns:
+        list[str]: nomes dos PNG gerados (na pasta de saída).
+    """
+    origem = _original_do_registo(cfg, r, reg)
+    if not origem:
         return []
     # Um ecrã de cada vez, e não o documento todo em memória. As dimensões de
     # cada página lêem-se do PDF sem rasterizar nada, o agrupamento por
@@ -732,8 +828,21 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .slide{position:absolute;inset:0;opacity:0;transition:opacity 1s ease;
     display:flex;align-items:center;justify-content:center}
   .slide.ativo{opacity:1}
-  .slide img{max-width:100%;max-height:100%;object-fit:contain;display:block;
-    filter:drop-shadow(0 10px 40px rgba(0,0,0,.45))}
+  /* O palco de cada ecrã tem as medidas do canvas de sempre (3840x2160) e é
+     encolhido para caber, por JS. Assim as coordenadas que o agente já calcula
+     servem tal e qual, sem se converterem para percentagens — e as duas
+     composições, a desta página e a que vai para o arquivo, partem do mesmo
+     número. O JS existe em vez de min()/aspect-ratio porque não se sabe a idade
+     do browser do televisor, e o resto desta página não exige tanto. */
+  .palco-ecra{position:absolute;left:50%;top:50%;width:__PALCO_W__px;height:__PALCO_H__px;
+    transform-origin:center center}
+  .folha{position:absolute;display:block;
+    /* Os dois níveis de sombra que o numpy desenhava com dois desfoques
+       gaussianos sobre uma máscara de 3840x2160: a próxima, de contacto, e a
+       distante, que dá a altura. Aqui é o compositor do browser que as faz, e
+       custam zero — eram 0,34 s e 126 MB por ecrã do lado de Python. */
+    box-shadow: 10px 14px 36px rgba(0,0,0,.34), 42px 60px 110px rgba(0,0,0,.28)}
+  .marca{position:absolute;display:block;left:3.2%;top:1.76%;width:15%;height:auto}
   #info{position:fixed;left:0;right:0;bottom:0;z-index:2;padding:2.2vh 3vw;
     background:linear-gradient(transparent,rgba(0,0,0,.55));
     display:flex;justify-content:space-between;align-items:flex-end;font-size:1.5vw}
@@ -864,12 +973,51 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   function fmt(d){ if(!d) return ''; var p=(''+d).split('-'); return p.length===3? p[2]+'/'+p[1]+'/'+p[0] : d; }
 
-  // Cria o nó DOM de um slide (div + img). A imagem só carrega uma vez.
+  // Encolhe os palcos de 3840x2160 para caberem no ecrã, sem deformar. É o
+  // mesmo enquadramento que o object-fit:contain dava à imagem composta.
+  function dimensionaPalcos(){
+    var k = Math.min(window.innerWidth/__PALCO_W__, window.innerHeight/__PALCO_H__);
+    var ps = document.getElementsByClassName('palco-ecra');
+    for (var i=0;i<ps.length;i++){
+      ps[i].style.transform = 'translate(-50%,-50%) scale(' + k + ')';
+    }
+  }
+  window.addEventListener('resize', dimensionaPalcos);
+
+  // Cria o nó DOM de um slide: o palco com as folhas nas suas caixas. As
+  // imagens só carregam uma vez.
+  //
+  // Mudou na peça 4. Era uma <img> só, com o ecrã inteiro já composto em
+  // Python — fundo, sombras e folhas cozidos num PNG de 3840x2160 e 3 MB. O
+  // fundo desse PNG tapava, e ninguém via, o fundo animado que esta página já
+  // desenhava por baixo: pagava-se duas vezes pelo mesmo e via-se o mais caro.
   function criaNode(s){
     var d = document.createElement('div'); d.className = 'slide';
-    var img = document.createElement('img'); img.src = s.src; img.alt = s.assunto||'';
-    d.appendChild(img); palco.appendChild(d);
+    var p = document.createElement('div'); p.className = 'palco-ecra';
+    var e = s.ecra || {folhas: []};
+    for (var i=0;i<e.folhas.length;i++){
+      var f = e.folhas[i];
+      var img = document.createElement('img'); img.className = 'folha';
+      img.src = f.src; img.alt = (s.assunto||'') + ' — folha ' + (i+1);
+      img.style.left = f.x + 'px'; img.style.top = f.y + 'px';
+      img.style.width = f.w + 'px'; img.style.height = f.h + 'px';
+      p.appendChild(img);
+    }
+    if (e.logotipo){
+      var lg = document.createElement('img');
+      lg.className = 'marca'; lg.src = 'logotipo.png'; lg.alt = '';
+      p.appendChild(lg);
+    }
+    d.appendChild(p); palco.appendChild(d);
+    dimensionaPalcos();
     return d;
+  }
+
+  // Identidade de um ecrã: os nomes das suas folhas. Muda quando o conteúdo
+  // muda, e só então — é o que permite reconciliar sem a rotação piscar.
+  function chaveDe(s){
+    var e = s.ecra || {folhas: []};
+    return e.folhas.map(function(f){ return f.src; }).join('|');
   }
 
   // Mostra o slide i (por opacidade) e atualiza o rodapé.
@@ -895,20 +1043,20 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   // Reconciliação: aplica uma nova lista de slides SEM destruir o que já está,
   // para a rotação não piscar. Só mexe no que mudou.
   function aplica(novos){
-    // Identidade de um slide = o seu 'src' (nome único do PNG).
-    var srcAntigos = nodes.map(function(_,k){ return slides[k].src; });
-    var srcNovos = novos.map(function(s){ return s.src; });
+    // Identidade de um slide = os nomes das folhas do seu ecrã (ver chaveDe).
+    var chavesAntigas = nodes.map(function(_,k){ return chaveDe(slides[k]); });
+    var chavesNovas = novos.map(chaveDe);
 
     // Remover nós que já não existem na lista nova.
     for (var k = nodes.length - 1; k >= 0; k--){
-      if (srcNovos.indexOf(slides[k].src) === -1){
+      if (chavesNovas.indexOf(chaveDe(slides[k])) === -1){
         palco.removeChild(nodes[k]);
         nodes.splice(k,1); slides.splice(k,1);
       }
     }
     // Adicionar os novos (no fim — entram na fila e aparecem na sua vez).
     for (var j = 0; j < novos.length; j++){
-      if (srcAntigos.indexOf(novos[j].src) === -1){
+      if (chavesAntigas.indexOf(chaveDe(novos[j])) === -1){
         slides.push(novos[j]);
         nodes.push(criaNode(novos[j]));
       }
@@ -1045,7 +1193,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 """
 
 
-def _escrever_pagina_tv(cfg, slides):
+def _escrever_pagina_tv(cfg, slides, logo_im=None):
     """Escreve o index.html e o slides.json da TV.
 
     Mudança de arquitetura face à versão anterior: os slides deixam de ser
@@ -1057,7 +1205,9 @@ def _escrever_pagina_tv(cfg, slides):
 
     Args:
         cfg (dict): configuração.
-        slides (list[dict]): itens {src, assunto, pub}.
+        slides (list[dict]): itens {ecra, assunto, pub}. O 'ecra' leva as folhas
+            e as suas caixas — desde a peça 4 é a televisão que compõe.
+        logo_im: logótipo a servir à televisão (ou None).
     """
     # slides.json — a fonte viva que a TV consulta em ciclo.
     payload = {
@@ -1076,9 +1226,25 @@ def _escrever_pagina_tv(cfg, slides):
 
     # index.html — escrito uma vez; já não leva os slides lá dentro. Só precisa de
     # saber o título inicial e o intervalo por defeito (o resto vem do JSON).
+    # As medidas do palco saem do tratamento e não são repetidas no HTML: é
+    # sobre elas que as coordenadas das folhas foram calculadas, e um palco com
+    # outras medidas punha as folhas no sítio errado sem nada se queixar.
     html = (_HTML_TEMPLATE.replace("__TITULO__", cfg["titulo_tv"])
-            .replace("__SPE__", str(int(cfg["segundos_por_ecra"]))))
+            .replace("__SPE__", str(int(cfg["segundos_por_ecra"])))
+            .replace("__PALCO_W__", str(trat.CANVAS_W))
+            .replace("__PALCO_H__", str(trat.CANVAS_H)))
     _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"), html)
+
+    # O logótipo passou a ser uma imagem servida à parte, porque quem o assenta
+    # agora é a televisão. Antes vinha gravado dentro de cada PNG composto.
+    # Escreve-se uma vez por publicação, que é barato e evita uma televisão a
+    # pedir um ficheiro que nunca chegou a existir.
+    if logo_im is not None:
+        caminho = os.path.join(cfg["saida"], "logotipo.png")
+        try:
+            logo_im.save(caminho, "PNG")
+        except OSError as ex:
+            _agente.warning(f"não foi possível escrever o logótipo da TV: {ex}")
 
 
 def _escrever_texto_atomico(caminho, texto):
@@ -1107,7 +1273,16 @@ def _escrever_texto_atomico(caminho, texto):
 
 
 def _escrever_zip_publicados(cfg, reg, publicados):
-    """Cria o ZIP de arquivo com os PNG publicados + o registo, e roda os antigos.
+    """Cria o ZIP com o que está no expositor agora, e roda os antigos.
+
+    Leva as folhas de cada edital afixado, o slides.json que diz onde elas
+    assentam, e o registo. Com estas três coisas reconstrói-se o expositor tal
+    como estava, noutra máquina, sem o agente.
+
+    Levava os PNG compostos. Desde a peça 4 eles só existem depois da retirada,
+    por isso continuar a procurá-los aqui daria um ZIP com o registo lá dentro e
+    mais nada — vazio de imagens e sem se queixar, que é a pior forma de uma
+    cópia de segurança falhar.
 
     Args:
         cfg (dict): configuração.
@@ -1119,10 +1294,14 @@ def _escrever_zip_publicados(cfg, reg, publicados):
     zpath = os.path.join(cfg["saida"], f"{ts}_editais_expositor_CLD.zip")
     with zipfile.ZipFile(zpath, "w", zipfile.ZIP_DEFLATED) as z:
         for r in publicados:
-            for png in r.get("ficheiros_png", []):
-                p = os.path.join(cfg["saida"], png)
-                if os.path.exists(p):
-                    z.write(p, png)
+            for ecra in r.get("ecras") or []:
+                for folha in ecra["folhas"]:
+                    caminho = os.path.join(cfg["saida"], folha["src"])
+                    if os.path.exists(caminho):
+                        z.write(caminho, folha["src"])
+        slides = os.path.join(cfg["saida"], "slides.json")
+        if os.path.exists(slides):
+            z.write(slides, "slides.json")
         z.writestr("registo_entrada.json",
                    json.dumps(reg._dados, ensure_ascii=False, indent=2))
     _rodar_zips(cfg)
@@ -1181,9 +1360,14 @@ def iniciar_painel(cfg):
         """Desenha as variantes de fundo em falta, antes de alguém precisar delas.
 
         Cada variante custa ~7 s a desenhar e depois vive em disco para sempre.
-        Feito aqui, em fundo e a baixa prioridade, a primeira publicação do dia
-        já as encontra prontas em vez de as pagar uma a uma no pior momento —
-        que é justamente quando alguém está à espera de ver o edital no ecrã.
+
+        A razão mudou na peça 4, e convém não ficar a antiga escrita aqui: isto
+        existia porque a PUBLICAÇÃO precisava dos fundos, e pagá-los uma a uma
+        com alguém à espera do edital no ecrã era o pior momento possível.
+        Publicar deixou de os usar — quem compõe o ecrã é a televisão, e o fundo
+        é o dela. Quem ainda precisa deles é a composição 4K da retirada, que
+        alimenta o arquivo. Continua a valer a pena tê-los prontos, mas já não é
+        ninguém à espera: é para a arrumação não se arrastar.
         """
         for i in range(trat.VARIANTES_DE_FUNDO):
             try:

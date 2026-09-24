@@ -27,12 +27,23 @@ import registo as reg_mod
 
 _log = diario.obter("CONFERIR")
 
-# Um ecrã de edital é um PNG. A pasta de saída tem mais coisas — a página da
-# TV, o slides.json, os ZIP de arquivo — e o que lá aparecer amanhã não se sabe:
-# uma cópia .bak.1 de uma gravação atómica, por exemplo, não acaba em .json e
-# seria contada como ecrã órfão se a lista fosse de exclusões. Listar o que
+# O que conta como imagem de edital na pasta de saída. A pasta tem mais coisas —
+# a página da TV, o slides.json, os ZIP de arquivo — e o que lá aparecer amanhã
+# não se sabe: uma cópia .bak.1 de uma gravação atómica, por exemplo, não acaba
+# em .json e seria contada como órfã se a lista fosse de exclusões. Listar o que
 # CONTA em vez do que não conta é a inversão que torna isto estável.
-_EXTENSAO_DE_ECRA = ".png"
+#
+# São duas extensões desde a peça 4: o PNG 4K, que agora só existe depois da
+# retirada e a caminho do arquivo, e as folhas soltas em JPEG, que são o que a
+# televisão mostra enquanto o edital está afixado. Sem o JPEG aqui, uma folha
+# deixada para trás por um registo apagado não era denunciada por ninguém.
+_EXTENSOES_DE_ECRA = (".png", ".jpg")
+
+# Ficheiros da pasta de saída que são da PÁGINA e não de um edital. O logótipo
+# passou a ser servido à televisão como imagem à parte, porque quem o assenta
+# agora é ela; sem esta lista seria denunciado como órfão a cada execução, e um
+# relatório que se queixa sempre da mesma coisa deixa de ser lido.
+_FICHEIROS_DA_PAGINA = {"logotipo.png"}
 
 
 # Diz se o original de um registo existe em algum sítio de onde se possa ler.
@@ -105,6 +116,10 @@ def conferir(cfg: dict, registo) -> dict[str, Any]:
 
     for r in todos:
         png_reclamados.update(r.get("ficheiros_png") or [])
+        # As folhas do ecrã são reclamadas pelo registo tal como os PNG: quem as
+        # escreveu foi a publicação deste edital, e é este registo que as aponta.
+        png_reclamados.update(f["src"] for e in (r.get("ecras") or [])
+                              for f in e.get("folhas", []))
         previas_reclamadas.update(r.get("ficheiros_previa") or [])
         if r.get("sha256"):
             resumos_reclamados.add(r["sha256"])
@@ -123,7 +138,8 @@ def conferir(cfg: dict, registo) -> dict[str, Any]:
                 impossiveis.append(resumo)
 
     png_no_disco = {n for n in _ficheiros(cfg.get("saida", ""))
-                    if n.lower().endswith(_EXTENSAO_DE_ECRA)}
+                    if n.lower().endswith(_EXTENSOES_DE_ECRA)
+                    and n not in _FICHEIROS_DA_PAGINA}
     previas_no_disco = _ficheiros(cfg.get("previas", ""))
 
     originais_orfaos = []
