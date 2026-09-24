@@ -18,7 +18,7 @@ packages = []
 
 [project]
 name = "agente-editais"
-version = "0.19.0"
+version = "0.20.0"
 description = "Agente de editais do expositor da Câmara Municipal de Moimenta da Beira"
 requires-python = ">=3.10"
 dependencies = [

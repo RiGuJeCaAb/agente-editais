@@ -148,9 +148,15 @@ class PainelServer:
 
         Args:
             host (str): interface de escuta.
-            porta (int): porta TCP.
+            porta (int): porta TCP. Com 0, o sistema operativo escolhe uma
+                livre — é o que os testes usam, para duas execuções ao mesmo
+                tempo não disputarem o mesmo número.
             bloquear (bool): se True, corre para sempre (serve_forever);
                 se False, arranca numa thread e devolve o controlo.
+
+        Returns:
+            int: a porta em que ficou mesmo a escutar. Igual à pedida, exceto
+            quando se pede 0 — e aí é a única forma de a saber.
 
         Raises:
             RuntimeError: se não houver senha configurada.
@@ -412,6 +418,10 @@ class PainelServer:
                 return self._json({"ok": False, "erro": "Rota desconhecida"}, 404)
 
         self._httpd = ThreadingHTTPServer((host, porta), Handler)
+        # A porta que o sistema operativo atribuiu de facto. Com porta=0 é ele
+        # que escolhe uma livre, e é preciso perguntar qual saiu — passar 0 e
+        # depois anunciar "a servir em :0" seria mentir a quem lê o registo.
+        porta = self._httpd.server_address[1]
         url = f"http://{host if host!='0.0.0.0' else '<IP-do-servidor>'}:{porta}/"
         _painel.info(f"a servir em {url}  (Ctrl+C para parar)")
         # Diagnóstico útil sem revelar a senha: mostra o comprimento, para o
@@ -426,6 +436,7 @@ class PainelServer:
                 print("\n[PAINEL] terminado.")
         else:
             threading.Thread(target=self._httpd.serve_forever, daemon=True).start()
+        return porta
 
     # ---- entrada e contas -------------------------------------------------
     def _servir_entrada(self, handler):

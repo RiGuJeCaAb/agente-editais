@@ -52,7 +52,9 @@ Há um só modo de serviço — o painel:
 
 ```bash
 # criar a primeira conta (pede a senha sem eco); --administrador dá-lhe
-# também a gestão de contas
+# também a gestão de contas.
+# Precisa de um terminal: a senha escreve-se ao teclado e não passa por
+# argumento nem por canalização, para não ficar no histórico da consola.
 python agente.py --criar-utilizador ana.silva --administrador
 
 # arrancar o painel de gestão
@@ -324,7 +326,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 457 testes
+pytest          # 472 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```

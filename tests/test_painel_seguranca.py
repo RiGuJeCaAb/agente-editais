@@ -29,7 +29,6 @@ from conftest import META_BOA
 
 SENHA = "senha-de-teste-com-cedilha-ç"
 SENHA_OPERADOR = "outra-senha-comprida-2"
-_porta = [8950]
 
 
 class Cliente:
@@ -81,14 +80,17 @@ def painel(tmp_path):
     reg.mover_estado(r["id"], reg_mod.VALIDADO, utilizador="ana.abreu")
     reg.mover_estado(r["id"], reg_mod.PUBLICADO, utilizador="ana.abreu")
 
-    _porta[0] += 1
-    porta = _porta[0]
     cfg = {"saida": str(tmp_path), "previas": str(tmp_path), "arquivo": str(tmp_path),
            "municipio": "Município de Teste", "intervalo_watch": 30}
     srv = painel_mod.PainelServer(reg, cfg, republicar_callback=lambda: None,
                                   painel_html_path=None, contas=contas,
                                   saude_callback=lambda: {"ok": True})
-    srv.iniciar(host="127.0.0.1", porta=porta, bloquear=False)
+    # porta=0: é o sistema operativo que escolhe uma livre, e o iniciar
+    # devolve-a. Havia um contador que subia a cada teste a partir de 8951, o
+    # que dava uma porta diferente DENTRO de uma execução mas a mesma sequência
+    # em todas — duas execuções ao mesmo tempo disputavam-nas uma a uma. Medido:
+    # 22 erros de «Address already in use» em duas execuções em paralelo.
+    porta = srv.iniciar(host="127.0.0.1", porta=0, bloquear=False)
     base = f"http://127.0.0.1:{porta}"
     # Espera a que o socket aceite ligações, em vez de dormir um valor ao calhas:
     # num CI carregado, um sleep fixo ou é lento de mais ou curto de mais.
@@ -281,7 +283,7 @@ def test_painel_recusa_arrancar_sem_contas(tmp_path):
     vazio = utl.Utilizadores(str(tmp_path / "vazio.json"))
     srv = painel_mod.PainelServer(reg, {}, painel_html_path=None, contas=vazio)
     with pytest.raises(RuntimeError, match="criar-utilizador"):
-        srv.iniciar(host="127.0.0.1", porta=8999, bloquear=False)
+        srv.iniciar(host="127.0.0.1", porta=0, bloquear=False)
 
 
 # ---------------------------------------------------------------------------
