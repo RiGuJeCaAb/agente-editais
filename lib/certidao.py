@@ -57,6 +57,24 @@ import prazos as pr
 
 # Geometria da página A4 em pontos, e as margens do corpo.
 LARGURA, ALTURA = 595, 842
+
+# Versão do formato da certidão. Sobe sempre que mudar o CONJUNTO DE FACTOS que
+# o selo cobre — nunca por uma mudança de aspeto. Vai impressa no rodapé, para
+# quem confere um papel antigo saber sobre que factos refazer a conta.
+#   1 — formato inicial.
+#   2 — passa a incluir o número de páginas, a data prevista de retirada e a
+#       lista de campos que nenhuma pessoa confirmou.
+FORMATO = 2
+
+# Como se chamam, em português de certidão, os campos que o registo guarda com
+# nome técnico. Sem isto a certidão diria «data_publicacao» a quem a lê.
+ROTULOS_DOS_CAMPOS = {
+    "assunto": "o assunto",
+    "numero": "o número",
+    "data_publicacao": "a data do documento",
+    "entidade": "a entidade emissora",
+    "tipo": "o tipo de documento",
+}
 MARGEM_X = 62
 MARGEM_TOPO = 68
 
@@ -137,6 +155,13 @@ def factos(reg: dict) -> dict:
         dict: factos, com as chaves ordenadas de forma estável.
     """
     return {
+        # Versão do formato. O selo é calculado sobre este dicionário, por isso
+        # acrescentar um facto muda o selo do MESMO registo — e uma certidão
+        # emitida antes deixaria de conferir, o que se parece com uma falsificação
+        # em vez de com uma actualização. Com a versão à vista (vai no rodapé),
+        # quem confere sabe que conta refazer. Certidões sem versão impressa são
+        # do formato 1.
+        "formato": FORMATO,
         "id": reg.get("id"),
         "numero": reg.get("numero") or "",
         "assunto": reg.get("assunto") or "",
@@ -153,6 +178,19 @@ def factos(reg: dict) -> dict:
         "desafixado_em": reg.get("desafixado_em") or "",
         "desafixado_por": reg.get("desafixado_por") or "",
         "disponivel_em": reg.get("disponivel_em") or "",
+        # Quantas folhas foram afixadas. A certidão identificava o documento pelo
+        # nome, pela data e pelo resumo, e nunca dizia o tamanho dele — e se
+        # amanhã alguém discutir o que esteve no expositor, o número de páginas
+        # faz parte da identidade daquilo que lá esteve.
+        "num_paginas": reg.get("num_paginas") or 0,
+        "data_retirada": reg.get("data_retirada") or "",
+        # Campos que a leitura automática propôs e que NENHUMA pessoa confirmou.
+        # O registo limpa esta lista quando alguém corrige o campo, por isso o
+        # que aqui ficar é mesmo por confirmar. Uma certidão que imprime um
+        # palpite da máquina com o mesmo ar de um facto verificado transforma-o
+        # em facto oficial — foi assim que o timbre da câmara virou o assunto de
+        # um documento afixado.
+        "campos_por_confirmar": sorted(reg.get("campos_duvidosos") or []),
     }
 
 
@@ -184,6 +222,26 @@ def agrupar(resumo_: str, por: int = 8) -> str:
     seguinte.
     """
     return " ".join(resumo_[i:i + por] for i in range(0, len(resumo_), por))
+
+
+# Escreve um número de dias em português, com a concordância certa.
+def dias_por_extenso(n: int) -> str:
+    """Põe um número de dias em palavras de gente.
+
+    A certidão dizia «0 dia(s)», que é duas coisas más ao mesmo tempo: o
+    parêntesis do plural, que não se escreve num documento que vai para um
+    processo, e o zero, que em português não é uma duração — um documento
+    afixado esta manhã não esteve afixado zero dias, esteve afixado hoje.
+
+    Args:
+        n (int): número de dias decorridos.
+
+    Returns:
+        str: «Menos de um dia», «1 dia» ou «N dias».
+    """
+    if n <= 0:
+        return "Menos de um dia"
+    return "1 dia" if n == 1 else f"{n} dias"
 
 
 def dias_de_afixacao(factos_: dict) -> int | None:
@@ -388,15 +446,30 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     folha.linha("1. DOCUMENTO AFIXADO", tamanho=10, fonte=SERIF_NEGRITO,
                 cor=VERDE, espaco_depois=9)
     folha.campo("Tipo", d["rotulo"])
-    if f["numero"]:
-        folha.campo("Número", f["numero"])
+    # O número imprime-se SEMPRE, mesmo em falta. Só aparecia quando existia, e
+    # um campo que desaparece em silêncio não se distingue de um campo perdido:
+    # quem lê a certidão não sabia se o documento não tinha número ou se o
+    # sistema o tinha deixado cair.
+    folha.campo("Número", f["numero"] or "(não atribuído)")
     folha.campo("Assunto", f["assunto"] or "(sem assunto registado)")
     if f["entidade"]:
         folha.campo("Entidade emissora", f["entidade"])
     folha.campo("Data do documento", _pt_data(f["data_publicacao"]))
     folha.campo("Ficheiro de origem", f["ficheiro_origem"])
+    if f["num_paginas"]:
+        folha.campo("Páginas", "1 página" if f["num_paginas"] == 1
+                    else f"{f['num_paginas']} páginas")
     if f["hash_original"]:
         folha.campo("Resumo do original", agrupar(f["hash_original"]))
+    # O que a máquina propôs e ninguém confirmou diz-se aqui, ao lado dos campos
+    # a que respeita, e não numa observação no fim que já ninguém liga ao sítio.
+    if f["campos_por_confirmar"]:
+        quais = ", ".join(ROTULOS_DOS_CAMPOS.get(c, c)
+                          for c in f["campos_por_confirmar"])
+        folha.linha(
+            f"Os seguintes elementos foram lidos automaticamente do documento e "
+            f"não chegaram a ser confirmados por quem o afixou: {quais}.",
+            tamanho=9.5, fonte=SERIF_ITALICO, cor=CINZA, espaco_depois=4)
     folha.risco()
 
     # ---- afixação ----
@@ -421,10 +494,14 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
         quem = nomes.get(f["desafixado_por"], f["desafixado_por"])
         folha.campo("Desafixado em", _pt(f["desafixado_em"]))
         folha.campo("Por", f"{quem} ({f['desafixado_por']})")
-        folha.campo("Duração da afixação", f"{dias} dia(s)")
+        folha.campo("Duração da afixação", dias_por_extenso(dias or 0))
     elif f["afixado_em"]:
         folha.campo("Situação", "Mantém-se afixado nesta data")
-        folha.campo("Decorridos", f"{dias} dia(s) desde a afixação")
+        folha.campo("Decorridos", f"{dias_por_extenso(dias or 0)} desde a afixação")
+        # Dizer «mantém-se afixado» sem dizer até quando deixa a pergunta mais
+        # útil da certidão por responder, e é a data que a lei fixa.
+        if f["data_retirada"]:
+            folha.campo("Retirada prevista", _pt_data(f["data_retirada"]))
     else:
         folha.linha("Não aplicável.", tamanho=10.5, fonte=SERIF_ITALICO,
                     espaco_depois=8)
@@ -475,7 +552,8 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     folha.linha(
         "Documento gerado automaticamente a partir do registo de editais. O selo "
         "de conferência permite confirmar, junto do serviço emissor, que esta "
-        "certidão corresponde ao registo. Não constitui assinatura eletrónica.",
+        f"certidão corresponde ao registo (formato {FORMATO}). Não constitui "
+        "assinatura eletrónica.",
         tamanho=8.5, cor=CINZA, espaco_depois=0)
 
     doc.set_metadata({

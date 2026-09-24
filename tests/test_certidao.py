@@ -57,7 +57,7 @@ def test_a_certidao_afirma_os_factos_todos(afixado):
     t = texto_de(cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
     for esperado in ("CERTIDÃO DE AFIXAÇÃO E DESAFIXAÇÃO", "2026-0017",
                      "ASSEMBLEIA MUNICIPAL", "29/06/2026", "Ana Abreu", "Rui Santos",
-                     "29/06/2026 às 09:14", "06/07/2026 às 17:02", "7 dia(s)",
+                     "29/06/2026 às 09:14", "06/07/2026 às 17:02", "7 dias",
                      "Artigo 56.º do Anexo I da Lei n.º 75/2013",
                      CFG["local_do_expositor"]):
         assert esperado in t, f"falta na certidão: {esperado}"
@@ -246,3 +246,110 @@ def test_assunto_muito_comprido_nao_rebenta():
     assert pdf[:5] == b"%PDF-"
     with pymupdf.open(stream=pdf, filetype="pdf") as d:
         assert len(d) >= 1
+
+
+# ---------------------------------------------------------------------------
+# Correções a partir de uma certidão real (registo 19)
+#
+# Saiu uma certidão do município cujo ASSUNTO era «MUNICÍPIO DE MOIMENTA DA
+# BEIRA» — o nome da câmara impresso duas vezes, uma como timbre e outra como
+# matéria daquilo que ela própria tinha afixado. A partir daí vieram as outras:
+# o número que desaparecia em silêncio, o tamanho do documento que não constava,
+# o «0 dia(s)», e o palpite da máquina impresso com ar de facto verificado.
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def ficha(afixado):
+    """O registo 19: um documento que não é edital, ainda afixado, sem número."""
+    return dict(afixado, id=19, numero="", assunto="FICHA DE PROJETO",
+                entidade="MUNICÍPIO DE MOIMENTA DA BEIRA", tipo="outro",
+                ficheiro_origem="escola secundaria_ficha de projeto.pdf",
+                num_paginas=5, data_retirada="2026-10-20",
+                desafixado_em="", desafixado_por="",
+                campos_duvidosos=["assunto", "numero"])
+
+
+def test_o_numero_em_falta_diz_se_em_vez_de_desaparecer(ficha):
+    """Um campo que some não se distingue de um campo perdido.
+
+    Só se imprimia quando existia, e quem lia a certidão não sabia se o
+    documento não tinha número ou se o sistema o tinha deixado cair.
+    """
+    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "Número" in t
+    assert "(não atribuído)" in t
+
+
+def test_a_certidao_diz_quantas_folhas_foram_afixadas(ficha):
+    """Identificava o documento pelo nome, data e resumo — nunca pelo tamanho.
+
+    Se amanhã alguém discutir o que esteve no expositor, o número de páginas
+    faz parte da identidade daquilo que lá esteve.
+    """
+    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "5 páginas" in t
+
+
+def test_uma_pagina_nao_leva_plural(afixado):
+    t = texto_de(cert.gerar(dict(afixado, num_paginas=1), CFG,
+                            emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "1 página" in t
+    assert "1 páginas" not in t
+
+
+def test_um_documento_ainda_afixado_diz_ate_quando(ficha):
+    """Dizer «mantém-se afixado» sem dizer até quando deixa por responder a
+    pergunta mais útil da certidão — e é a data que a lei fixa."""
+    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "Retirada prevista" in t
+    assert "20/10/2026" in t
+
+
+@pytest.mark.parametrize("dias,esperado", [
+    (0, "Menos de um dia"), (1, "1 dia"), (2, "2 dias"), (30, "30 dias"),
+])
+def test_os_dias_escrevem_se_com_concordancia(dias, esperado):
+    """«0 dia(s)» era duas coisas más de uma vez: o parêntesis do plural, que
+    não se escreve num documento que vai para um processo, e o zero, que em
+    português não é uma duração."""
+    assert cert.dias_por_extenso(dias) == esperado
+
+
+def test_a_certidao_nao_tem_o_parentesis_do_plural(ficha):
+    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "dia(s)" not in t
+
+
+def test_a_certidao_declara_o_que_ninguem_confirmou(ficha):
+    """Um palpite da máquina impresso com o mesmo ar de um facto verificado
+    passa a facto oficial. Foi assim que o timbre da câmara virou o assunto de
+    um documento afixado."""
+    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "não chegaram a ser confirmados" in t
+    assert "o assunto" in t
+    assert "o número" in t
+
+
+def test_sem_duvidas_a_certidao_cala_se(afixado):
+    """A ressalva só aparece quando há alguma coisa a ressalvar. Uma nota que
+    está sempre lá deixa de ser lida."""
+    t = texto_de(cert.gerar(dict(afixado, campos_duvidosos=[]), CFG,
+                            emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "não chegaram a ser confirmados" not in t
+
+
+def test_a_certidao_diz_o_formato_a_que_o_selo_pertence(afixado):
+    """O selo é calculado sobre os factos: acrescentar um facto muda o selo do
+    mesmo registo, e uma certidão antiga deixaria de conferir — o que se parece
+    com uma falsificação em vez de com uma actualização. Com o formato impresso,
+    quem confere sabe que conta refazer."""
+    t = texto_de(cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert f"formato {cert.FORMATO}" in t
+
+
+def test_o_selo_cobre_os_factos_novos(afixado):
+    """De nada serve imprimir as páginas se o selo não as cobrir: bastava
+    alterar o número no papel para a conferência continuar a bater certo."""
+    base = cert.selo(cert.factos(afixado))
+    for campo, valor in [("num_paginas", 99), ("data_retirada", "2026-12-31"),
+                         ("campos_duvidosos", ["assunto"])]:
+        assert cert.selo(cert.factos(dict(afixado, **{campo: valor}))) != base, campo

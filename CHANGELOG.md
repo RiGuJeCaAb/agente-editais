@@ -477,3 +477,134 @@ não mudou. A diferença é que esse custo é **por ecrã** e não por documento
 o crescimento sem tecto da leitura que matava o processo, e é esse que
 desapareceu. Um documento de trezentas páginas passa a ser lento; deixa de ser
 impossível.
+
+## 0.18.0 — A certidão a dizer a verdade
+
+Veio uma certidão real do registo 19 para ser lida com olhos de ver. Trazia, no
+campo **Assunto**, isto: «MUNICÍPIO DE MOIMENTA DA BEIRA». O nome da câmara
+impresso duas vezes na mesma folha — uma como timbre, no cabeçalho, e outra como
+matéria daquilo que ela própria tinha afixado. A partir desse fio vieram os
+outros.
+
+### Corrigido
+
+- **O timbre virava assunto.** A leitura procura o título a seguir à palavra
+  «EDITAL»; num documento que não é edital — uma ficha de projeto, um ofício —
+  esse marcador não existe e caía-se no recurso: «a primeira linha com doze
+  letras». Numa folha timbrada, a primeira linha é sempre o timbre. E havia um
+  segundo buraco a agravá-lo: a entidade emissora era procurada numa lista
+  fechada de quatro nomes onde «MUNICÍPIO DE …» não estava, por isso o timbre
+  nem sequer era reconhecido como entidade — e nada o impedia de virar assunto.
+
+  Passa a haver uma lista só, que serve para as duas coisas: reconhecer quem
+  emite, e excluí-lo de ser tomado por aquilo que se diz. O mesmo documento dá
+  agora assunto «FICHA DE PROJETO» e entidade «MUNICÍPIO DE MOIMENTA DA BEIRA»,
+  cada coisa no seu sítio.
+
+  A ordem importa e é o contrário da intuitiva: procura-se primeiro o **órgão**
+  (Assembleia Municipal, Câmara Municipal) e só depois o timbre. Num edital da
+  assembleia em papel do município, quem pratica o ato é a assembleia. Cheguei a
+  pôr o timbre à frente, e um teste que já existia apanhou-o na primeira
+  execução.
+
+- **«0 dia(s) desde a afixação».** Duas coisas más ao mesmo tempo: o parêntesis
+  do plural, que não se escreve num documento que vai para dentro de um
+  processo, e o zero, que em português não é uma duração — um documento afixado
+  esta manhã não esteve afixado zero dias. Passa a «Menos de um dia», «1 dia»,
+  «N dias».
+
+- **O número desaparecia em silêncio.** Só se imprimia quando existia. Quem lia
+  a certidão não conseguia distinguir «este documento não tem número» de «o
+  sistema perdeu o número». Passa a imprimir-se sempre, com «(não atribuído)»
+  quando é o caso — como já se fazia com o assunto.
+
+- **A certidão não dizia o tamanho do que foi afixado.** Identificava o
+  documento pelo nome, pela data e pelo resumo criptográfico, e nunca pelo
+  número de folhas. Se amanhã alguém discutir o que esteve no expositor, quantas
+  páginas lá estiveram faz parte da identidade daquilo. Passa a constar.
+
+- **«Mantém-se afixado nesta data» sem dizer até quando.** É a pergunta mais
+  útil que a certidão pode responder, e é uma data que a lei fixa. Quando há
+  data de retirada prevista, aparece.
+
+- **Um palpite da máquina com ar de facto verificado.** O registo marca os
+  campos que a leitura automática propôs e que ninguém confirmou — e limpa essa
+  marca assim que uma pessoa corrige o campo, por isso o que lá fica é mesmo por
+  confirmar. A certidão imprimia-os ao lado dos confirmados, sem distinção
+  nenhuma. Foi exactamente assim que o timbre da câmara se tornou, num documento
+  oficial, o assunto de um documento afixado. Passa a haver uma linha a dizer
+  quais os elementos que foram lidos automaticamente e não chegaram a ser
+  confirmados por quem afixou.
+
+### Alterado
+
+- **O selo de conferência passa a cobrir os factos novos** (páginas, retirada
+  prevista, campos por confirmar). De nada serviria imprimir o número de páginas
+  se o selo não o cobrisse: bastava alterá-lo no papel para a conferência
+  continuar a bater certo.
+
+  Isto tem uma consequência que não se esconde: **o selo do mesmo registo muda.**
+  Uma certidão emitida antes desta versão deixa de conferir contra o registo, e
+  isso parece-se com uma falsificação em vez de com uma actualização. Por isso o
+  rodapé passa a dizer o **formato** a que o selo pertence — «(formato 2)» —, e
+  quem confere um papel que não o mencione sabe que é do formato 1 e refaz a
+  conta sobre o conjunto de factos antigo. O número do formato sobe quando mudar
+  o que o selo cobre, nunca por uma mudança de aspeto.
+
+### Mantido de propósito
+
+A certidão continua **sem espaço para assinatura**. Foi desenhada para se
+conferir pelo selo junto do serviço emissor, e diz isso na cara: «Não constitui
+assinatura eletrónica». Uma linha de assinatura convidaria a tratá-la como
+documento assinado, que não é. Decidido na conversa de 23/09/2026.
+
+### Corrigido na revisão à mão, antes de entrar
+
+O Sourcery voltou a ficar sem orçamento e este trabalho também não teve revisão
+automática. A revisão à mão encontrou **um defeito na própria correção**, e pior
+do que o defeito que ela vinha corrigir.
+
+A lista que passou a reconhecer o timbre incluía as palavras que abrem o nome de
+um serviço — «Divisão», «Departamento», «Gabinete», «Serviços», «Setor»,
+«Unidade» — e excluía do assunto qualquer linha começada por elas, em qualquer
+ponto da folha. Só que essas mesmas palavras abrem títulos de edital
+perfeitamente vulgares:
+
+```
+SERVIÇOS MÍNIMOS DURANTE A GREVE DOS TRABALHADORES
+DIVISÃO DE URBANISMO — CONSULTA PÚBLICA DO PDM
+DEPARTAMENTO DE OBRAS — ABERTURA DE CONCURSO PÚBLICO
+```
+
+Sete de sete títulos plausíveis desapareciam, e desapareciam **em silêncio**: o
+assunto passava a ser a linha seguinte, que podia ser qualquer coisa. Trocar o
+timbre impresso como assunto por um assunto certo apagado é trocar um defeito
+por um pior, porque o primeiro vê-se e o segundo não.
+
+O teste que devia ter apanhado isto existia — e passou, porque só experimentava
+títulos que não começavam por essas palavras. É o mesmo padrão da peça anterior:
+o teste cobre o caso fácil e a docstring fala do difícil.
+
+A correção da correção são **duas listas em vez de uma**:
+
+- **Instituições** («MUNICÍPIO DE …», «CÂMARA MUNICIPAL …», «JUNTA DE FREGUESIA
+  …»): excluídas onde quer que apareçam. O nome da instituição nunca é o assunto
+  de coisa nenhuma, e era este o defeito original.
+- **Unidades orgânicas** («Divisão de …», «Serviços …»): só contam como timbre
+  nas **três primeiras linhas** da folha, que é onde o timbre vive — e nunca
+  abaixo do marcador «EDITAL», porque abaixo dele o que vem é o título, por
+  construção.
+
+Fica um caso que nenhuma regra de texto resolve: um documento **sem** o marcador
+«EDITAL» cujo título comece por uma palavra de unidade e esteja logo a seguir ao
+timbre. A olho distingue-se pelo corpo de letra e pela posição na folha; no texto
+extraído de um PDF, não. Aí não se inventa certeza — o assunto sai com confiança
+0,5, abaixo do limiar, o painel assinala-o para confirmação e a certidão declara
+que ninguém o confirmou. Há um teste que fixa esse contrato, e não o acerto.
+
+### Testes
+
+41 novos nesta versão, 426 no total depois de a 0.17.0 entrar. Os dezanove que
+guardam a segunda correção foram corridos contra a primeira: os dezanove falham
+lá e passam aqui.
+
