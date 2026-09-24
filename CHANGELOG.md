@@ -918,7 +918,11 @@ pasta de trabalho. Vindo do topo da PR, uma alteração a esse ficheiro reescrev
 as regras que o revisor foi mandado obedecer — o revisor a receber instruções do
 código que está a rever. Da base, as regras são as que já foram fundidas.
 
-O que a PR mudou vê-se pelo `gh pr diff`, que lê a API e não a pasta.
+O que a PR mudou vê-se pelo `gh pr diff`, que lê a API e não a pasta — **com o
+número da PR explícito**. Sem ele, o `gh` procura a PR do ramo atual, e um
+checkout por SHA deixa a cópia sem ramo nenhum: a revisão corria e ficava sem
+ver o diff. A correção de segurança cortou, sem dar por isso, a única via que
+restava ao revisor para ver o que estava a rever.
 
 ### A primeira revisão automática foi ao próprio revisor
 

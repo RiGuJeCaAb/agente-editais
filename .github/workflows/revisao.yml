@@ -72,7 +72,16 @@ jobs:
             PR NUMBER: ${{ github.event.pull_request.number }}
 
             A pasta de trabalho tem o ramo BASE, não o desta PR. É de
-            propósito. O que a PR mudou vês com `gh pr diff`.
+            propósito.
+
+            O que a PR mudou vês assim, e o número tem de ir explícito:
+
+                gh pr diff ${{ github.event.pull_request.number }}
+                gh pr view ${{ github.event.pull_request.number }}
+
+            Sem o número, o `gh` procura a PR do ramo atual — e o checkout
+            do SHA base deixa a cópia sem ramo nenhum. O comando falhava e
+            ficavas sem ver o diff.
 
             Antes de rever, lê o `AGENTS.md` na raiz. São as regras desta casa:
             a língua, o que conta como teste que prova alguma coisa, a ordem de

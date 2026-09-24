@@ -878,6 +878,10 @@ esse ficheiro para reescrever as regras que o revisor foi mandado obedecer. O
 revisor a receber instruções do código que está a rever. Vindo da base, as regras
 são as que já foram fundidas, e o que a PR mudou vê-se pelo `gh pr diff`.
 
+O número da PR vai **explícito** nesse comando. Sem ele, o `gh` procura a PR
+do ramo atual — e o checkout de um SHA deixa a cópia sem ramo nenhum. A
+revisão corria e ficava sem ver o diff.
+
 **O checkout não deixa credenciais para trás** (`persist-credentials: false`).
 O `actions/checkout@v6` guarda o token num ficheiro sob `$RUNNER_TEMP` e
 aponta-lhe a partir do `git config`. Quem revê tem leitura de ficheiros e recebe
