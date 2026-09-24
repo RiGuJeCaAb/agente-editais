@@ -357,3 +357,123 @@ foi feita à mão sobre o diff, e encontrou três coisas:
 37 novos, 336 no total. Os dois que mais interessam não testam funcionalidade,
 testam **contenção**: `--conferir` não mexe num único ficheiro nem num único
 estado, e a exportação não apaga uma pasta que não tenha sido ela a criar.
+
+## 0.17.0 — Onda 3 (3/4): ler aos bocados, e dizer em que vai
+
+### Corrigido
+- **A leitura de um documento carregava todas as páginas rasterizadas de uma
+  vez.** Medido a sério, com o RSS do processo e não com o `tracemalloc` — que
+  não vê estes buffers, porque são do PyMuPDF em C:
+
+  | páginas | antes | agora |
+  |---|---|---|
+  | 5 | 180 MB · 0,45 s | 101 MB · 0,33 s |
+  | 20 | 430 MB · 2,03 s | 102 MB · 0,50 s |
+  | 50 | 955 MB · 5,28 s | 102 MB · 1,29 s |
+  | 100 | **1826 MB** · 11,65 s | **102 MB** · 2,99 s |
+
+  Pico absoluto do processo, medido nos dois lados com a mesma régua, num
+  processo por medição e com o PDF já feito. Desses 102 MB, **53 MB são os
+  módulos** — o PyMuPDF e o Pillow importados, antes de se ler o que quer que
+  seja. O trabalho em si são os ~49 MB que sobram, e é esse número que deixa de
+  crescer.
+
+  (A primeira versão desta tabela dava 48 MB na coluna da direita. Era o
+  *acréscimo* sobre a linha de base, posto a par de absolutos na coluna da
+  esquerda — uma tabela com duas réguas, que é uma forma educada de exagerar. A
+  medição refeita está acima; o ganho é o mesmo, e o de 100 páginas é maior do
+  que o que estava dito.)
+
+  Antes era linear e sem tecto. Num portátil de serviço isso não é lentidão, é o
+  processo a morrer — e morre no documento grande, que é o que ninguém quer ter
+  de voltar a tratar. Passa a ser **constante**.
+
+  A peça que torna isto possível é o tamanho de cada página sair do PDF **sem
+  rasterizar nada**, e é só disso que o agrupamento por orientação precisa.
+  Decide-se primeiro o que vai com o quê, e só então se rasterizam as (até três)
+  páginas do ecrã que se está a compor.
+
+  Os metadados também deixam de exigir rasterização: num PDF com texto
+  pesquisável, que é a maioria dos editais, lêem-se em **0,057 s e 6 MB** contra
+  os 3,76 s e 900 MB de antes. Só um documento sem texto — uma digitalização, um
+  printscreen — obriga a rasterizar uma página, para o OCR ter de onde ler.
+
+- **O painel não dizia nada enquanto trabalhava.** Compor os ecrãs de um edital
+  de vinte páginas leva dezenas de segundos entre carregar em «Publicar» e a
+  imagem aparecer na televisão. Durante esse tempo quem estava ao teclado tinha
+  duas hipóteses igualmente más: esperar sem saber se alguma coisa estava a
+  acontecer, ou carregar outra vez — que é o que as pessoas fazem, e com razão.
+
+### Acrescentado
+- `lib/progresso.py` e uma faixa no painel: «A compor os ecrãs de
+  «edital_grande.pdf» (3 de 8)». Enquanto há trabalho, o painel sonda de 3 em 3
+  segundos em vez de 20 — uma barra que só se mexe de vinte em vinte segundos
+  não é progresso, é um cartaz. Acabado o trabalho, volta ao ritmo lento.
+
+  Não é uma fila de tarefas, e não finge sê-lo: o agente faz uma coisa de cada
+  vez, e o que faltava responder é «está a fazer o quê, e em que ponto». Uma
+  fila com prioridades e cancelamento resolveria um problema que este posto não
+  tem.
+- `tratamento.agrupar_indices()`: a regra de agrupamento a trabalhar sobre
+  dimensões em vez de imagens. `agrupar_ecras()` passou a delegar aqui, para a
+  regra viver num sítio só — uma segunda cópia era o caminho certo para os dois
+  agrupamentos discordarem um dia, e para o ecrã da televisão ficar diferente do
+  que o painel mostrou.
+- 48 testes novos, 385 no total.
+
+### Corrigido na revisão à mão, antes de entrar
+O Sourcery ficou sem orçamento de revisão e este trabalho entrou sem revisão
+automática. A revisão à mão — a tentar partir o código com código, e não só a
+lê-lo — encontrou cinco defeitos: quatro nascidos nesta peça, e um antigo que
+esta peça tornaria perigoso.
+
+- **A faixa de trabalho nunca se apagava.** O `progresso.parado()` estava
+  escrito, documentado e testado, e não era chamado de lado nenhum. A faixa
+  acendia-se no primeiro documento e ficava acesa para sempre, a anunciar um
+  trabalho terminado — e o painel, que sonda de três em três segundos enquanto
+  ela estiver visível, ficava preso nesse ritmo até alguém reiniciar o serviço.
+  Uma função testada não é uma função ligada: os testes do módulo estavam todos
+  verdes. Os novos atravessam o agente, que é onde o defeito vivia.
+- **Um `.docx` arrancava o LibreOffice uma vez por ecrã.** Ler por página quer
+  dizer voltar ao documento de cada vez, e num Word isso custa uma conversão
+  inteira. Dez páginas davam **cinco arranques** onde antes havia um, e cada
+  arranque custa segundos. A conversão passa a ser guardada e reaproveitada.
+- **Dois `edital.docx` em pastas diferentes davam o mesmo PDF** na pasta de
+  trabalho — defeito antigo, que passava despercebido só porque cada chamada
+  reconvertia por cima. Com a conversão reaproveitada deixaria de ser inofensivo:
+  o segundo edital sairia na televisão com o conteúdo do primeiro. O PDF
+  convertido passa a ser nomeado pela identidade do original.
+- **As dimensões previstas não eram as reais.** Estavam calculadas com `round()`,
+  e um comentário afirmava que era o que o PyMuPDF fazia. Não era: medido em 300
+  páginas aleatórias, errava em **217**. Num A4 não se vê; numa página quase
+  quadrada um píxel decide a orientação, e a orientação decide se a folha vai
+  sozinha para um ecrã. Quatro páginas assim davam **dois ecrãs em vez de
+  quatro**. Passa a ser a mesma conta que o `get_pixmap` faz, e não uma imitação.
+- **A contagem da publicação nunca chegava ao fim** («0 de 4» a «3 de 4»), e uma
+  composição que falhasse a meio deixava os ecrãs já gravados na pasta de saída
+  sem dono — a televisão não os mostra, o arquivo não os conhece e o
+  `--conferir` não dá por eles, porque só olha do registo para o disco.
+
+Os dezassete testes que os fixam foram corridos contra o código anterior, que é
+a única forma de saber se provam alguma coisa: **treze falham lá e passam aqui.**
+Os outros quatro são os casos fáceis — um A4 direito, um A4 rodado — que passam
+dos dois lados; ficam para fixar o comportamento, não para apanhar o defeito. Um
+teste que passa nos dois lados não estava a provar nada, e o teste que já lá
+estava para este caso usava só A4 exacto: passava com qualquer arredondamento, e
+a docstring dele falava justamente do caso que não cobria.
+
+### Garantido
+**A composição é idêntica ao bit.** Seis formas de documento — uma, duas, três e
+cinco verticais, uma deitada, e um misto — compostas pelos dois caminhos e
+comparadas pelo resumo SHA-256 de cada PNG: **9 imagens, 9 iguais, 0 diferentes.**
+O teste corre em cada execução, e não foi uma verificação de uma vez.
+
+Esta peça é desempenho, e uma melhoria de desempenho que muda o que aparece na
+televisão não é uma melhoria — é uma regressão com um gráfico bonito.
+
+### O que esta peça NÃO resolve
+A composição 4K continua a custar **~2,5 s e ~650 MB de pico por ecrã**, e isso
+não mudou. A diferença é que esse custo é **por ecrã** e não por documento: era
+o crescimento sem tecto da leitura que matava o processo, e é esse que
+desapareceu. Um documento de trezentas páginas passa a ser lento; deixa de ser
+impossível.

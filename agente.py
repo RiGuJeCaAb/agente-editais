@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.16.0"
+VERSAO = "0.17.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -66,6 +66,7 @@ import migracao
 import originais as orig  # arquivo imutável dos documentos
 import painel as painel_mod  # servidor do painel de gestão
 import prazos as pr  # tipos de documento e janelas legais
+import progresso  # o que o agente está a fazer agora, para o painel mostrar
 import registo as reg_mod  # registo de entrada (fluxo de estados)
 import tratamento as trat
 import utilizadores as utl  # contas, senhas derivadas e sessões
@@ -270,6 +271,20 @@ def varrer_para_registo(cfg, reg, logo_im):
         int: número de rascunhos criados.
     """
     novos = 0
+    try:
+        novos = _varrer_para_registo(cfg, reg)
+    finally:
+        # try/finally e não uma linha no fim: se um documento rebentar de uma
+        # forma que o except de dentro não apanhe, a faixa do painel ficaria a
+        # anunciar para sempre um trabalho que já não existe — e, pior, o painel
+        # continuaria a sondar de três em três segundos por causa dela.
+        progresso.parado()
+    return novos
+
+
+def _varrer_para_registo(cfg, reg):
+    """O corpo de varrer_para_registo, para o progresso poder ser limpo num finally."""
+    novos = 0
     for nome in sorted(os.listdir(cfg["entrada"])):
         path = os.path.join(cfg["entrada"], nome)
         if not os.path.isfile(path):
@@ -280,10 +295,13 @@ def varrer_para_registo(cfg, reg, logo_im):
         if reg.hash_existe(h):        # já registado antes → ignora
             continue
         try:
-            doc_lido = doc.ler_documento(path, cfg["trabalho"])
-            pages = doc_lido["pages"]
-            meta = doc.extract_metadata(doc_lido["text"], fallback_name=nome,
-                                        fonte_ocr=doc_lido["ocr"])
+            progresso.a_ler(nome, 0, 0)
+            # Texto e contagem de páginas SEM rasterizar o documento: num PDF com
+            # texto pesquisável, que é a maioria dos editais, não se rasteriza
+            # nada de todo. As imagens vêm a seguir, uma de cada vez.
+            info = doc.ler_metadados(path, cfg["trabalho"])
+            meta = doc.extract_metadata(info["text"], fallback_name=nome,
+                                        fonte_ocr=info["ocr"])
             # O original vai para o arquivo imutável ANTES de o registo existir.
             # A ordem importa: se falhasse ao contrário, ficaria um edital no
             # registo a apontar para um documento que nunca foi guardado, e é
@@ -291,19 +309,19 @@ def varrer_para_registo(cfg, reg, logo_im):
             sha256, _caminho = orig.arquivar(cfg["originais"], path)
             meta = dict(meta, sha256=sha256)
             r = reg.criar_rascunho(ficheiro_origem=nome, hash_ficheiro=h,
-                                   num_paginas=len(pages), meta=meta)
+                                   num_paginas=info["paginas"], meta=meta)
             # Gera pré-visualizações LEVES (a página crua, sem o tratamento verde/4K)
             # para o painel poder mostrar o documento já no rascunho — é quando o
             # funcionário mais precisa de o ver, para confirmar assunto/número/data.
-            previas = _gerar_previas(cfg, r["id"], pages)
+            previas = _gerar_previas(cfg, r["id"], path, total=info["paginas"])
             if previas:
                 reg.definir_previas(r["id"], previas)
             # Só agora, com o rascunho criado e o original arquivado, é que o
             # ficheiro sai da pasta de entrada.
             _tirar_da_entrada(cfg, path, nome)
-            ocr_nota = " [via OCR]" if doc_lido["ocr"] else ""
+            ocr_nota = " [via OCR]" if info["ocr"] else ""
             duv = ", ".join(r["campos_duvidosos"]) or "nenhum"
-            print(f"[RASCUNHO #{r['id']}] {nome}{ocr_nota}: {len(pages)} pág | "
+            print(f"[RASCUNHO #{r['id']}] {nome}{ocr_nota}: {info['paginas']} pág | "
                   f"assunto: {meta['assunto'] or '(n/d)'} | a confirmar: {duv}")
             novos += 1
         except Exception as ex:
@@ -384,7 +402,7 @@ def _tirar_da_entrada(cfg, caminho, nome):
         return None
 
 
-def _gerar_previas(cfg, rid, pages, larg=900):
+def _gerar_previas(cfg, rid, origem, total=0, larg=900):
     """Gera pré-visualizações leves das páginas de um documento, para o painel.
 
     Ao contrário dos PNG finais (verde metálico, 4K, com logótipo — pesados e só
@@ -392,25 +410,33 @@ def _gerar_previas(cfg, rid, pages, larg=900):
     largura moderada. São rápidas de gerar e leves de servir, e existem logo no
     rascunho para o funcionário ver o documento enquanto valida os campos.
 
+    Lê o documento uma página de cada vez e larga cada uma assim que a
+    pré-visualização está escrita: recebia a lista inteira já rasterizada, o que
+    custava ~18 MB por página e fazia um documento de cinquenta pedir quase um
+    gigabyte só para escrever cinquenta JPEG de 900 píxeis.
+
     Args:
         cfg (dict): configuração.
         rid (int): id do registo.
-        pages (list[PIL.Image.Image]): páginas rasterizadas do documento.
+        origem (str): caminho do documento.
+        total (int): número de páginas, se já for conhecido (só para o progresso).
         larg (int): largura-alvo da pré-visualização em píxeis (altura proporcional).
 
     Returns:
         list[str]: nomes dos ficheiros de pré-visualização gerados.
     """
     nomes = []
-    for i, pg in enumerate(pages, start=1):
+    for i, pg in doc.paginas_uma_a_uma(origem, cfg["trabalho"]):
+        progresso.a_ler(os.path.basename(origem), i + 1, total)
         w, h = pg.size
         nh = max(1, int(round(h * (larg / w))))
         prev = pg.convert("RGB").resize((larg, nh), Image.LANCZOS)
-        nome = f"previa_{rid:04d}_{i:02d}.jpg"
+        nome = f"previa_{rid:04d}_{i + 1:02d}.jpg"
         # JPEG com qualidade média: a pré-visualização não precisa de ser perfeita,
         # só legível; JPEG reduz muito o tamanho face a PNG para fotos de páginas.
         prev.save(os.path.join(cfg["previas"], nome), "JPEG", quality=82)
         nomes.append(nome)
+        del pg, prev
     return nomes
 
 
@@ -435,6 +461,18 @@ def publicar_registos(cfg, reg, logo_im):
     Returns:
         int: número de ecrãs ativos na TV.
     """
+    try:
+        return _publicar_registos(cfg, reg, logo_im)
+    finally:
+        # Como em varrer_para_registo: a faixa do painel é acesa aqui dentro e
+        # tem de se apagar mesmo que isto rebente a meio. Uma faixa acesa sem
+        # trabalho por trás não é só um cartaz errado — prende o painel a sondar
+        # de três em três segundos até alguém reiniciar o serviço.
+        progresso.parado()
+
+
+def _publicar_registos(cfg, reg, logo_im):
+    """O corpo de publicar_registos, para o progresso poder ser limpo num finally."""
     # Aplica primeiro as retiradas automáticas por data (publicado → retirado).
     retirados = reg.aplicar_retiradas_automaticas()
     if retirados:
@@ -445,7 +483,11 @@ def publicar_registos(cfg, reg, logo_im):
 
     publicados = reg.por_estado(reg_mod.PUBLICADO)
     slides = []
-    for r in publicados:
+    for feitos, r in enumerate(publicados, start=1):
+        # start=1: com enumerate a começar em zero, o painel abria em «0 de 4» e
+        # acabava em «3 de 4» — nunca chegava ao fim, e parecia ter encravado
+        # no último edital. É o k-ésimo de N a ser tratado, como nas outras fases.
+        progresso.a_publicar(feitos, len(publicados))
         # Caso 1: nunca teve PNG — primeira publicação, compõe de novo.
         # Grava-se por definir_pngs() e não por mutação do dicionário: desde que
         # por_estado() devolve cópias, escrever no resultado não chega ao registo.
@@ -556,6 +598,22 @@ def recuperar_do_arquivo(cfg, nomes):
     return recuperados
 
 
+def _limpar_ecras(cfg, nomes):
+    """Apaga da pasta de saída os ecrãs indicados, sem se queixar dos que faltam.
+
+    Args:
+        cfg (dict): configuração.
+        nomes (list[str]): nomes de ficheiros PNG em cfg["saida"].
+    """
+    for n in nomes:
+        try:
+            os.remove(os.path.join(cfg["saida"], n))
+        except OSError:
+            # Já não estava lá, ou não se deixa apagar: não há nada a fazer com
+            # isso aqui, e a composição já falhou por outra razão mais séria.
+            pass
+
+
 def _compor_edital(cfg, r, logo_im, reg=None):
     """Rasteriza o documento de um registo e compõe os seus ecrãs (PNG).
 
@@ -597,25 +655,50 @@ def _compor_edital(cfg, r, logo_im, reg=None):
         _agente.warning(f"original em falta para o registo #{r['id']}: "
               f"{r['ficheiro_origem']} — não está no arquivo nem na pasta de entrada.")
         return []
+    # Um ecrã de cada vez, e não o documento todo em memória. As dimensões de
+    # cada página lêem-se do PDF sem rasterizar nada, o agrupamento por
+    # orientação decide-se a partir delas, e só então se rasterizam as (até três)
+    # páginas do ecrã que se vai compor.
+    #
+    # Medido: a leitura completa custava ~18 MB por página, linear e sem tecto —
+    # 50 páginas pediam 950 MB. Assim o pico é o de um ecrã, seja o documento de
+    # três folhas ou de trezentas.
     try:
-        pages, _ = doc.to_pages_and_text(origem, cfg["trabalho"])
+        dimensoes = doc.dimensoes_das_paginas(origem, cfg["trabalho"])
     except Exception as ex:
-        _agente.warning(f"falha a compor o registo #{r['id']} ({r['ficheiro_origem']}): {ex}")
+        _agente.warning(f"falha a ler o registo #{r['id']} ({r['ficheiro_origem']}): {ex}")
         return []
     slug = doc.slugify(r["assunto"] or doc._humanize(r["ficheiro_origem"]))
     # Agrupamento por orientação, e não divisão cega em três: um documento
     # horizontal leva um ecrã só para si, onde ocupa ~60% da área em vez dos
     # 10% que lhe sobravam encaixado na caixa vertical.
-    blocos = trat.agrupar_ecras(pages)
+    blocos = trat.agrupar_indices(dimensoes)
     total = len(blocos)
     nomes = []
     for bi, bloco in enumerate(blocos, start=1):
+        progresso.a_compor(r["id"], r["ficheiro_origem"], bi, total)
+        try:
+            paginas = [im for _i, im in
+                       doc.paginas_uma_a_uma(origem, cfg["trabalho"], indices=bloco)]
+        except Exception as ex:
+            _agente.warning(f"falha a compor o registo #{r['id']} "
+                            f"({r['ficheiro_origem']}), ecrã {bi}: {ex}")
+            # Os ecrãs já gravados vão atrás. Devolver [] deixa o registo sem
+            # PNG nenhum, e os ficheiros ficariam na pasta de saída sem ninguém
+            # que os reclamasse: a televisão não os mostra, o arquivo não os
+            # conhece e o --conferir não dá por eles, porque só olha do registo
+            # para o disco e não ao contrário.
+            _limpar_ecras(cfg, nomes)
+            return []
         seed = 3 + (r["id"] * 7 + bi)   # padrão de fundo estável por edital/ecrã
-        comp = trat.compose_sheets(bloco, seed=seed, logo_im=logo_im,
+        comp = trat.compose_sheets(paginas, seed=seed, logo_im=logo_im,
                                    cache_fundos=cfg["fundos"])
         nome = nome_saida(r["id"], slug, parte=bi, total=total)
         comp.save(os.path.join(cfg["saida"], nome), "PNG")
         nomes.append(nome)
+        # Largar antes de passar ao ecrã seguinte: é o que mantém o pico no
+        # tamanho de UM ecrã em vez de subir com cada um que se compõe.
+        del paginas, comp
     return nomes
 
 
