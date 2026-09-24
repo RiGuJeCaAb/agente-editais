@@ -88,6 +88,31 @@ def test_sem_terminal_nunca_chega_a_pedir_a_senha(posto, monkeypatch):
     assert agente.comando_criar_utilizador(posto, "ana") == 1
 
 
+@pytest.mark.parametrize("nome,stdin_partido", [
+    # No Windows, um programa aberto com o pythonw — o que acontece a um duplo
+    # clique num .py — corre com sys.stdin a None. Era o caso mais provável de
+    # alguém a instalar isto num posto, e a verificação que existe para não
+    # haver traceback nenhum produzia ela própria um AttributeError.
+    ("None, como no pythonw do Windows", lambda: None),
+    ("um stdin já fechado", lambda: _fechado()),
+    ("um objeto sem isatty nenhum", lambda: object()),
+])
+def test_um_stdin_partido_nao_rebenta(posto, monkeypatch, nome, stdin_partido):
+    """Descoberto na revisão à mão desta mesma correção. O Linux dá sempre um
+    stdin, e por aqui nunca se via."""
+    import agente
+    monkeypatch.setattr("sys.stdin", stdin_partido())
+    assert agente.comando_criar_utilizador(posto, "ana") == 1
+    assert not os.path.exists(posto["utilizadores"])
+
+
+def _fechado():
+    import io as _io
+    f = _io.StringIO()
+    f.close()
+    return f
+
+
 def test_com_terminal_continua_a_criar_a_conta(posto, monkeypatch):
     """A correção não pode fechar a porta a quem tem de entrar por ela."""
     import getpass

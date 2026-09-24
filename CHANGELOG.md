@@ -785,10 +785,29 @@ instalar, ao fim de um ano, ou a correr a bateria duas vezes ao mesmo tempo.
   livre, sem disputa possível. As mesmas duas execuções em paralelo: 30 e 30
   testes verdes, zero erros de porta.
 
+### Corrigido na revisão à mão, antes de entrar
+
+O Sourcery continua sem orçamento e este trabalho também não teve revisão
+automática. A revisão à mão encontrou **um buraco na própria correção** da
+primeira aresta.
+
+`sys.stdin.isatty()` parece bastar, e não basta. No Windows, um programa aberto
+com o **pythonw** — que é o que acontece a um duplo clique num ficheiro `.py` —
+corre com `sys.stdin` a `None`, e o `isatty` rebenta com um `AttributeError`.
+
+Ou seja: a verificação que existe para não haver traceback nenhum **produzia ela
+própria um traceback**, e logo no caso mais provável de alguém a instalar isto
+num posto municipal, que é o duplo clique. Em Linux nunca se via, porque há
+sempre um stdin.
+
+Passa por uma função que responde à pergunta sem confiar em que o stdin exista:
+`None`, um stdin já fechado (`ValueError`) e um objeto sem `isatty` nenhum dão
+todos a mesma resposta — não há teclado do outro lado.
+
 ### Testes
 
-12 novos, 469 no total. Dez deles falham contra o código anterior; os outros
-dois — o que exige que nada recente seja apagado, e o que aceita uma pasta
-inexistente — passam nos dois lados, porque fixam o que a limpeza **não** pode
+15 novos, 472 no total. Treze falham contra o código anterior; os outros dois —
+o que exige que nada recente seja apagado, e o que aceita uma pasta inexistente —
+passam nos dois lados **de propósito**, porque fixam o que a limpeza *não* pode
 fazer.
 \n

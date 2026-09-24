@@ -1454,6 +1454,34 @@ def estado_de_saude(cfg, reg, estado):
     }
 
 
+# Diz se há um teclado do outro lado, sem confiar em que o stdin exista.
+def _ha_terminal():
+    """Responde se este processo tem um terminal de onde possa ler.
+
+    Parece que bastava `sys.stdin.isatty()`, e não basta: no Windows, um
+    programa aberto com o pythonw — que é o que acontece a um duplo clique num
+    ficheiro .py — corre com `sys.stdin` a None, e o isatty rebenta com um
+    AttributeError. Ou seja, a verificação que existe para não haver traceback
+    nenhum produzia ela própria um traceback, e logo no caso mais provável de
+    alguém a instalar isto num posto: o duplo clique.
+
+    Descoberto na revisão à mão desta mesma correção, que é onde estas coisas
+    aparecem — porque o Linux dá sempre um stdin, e por aqui nunca se via.
+
+    Returns:
+        bool: True se há um terminal de onde ler.
+    """
+    entrada = getattr(sys, "stdin", None)
+    if entrada is None:
+        return False
+    try:
+        return bool(entrada.isatty())
+    except (AttributeError, ValueError):
+        # ValueError: o stdin existe mas já foi fechado. Nos dois casos a
+        # resposta é a mesma — não há teclado nenhum do outro lado.
+        return False
+
+
 def comando_criar_utilizador(cfg, nome, administrador=False):
     """Cria uma conta do painel a partir da linha de comandos.
 
@@ -1481,7 +1509,7 @@ def comando_criar_utilizador(cfg, nome, administrador=False):
     # echoed» em inglês no meio de uma aplicação toda em português, e cria a
     # conta com a senha à vista. A razão de o getpass existir aqui é
     # precisamente a senha não ficar à vista de ninguém.
-    if not sys.stdin.isatty():
+    if not _ha_terminal():
         _agente.error(
             "Este comando pede a senha ao teclado e precisa de um terminal.\n"
             "Sem ele a senha ficaria à vista — no ecrã, no histórico da consola "
