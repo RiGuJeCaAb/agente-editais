@@ -26,6 +26,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from datetime import datetime
 
 from PIL import Image
@@ -139,6 +140,14 @@ def _word_to_pdf(path, workdir):
     ).hexdigest()[:12]
     destino = os.path.join(workdir, f"{base}-{chave}.pdf")
     if os.path.exists(destino):
+        # Marcar como usado agora. É o que transforma a limpeza por idade numa
+        # limpeza por desuso: sem isto, um documento reconvertido todas as
+        # semanas era apagado na mesma ao fim de um mês, e a conversão seguinte
+        # pagava outro arranque do LibreOffice sem razão nenhuma.
+        try:
+            os.utime(destino, None)
+        except OSError:
+            pass
         return destino
     # timeout defensivo: um documento corrompido pode fazer o soffice pendurar-se;
     # 120s é folgado para um edital e evita que o agente fique bloqueado para sempre.
@@ -153,6 +162,60 @@ def _word_to_pdf(path, workdir):
     # a conversão seguinte do mesmo documento dispensável.
     os.replace(out_pdf, destino)
     return destino
+
+
+# Nome de uma conversão guardada: <nome-base>-<12 dígitos hexadecimais>.pdf.
+_CONVERSAO_GUARDADA = re.compile(r"^.+-[0-9a-f]{12}\.pdf$")
+
+# Quantos dias uma conversão fica sem ser usada antes de se apagar.
+DIAS_DE_CONVERSAO = 30
+
+
+def limpar_conversoes(workdir, dias=DIAS_DE_CONVERSAO, agora=None):
+    """Apaga as conversões de Word que ninguém usa há muito tempo.
+
+    A pasta de trabalho guarda o PDF de cada .docx convertido, para não se pagar
+    um arranque do LibreOffice de cada vez que se volta ao mesmo documento. Até
+    aqui nunca saía nenhum: duzentos editais em Word num ano deixavam lá
+    duzentos ficheiros, e um documento editado cinco vezes deixava cinco cópias.
+    Não é muito por ano — é que não tem fim.
+
+    Apaga-se por DESUSO e não por idade: cada reaproveitamento marca o ficheiro
+    como usado (ver _word_to_pdf), por isso um documento a que se volta
+    regularmente nunca é apagado, e o que se apaga é só o que ninguém procura.
+
+    Apaga apenas o que esta aplicação escreveu — os nomes com o resumo de doze
+    dígitos que o _word_to_pdf lhes dá. O que mais alguém tenha posto na pasta
+    fica onde está: uma pasta chamada «trabalho» convida a lá pôr coisas, e uma
+    limpeza que apaga o que não conhece é uma armadilha à espera.
+
+    Args:
+        workdir (str): a pasta de trabalho.
+        dias (int): quantos dias sem uso até se apagar.
+        agora (float|None): instante de referência, em segundos. Recebe-se em
+            vez de se ler o relógio, para um teste poder dizer «e daqui a um
+            ano?» sem mexer no relógio da máquina.
+
+    Returns:
+        int: quantas conversões foram apagadas.
+    """
+    if not workdir or not os.path.isdir(workdir):
+        return 0
+    limite = (agora if agora is not None else time.time()) - dias * 86400
+    apagadas = 0
+    for nome in os.listdir(workdir):
+        if not _CONVERSAO_GUARDADA.match(nome):
+            continue
+        caminho = os.path.join(workdir, nome)
+        try:
+            if os.path.getmtime(caminho) < limite:
+                os.remove(caminho)
+                apagadas += 1
+        except OSError:
+            # Desapareceu entretanto, ou não se deixa apagar. Nos dois casos
+            # não há nada a fazer aqui, e não é motivo para parar a limpeza.
+            continue
+    return apagadas
 
 
 def _ocr_imagem(img):

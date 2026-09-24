@@ -730,3 +730,65 @@ método, não da página.
 corridos contra o código anterior: onze falham lá e passam aqui; os outros seis
 cobrem o caso deitado, que o código anterior nem conseguia executar.
 
+## 0.20.0 — Três arestas que ficaram por limar
+
+Nenhuma destas impedia a aplicação de funcionar, e é por isso que ficaram para
+trás — foram sendo assinaladas ao longo da Onda 3, sempre fora do âmbito da peça
+que estava em cima da mesa. As três apareciam no pior momento possível: a
+instalar, ao fim de um ano, ou a correr a bateria duas vezes ao mesmo tempo.
+
+### Corrigido
+
+- **`--criar-utilizador` sem terminal respondia com um traceback.** É o primeiro
+  comando que alguém corre numa instalação nova, e num serviço ou num script
+  saíam sete linhas de `EOFError: EOF when reading a line` — que não dizem a
+  ninguém o que fazer a seguir.
+
+  E havia um caso pior, que só apareceu a reproduzir isto com calma: com o
+  stdin canalizado, **a conta era criada na mesma**. O `getpass` não falha sem
+  terminal; cai para uma leitura normal, avisa `Password input may be echoed` em
+  inglês no meio de uma aplicação toda em português, e deixa a senha à vista. A
+  razão de o `getpass` ali estar é precisamente a senha não ficar à vista.
+
+  Passa a recusar **antes de perguntar seja o que for**, e a dizer em português
+  o que falta e qual é o comando a repetir. Ctrl-D ou Ctrl-C a meio das
+  perguntas passam a ser o que são — uma desistência, não uma avaria.
+
+  De caminho, duas correções ao diagnóstico que eu próprio tinha escrito: o
+  código de saída já era 1 e não 0 (tinha-me enganado com um `tail` a engolir o
+  código), e quem rebentava era o `input()` do nome completo, não o `getpass`.
+
+- **A pasta de trabalho crescia sem fim.** Guarda o PDF de cada `.docx`
+  convertido, para não se pagar um arranque do LibreOffice de cada vez que se
+  volta ao mesmo documento. Medido: **duzentos editais em Word deixavam lá
+  duzentos ficheiros**, e um documento editado cinco vezes deixava cinco cópias.
+  Não é muito por ano — é que não tinha fim.
+
+  Passa a apagar-se o que ninguém usa há trinta dias, na mesma arrumação do
+  ciclo onde já se limpa o resto. **Por desuso e não por idade**: cada
+  reaproveitamento marca a conversão como usada, senão um documento
+  reconvertido todas as semanas era apagado na mesma ao fim de um mês e a
+  conversão seguinte pagava outro arranque do LibreOffice sem razão nenhuma.
+
+  Apaga só o que esta aplicação escreveu — os nomes com o resumo de doze
+  dígitos que o `_word_to_pdf` lhes dá. Uma pasta chamada «trabalho» convida a
+  lá pôr coisas, e uma limpeza que apaga o que não conhece é uma armadilha à
+  espera.
+
+- **Os testes do painel disputavam uma porta fixa.** Um contador subia a partir
+  de 8951 a cada teste, o que dava portas diferentes dentro de uma execução mas
+  a mesma sequência em todas. Medido: **22 erros de «Address already in use»**
+  em duas execuções em paralelo, com 22 testes a não chegar a correr.
+
+  O `PainelServer.iniciar()` passa a devolver a porta em que ficou mesmo a
+  escutar, e os testes pedem `porta=0` — é o sistema operativo que escolhe uma
+  livre, sem disputa possível. As mesmas duas execuções em paralelo: 30 e 30
+  testes verdes, zero erros de porta.
+
+### Testes
+
+12 novos, 469 no total. Dez deles falham contra o código anterior; os outros
+dois — o que exige que nada recente seja apagado, e o que aceita uma pasta
+inexistente — passam nos dois lados, porque fixam o que a limpeza **não** pode
+fazer.
+\n

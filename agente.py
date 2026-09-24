@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.19.0"
+VERSAO = "0.20.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -480,6 +480,15 @@ def _publicar_registos(cfg, reg, logo_im):
 
     # Arruma a pasta: PNG de retirados vão para o arquivo e saem de saida/.
     arquivar_retirados(cfg, reg, logo_im)
+
+    # E arruma a pasta de trabalho, onde ficam os PDF dos Word convertidos. É
+    # uma cache, e até aqui era uma cache sem fim: duzentos editais em Word num
+    # ano deixavam lá duzentos ficheiros para sempre. Sai daqui, a par da outra
+    # arrumação, porque é o sítio onde já se limpa o que sobrou do ciclo.
+    apagadas = doc.limpar_conversoes(cfg["trabalho"])
+    if apagadas:
+        _arquivo.info(f"{apagadas} conversões de Word sem uso há "
+                      f"{doc.DIAS_DE_CONVERSAO} dias apagadas de trabalho/")
 
     publicados = reg.por_estado(reg_mod.PUBLICADO)
     slides = []
@@ -1462,12 +1471,39 @@ def comando_criar_utilizador(cfg, nome, administrador=False):
         int: código de saída (0 = criada).
     """
     import getpass
+    # Sem terminal, este comando não tem como fazer o que promete, e o que fazia
+    # era pior do que recusar. Num serviço ou num script, o input() do nome
+    # completo rebentava com um EOFError em cru — um traceback de sete linhas a
+    # dizer «EOF when reading a line» a quem estava a instalar a aplicação.
+    #
+    # E quando o stdin trazia texto, era pior ainda: o getpass não falha sem
+    # terminal, cai para uma leitura normal, avisa «Password input may be
+    # echoed» em inglês no meio de uma aplicação toda em português, e cria a
+    # conta com a senha à vista. A razão de o getpass existir aqui é
+    # precisamente a senha não ficar à vista de ninguém.
+    if not sys.stdin.isatty():
+        _agente.error(
+            "Este comando pede a senha ao teclado e precisa de um terminal.\n"
+            "Sem ele a senha ficaria à vista — no ecrã, no histórico da consola "
+            "ou no ficheiro de onde viesse — e é isso que se quer evitar.\n"
+            "Corre-o numa janela de terminal:\n\n"
+            f"    python agente.py --criar-utilizador {nome}"
+            f"{' --administrador' if administrador else ''}\n")
+        return 1
     contas = utl.Utilizadores(cfg["utilizadores"])
     papel = utl.ADMINISTRADOR if administrador else utl.OPERADOR
     print(f"A criar a conta '{nome}' com o papel de {utl.PAPEL_LABEL[papel].lower()}.")
-    nome_completo = input("Nome completo (como aparece na certidão): ").strip()
-    senha = getpass.getpass("Senha (mínimo 10 caracteres): ")
-    if senha != getpass.getpass("Repita a senha: "):
+    try:
+        nome_completo = input("Nome completo (como aparece na certidão): ").strip()
+        senha = getpass.getpass("Senha (mínimo 10 caracteres): ")
+        repetida = getpass.getpass("Repita a senha: ")
+    except (EOFError, KeyboardInterrupt):
+        # Ctrl-D ou Ctrl-C a meio das perguntas. É uma desistência, não uma
+        # avaria: diz-se que nada foi criado e sai-se em silêncio.
+        print()
+        _agente.error("Interrompido. Nada foi criado.")
+        return 1
+    if senha != repetida:
         _agente.error("As senhas não coincidem. Nada foi criado.")
         return 1
     try:
