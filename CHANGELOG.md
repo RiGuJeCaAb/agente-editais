@@ -862,3 +862,91 @@ mais pequenos não resolve nada — o orçamento conta caracteres, não PRs.
 Fica dito, em abono da ferramenta: quando teve orçamento, na #7, o Sourcery
 encontrou uma janela entre conferir uma pasta e limpá-la que mais ninguém tinha
 visto. O problema não é a qualidade da revisão. É ela não acontecer.
+
+---
+
+## 0.20.2 — A revisão automática passa a ler as regras da casa
+
+Terceiro número outra vez: **nada mudou no que a aplicação faz.**
+
+### Acrescentado
+
+- **`.github/workflows/revisao.yml`** — revisão automática em cada PR, pela ação
+  `anthropics/claude-code-action@v1`. O primeiro que faz é ler o `AGENTS.md`,
+  que é o ponto todo: o revisor anterior revia contra convenções genéricas
+  porque não tinha como conhecer as nossas.
+
+  Corre com a conta Claude de quem mantém o projeto e não com uma chave de API
+  — segredo `CLAUDE_CODE_OAUTH_TOKEN`, gerado com `claude setup-token`.
+
+### A decisão que ficou tomada
+
+**Sem credencial, o trabalho salta em vez de falhar.** O contexto `secrets` não
+está disponível num `if` de passo, por isso passa por uma variável de ambiente ao
+nível do trabalho, que é onde está acessível. Sem esse contorno, quem clonasse
+este repositório sem token via **todas** as PRs a vermelho — e uma revisão que
+estraga o CI é pior do que revisão nenhuma.
+
+O gatilho é `[opened, synchronize]`: revê a PR e revê outra vez a cada push. As
+PRs daqui levam correções a meio da revisão e é precisamente aí que entram os
+defeitos. Se o consumo da subscrição incomodar, tira-se o `synchronize` e passa a
+uma revisão por PR.
+
+O comentário é fixo e atualiza-se em vez de se empilhar. São precisos **dois**
+parâmetros, e o que faz o trabalho é o `track_progress`: com um `prompt`, a ação
+corre em modo de automação e não cria comentário nenhum, e nesse modo o
+`use_sticky_comment` sozinho não tem o que governar.
+
+O `gh pr comment` não está na lista de ferramentas, de propósito. O exemplo
+oficial com `track_progress` mantém-no, mas aí a promessa de um só comentário
+depende de o modelo obedecer ao prompt. Sem a ferramenta, passa a ser estrutural.
+
+**Um push durante uma revisão cancela a anterior.** Sem o grupo de concorrência,
+uma sequência rápida de correções punha três revisões a correr ao mesmo tempo,
+todas a gastar subscrição e só a última a interessar.
+
+**O checkout não deixa credenciais para trás.** O `actions/checkout@v6` guarda o
+token num ficheiro sob `$RUNNER_TEMP` e aponta-lhe do `git config`. Quem revê tem
+leitura de ficheiros e recebe pela frente texto escrito por qualquer pessoa que
+abra uma PR neste repositório público. A revisão não faz operações git
+autenticadas: `persist-credentials: false`.
+
+**A pasta de trabalho tem o ramo base, não o da PR.** A `docs/security.md` da
+ação diz *«do not check out an untrusted ref into the workspace root before this
+action»*, e aqui havia uma razão acrescida: o prompt manda ler o `AGENTS.md` da
+pasta de trabalho. Vindo do topo da PR, uma alteração a esse ficheiro reescrevia
+as regras que o revisor foi mandado obedecer — o revisor a receber instruções do
+código que está a rever. Da base, as regras são as que já foram fundidas.
+
+O que a PR mudou vê-se pelo `gh pr diff`, que lê a API e não a pasta — **com o
+número da PR explícito**. Sem ele, o `gh` procura a PR do ramo atual, e um
+checkout por SHA deixa a cópia sem ramo nenhum: a revisão corria e ficava sem
+ver o diff. A correção de segurança cortou, sem dar por isso, a única via que
+restava ao revisor para ver o que estava a rever.
+
+### A primeira revisão automática foi ao próprio revisor
+
+Vale a pena registar como isto foi parar aqui, porque é o argumento todo desta
+peça em miniatura. As três correções acima **não são minhas**: são achados do
+CodeRabbit sobre a versão anterior deste mesmo ficheiro, na PR que o trouxe.
+
+A do comentário único era a mais séria, e era um defeito a sério: o que estava
+escrito no `use_sticky_comment` prometia uma coisa que o modo de automação não
+fazia, e este CHANGELOG dizia-o com todas as letras. Estava errado.
+
+A verificação seguinte foi minha e nasceu da correção: ao explicar por escrito
+porque é que o `gh pr comment` saía da lista, pus o comentário **dentro** do
+bloco literal do `claude_args` — onde uma linha começada por `#` não é
+comentário nenhum, é texto passado ao CLI. Cinco linhas de lixo à frente dos
+argumentos. Apanhado a imprimir o que o CLI receberia mesmo, em vez de a olhar
+para o ficheiro.
+
+### Porque não o CodeRabbit, que também ficou ligado
+
+Nenhuma razão contra — ficam os dois, e por uns tempos é bom que fiquem: revêem
+o mesmo diff e vê-se o que cada um apanha. A preferência por este é de operação e
+não de qualidade: é a conta de quem faz o trabalho, e é o único que lê o
+`AGENTS.md` e revê pela ordem de gravidade deste projeto, em vez da ordem que
+traria de qualquer outro.
+
+O que ficou medido sobre o anterior está na 0.20.1 e não se repete aqui.

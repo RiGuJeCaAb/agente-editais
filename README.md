@@ -832,6 +832,62 @@ Os ficheiros:
 |---|---|
 | `AGENTS.md` | as regras completas, para pessoas e para as ferramentas que o suportam |
 | `.github/copilot-instructions.md` | o resumo, para a revisão do GitHub Copilot |
+| `.github/workflows/revisao.yml` | a revisão automática, que começa por ler o `AGENTS.md` |
+
+### A revisão automática
+
+Corre em cada PR aberta e em cada push para ela. O primeiro que faz é ler o
+`AGENTS.md`, e é contra essas regras que revê — não contra as convenções
+genéricas que traria de outros projetos.
+
+Corre com a conta Claude de quem mantém o projeto, não com uma chave de API. Para
+a ligar:
+
+```bash
+claude setup-token   # localmente; precisa de subscrição Pro ou Max
+```
+
+e o valor que sair vai para `Settings > Secrets and variables > Actions`, com o
+nome `CLAUDE_CODE_OAUTH_TOKEN`.
+
+**Sem esse segredo o trabalho não falha, salta.** É de propósito: uma revisão que
+põe o CI a vermelho em quem clona o repositório sem credencial é pior do que
+revisão nenhuma. Quem clonar isto e não tiver token vê a `verificar` a correr
+normalmente e a `revisao` a dizer, numa linha, o que falta.
+
+Se o consumo da subscrição incomodar, a linha a mexer é o gatilho:
+`types: [opened, synchronize]` passa a `types: [opened]` e revê-se uma vez por
+PR em vez de a cada push.
+
+**Um push durante uma revisão cancela a anterior.** Sem o grupo de concorrência,
+uma sequência rápida de correções punha três revisões a correr ao mesmo tempo
+sobre o mesmo ramo — todas a gastar subscrição e só a última a interessar.
+
+**A revisão vive num só comentário, que se atualiza.** São precisos os dois
+parâmetros, e o que faz o trabalho é o `track_progress`: com um `prompt`, a ação
+corre em modo de automação e não cria comentário nenhum, e nesse modo o
+`use_sticky_comment` não tem o que governar. Pela mesma razão, `gh pr comment`
+não está na lista de ferramentas — se estivesse, a promessa de um só comentário
+dependia de o modelo obedecer ao prompt em vez de ser estrutural.
+
+**A pasta de trabalho tem o ramo base, não o da PR.** A documentação de segurança
+da ação é explícita — *«do not check out an untrusted ref into the workspace root
+before this action»* — e nesta configuração há uma razão pior do que a geral: o
+prompt manda ler o `AGENTS.md` da pasta. Vindo do topo da PR, bastava alterar
+esse ficheiro para reescrever as regras que o revisor foi mandado obedecer. O
+revisor a receber instruções do código que está a rever. Vindo da base, as regras
+são as que já foram fundidas, e o que a PR mudou vê-se pelo `gh pr diff`.
+
+O número da PR vai **explícito** nesse comando. Sem ele, o `gh` procura a PR
+do ramo atual — e o checkout de um SHA deixa a cópia sem ramo nenhum. A
+revisão corria e ficava sem ver o diff.
+
+**O checkout não deixa credenciais para trás** (`persist-credentials: false`).
+O `actions/checkout@v6` guarda o token num ficheiro sob `$RUNNER_TEMP` e
+aponta-lhe a partir do `git config`. Quem revê tem leitura de ficheiros e recebe
+pela frente texto escrito por qualquer pessoa que abra uma PR neste repositório
+público; a revisão não faz operações git autenticadas, portanto o token não
+precisa de lá estar.
 
 ### A revisão à mão continua
 
