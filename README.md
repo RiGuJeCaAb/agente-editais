@@ -870,6 +870,14 @@ corre em modo de automação e não cria comentário nenhum, e nesse modo o
 não está na lista de ferramentas — se estivesse, a promessa de um só comentário
 dependia de o modelo obedecer ao prompt em vez de ser estrutural.
 
+**A pasta de trabalho tem o ramo base, não o da PR.** A documentação de segurança
+da ação é explícita — *«do not check out an untrusted ref into the workspace root
+before this action»* — e nesta configuração há uma razão pior do que a geral: o
+prompt manda ler o `AGENTS.md` da pasta. Vindo do topo da PR, bastava alterar
+esse ficheiro para reescrever as regras que o revisor foi mandado obedecer. O
+revisor a receber instruções do código que está a rever. Vindo da base, as regras
+são as que já foram fundidas, e o que a PR mudou vê-se pelo `gh pr diff`.
+
 **O checkout não deixa credenciais para trás** (`persist-credentials: false`).
 O `actions/checkout@v6` guarda o token num ficheiro sob `$RUNNER_TEMP` e
 aponta-lhe a partir do `git config`. Quem revê tem leitura de ficheiros e recebe

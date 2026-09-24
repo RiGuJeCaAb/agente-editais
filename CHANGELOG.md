@@ -911,6 +911,15 @@ leitura de ficheiros e recebe pela frente texto escrito por qualquer pessoa que
 abra uma PR neste repositório público. A revisão não faz operações git
 autenticadas: `persist-credentials: false`.
 
+**A pasta de trabalho tem o ramo base, não o da PR.** A `docs/security.md` da
+ação diz *«do not check out an untrusted ref into the workspace root before this
+action»*, e aqui havia uma razão acrescida: o prompt manda ler o `AGENTS.md` da
+pasta de trabalho. Vindo do topo da PR, uma alteração a esse ficheiro reescrevia
+as regras que o revisor foi mandado obedecer — o revisor a receber instruções do
+código que está a rever. Da base, as regras são as que já foram fundidas.
+
+O que a PR mudou vê-se pelo `gh pr diff`, que lê a API e não a pasta.
+
 ### A primeira revisão automática foi ao próprio revisor
 
 Vale a pena registar como isto foi parar aqui, porque é o argumento todo desta
