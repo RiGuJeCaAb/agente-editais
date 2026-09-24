@@ -19,8 +19,14 @@ from PIL import Image
 import tratamento as t
 
 
-def pagina(largura, altura):
-    """Uma página de dimensões dadas, com conteúdo suficiente para não ser branca."""
+def pagina(largura, altura, cor=None):
+    """Uma página de dimensões dadas, com conteúdo suficiente para não ser branca.
+
+    Com `cor`, sai uma página de cor sólida — serve para seguir onde é que ela
+    foi parar na composição sem depender do que lá está desenhado.
+    """
+    if cor is not None:
+        return Image.new("RGB", (largura, altura), cor)
     im = Image.new("RGB", (largura, altura), (252, 252, 250))
     im.paste(Image.new("RGB", (largura // 2, altura // 2), (40, 44, 50)),
              (largura // 4, altura // 4))
@@ -190,3 +196,105 @@ def test_compor_verticais_nao_mudou(tmp_path):
     linhas = np.where(claro.any(axis=1))[0]
     assert (colunas.max() - colunas.min() + 1) == pytest.approx(t.SHEET_W, abs=2)
     assert (linhas.max() - linhas.min() + 1) == pytest.approx(t.SHEET_H, abs=2)
+
+
+# ---------------------------------------------------------------------------
+# O desenho do ecrã: uma regra só, para dois caminhos
+#
+# Desde a peça 4 há dois consumidores das mesmas coordenadas: a composição 4K
+# em Python, que vai para o arquivo, e o browser da televisão, que posiciona as
+# folhas soltas. Se discordassem, o que ficava no arquivo deixava de ser o que
+# esteve no ecrã — e o arquivo existe precisamente para provar que foi aquilo.
+# ---------------------------------------------------------------------------
+def test_a_folha_ajustada_tem_o_tamanho_exacto_da_sua_caixa():
+    """É isto que torna a caixa o desenho: quem recebe não tem contas a fazer."""
+    paginas = [pagina(1785, 2526) for _ in range(3)]
+    for (_x, _y, w, h), folha in t.folhas_do_ecra(paginas):
+        assert folha.size == (w, h)
+
+
+def test_a_composicao_assenta_as_folhas_onde_as_caixas_dizem(tmp_path):
+    """Compõe com páginas de cor sólida e confere onde a cor aterrou.
+
+    Fixa a RELAÇÃO entre as duas coisas, e não um resumo do ficheiro: um resumo
+    preso a uma versão do Pillow parte na integração contínua sem nada ter
+    mudado, e isso ensina a ignorar o teste.
+    """
+    import numpy as np
+    vermelho = pagina(1785, 2526, cor=(255, 0, 0))
+    paginas = [vermelho, vermelho, vermelho]
+    comp = np.array(t.compose_sheets(paginas, seed=3, logo_im=None,
+                                     cache_fundos=str(tmp_path)))
+    for x, y, w, h in t.caixas_do_ecra(paginas):
+        # O centro da caixa tem de ser vermelho puro...
+        r, g, b = comp[y + h // 2, x + w // 2]
+        assert (int(r), int(g), int(b)) == (255, 0, 0), f"caixa ({x},{y}) vazia"
+        # ...e logo ao lado da caixa já não pode haver folha nenhuma.
+        if x > 8:
+            assert tuple(comp[y + h // 2, x - 8]) != (255, 0, 0)
+
+
+def test_uma_deitada_sozinha_recebe_a_caixa_larga():
+    caixas = t.caixas_do_ecra([pagina(2526, 1785)])
+    assert len(caixas) == 1
+    assert caixas[0][2] > t.SHEET_W, "a deitada devia ficar mais larga que a grelha"
+
+
+# ---------------------------------------------------------------------------
+# O logótipo, sem olhar para píxeis
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def logotipo():
+    import os
+    raiz = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return t.build_logo(os.path.join(raiz, "assets", "sym_ok.png"),
+                        os.path.join(raiz, "assets", "txt_ok.png"))
+
+
+def test_sem_logotipo_nao_ha_espaco_para_logotipo_nenhum():
+    assert t.ha_espaco_para_o_logotipo([(0, 0, 10, 10)], None) is False
+
+
+@pytest.mark.parametrize("nome,paginas_f", [
+    ("uma vertical", lambda: [pagina(1785, 2526)]),
+    ("duas verticais", lambda: [pagina(1785, 2526)] * 2),
+    ("três verticais", lambda: [pagina(1785, 2526)] * 3),
+    ("uma deitada", lambda: [pagina(2526, 1785)]),
+])
+def test_a_geometria_responde_como_os_pixeis(nome, paginas_f, logotipo, tmp_path):
+    """A composição em Python decide olhando para os píxeis da imagem feita; o
+    browser não tem imagem para olhar e decide pela geometria. As duas respostas
+    têm de bater certo, ou o arquivo fica com logótipo e o ecrã sem ele."""
+    import numpy as np
+    paginas = paginas_f()
+    img = t.compose_sheets(paginas, seed=5, logo_im=None, cache_fundos=str(tmp_path))
+    lw, lh = logotipo.size
+    tw = int(img.size[0] * 0.150)
+    th = int(round(lh * tw / lw))
+    mx = int(img.size[0] * 0.032)
+    my = int(img.size[0] * 0.032 * 0.55)
+    a = np.array(img).astype(int)
+    r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
+    e_fundo = (g >= r) & (g >= b) & (g - np.minimum(r, b) > 6) & (a.max(axis=2) < 175)
+    faixa = e_fundo[my:my + th, mx:mx + tw]
+    por_pixeis = not (faixa.size == 0 or faixa.mean() < 0.85)
+    assert t.ha_espaco_para_o_logotipo(t.caixas_do_ecra(paginas), logotipo) is por_pixeis
+
+
+def test_a_guarda_do_logotipo_recusa_quando_a_faixa_esta_tapada(logotipo):
+    """Com as medidas de hoje a faixa nunca é tapada — acaba em y=215 e as
+    folhas começam em 248 — por isso o caso negativo não se alcança pela porta
+    da frente. Exercita-se com caixas inventadas, senão metade da função fica
+    por provar e ninguém dá por isso até alguém baixar o SHEET_TOP."""
+    assert t.ha_espaco_para_o_logotipo([(0, 0, t.CANVAS_W, t.CANVAS_H)], logotipo) is False
+    assert t.ha_espaco_para_o_logotipo([(122, 67, 288, 148)], logotipo) is False
+    assert t.ha_espaco_para_o_logotipo([(2000, 600, 1200, 1600)], logotipo) is True
+
+
+def test_a_faixa_do_logotipo_fica_mesmo_acima_das_folhas(logotipo):
+    """O facto que faz a guarda nunca disparar. Se um dia deixar de ser verdade,
+    este teste avisa antes de o logótipo aparecer por cima de um edital."""
+    lw, lh = logotipo.size
+    tw = int(t.CANVAS_W * 0.150)
+    fim_da_faixa = int(t.CANVAS_W * 0.032 * 0.55) + int(round(lh * tw / lw))
+    assert fim_da_faixa < t.SHEET_TOP

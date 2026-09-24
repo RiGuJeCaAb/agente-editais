@@ -324,7 +324,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 426 testes
+pytest          # 457 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -495,8 +495,24 @@ memória ao mesmo tempo — cerca de 18 MB por página, sem tecto, o que fazia u
 documento de 50 páginas pedir 955 MB e um de 100 pedir 1,8 GB. Passou a ler uma
 página de cada vez: **pico de 102 MB, seja o documento de 5 ou de 500 páginas**
 — e metade disso são os módulos carregados, antes de se ler fosse o que fosse.
-O que continua a custar é a composição, ~650 MB por ecrã — mas por ecrã, não por
-documento.
+
+**Publicar deixou de compor imagens.** Até à 0.18, cada ecrã era uma imagem de
+3840×2160 desenhada em Python e gravada em disco. Desde a 0.19 é a televisão que
+compõe o ecrã, a partir das folhas e das coordenadas onde assentam. Publicar um
+edital de 50 páginas passou de **117,76 s e 1,2 GB** para **5,20 s e 441 MB**, e
+de 51,65 MB de ficheiros para 6,66 MB.
+
+### A imagem que fica no arquivo
+
+A imagem 4K não desapareceu: mudou de momento. Faz-se quando o edital é
+**retirado**, e vai para o ZIP de arquivo permanente — é ela a prova do que
+esteve afixado, e é exatamente o mesmo ficheiro que lá ia antes. O que mudou é
+que já não se paga essa composição com alguém à espera de ver o edital no ecrã;
+paga-se na arrumação, onde ninguém espera.
+
+Enquanto o edital está afixado, a pasta de saída tem as suas folhas em JPEG e o
+`slides.json` que diz onde assentam. O ZIP do expositor leva as duas coisas mais
+o registo: com elas reconstrói-se o expositor noutra máquina, sem o agente.
 
 ### Descartar, que não é apagar
 

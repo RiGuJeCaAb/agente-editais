@@ -203,3 +203,62 @@ def test_hash_repetido_e_reconhecido(registo, rascunho):
     """O mesmo conteúdo não entra duas vezes, mesmo com outro nome de ficheiro."""
     assert registo.hash_existe("abc123")
     assert not registo.hash_existe("conteudo_diferente")
+
+
+# ---------------------------------------------------------------------------
+# O desenho dos ecrãs (peça 4)
+#
+# A televisão deixou de receber uma imagem já composta e passou a receber as
+# folhas e as suas coordenadas. Isso vive no registo, ao lado dos PNG — que
+# continuam a existir, mas passaram a ser feitos na RETIRADA, à porta do
+# arquivo, e não ao publicar.
+# ---------------------------------------------------------------------------
+def test_um_rascunho_novo_nasce_sem_ecras(rascunho):
+    assert rascunho["ecras"] == []
+
+
+def test_definir_ecras_grava_o_desenho(registo, rascunho):
+    desenho = [{"folhas": [{"src": "f_01_01.jpg", "x": 81, "y": 248,
+                            "w": 1201, "h": 1678}], "logotipo": True}]
+    registo.definir_ecras(rascunho["id"], desenho)
+    assert registo.por_id(rascunho["id"])["ecras"] == desenho
+
+
+def test_os_ecras_nao_se_editam_pelo_painel(registo, rascunho):
+    """É um campo de sistema: quem o escreve é a publicação, não quem valida.
+
+    Deixá-lo editável era deixar alguém mover uma folha no registo sem que a
+    imagem arquivada acompanhasse — e o arquivo existe para provar o que esteve
+    no ecrã, não o que alguém escreveu que esteve.
+    """
+    registo.definir_ecras(rascunho["id"], [{"folhas": [], "logotipo": False}])
+    registo.editar(rascunho["id"], {"ecras": [{"folhas": [{"x": 999}]}]},
+                   utilizador="ana.abreu")
+    assert registo.por_id(rascunho["id"])["ecras"] == [{"folhas": [], "logotipo": False}]
+
+
+def test_um_registo_anterior_a_peca_4_ganha_o_campo(tmp_path):
+    """A migração acrescenta o campo e não toca em mais nada.
+
+    Fica VAZIO de propósito: seria possível inventar um desenho a partir do PNG
+    já composto, mas isso é adivinhar onde as folhas assentaram. A publicação
+    seguinte preenche-o com o que de facto lá está.
+    """
+    import json
+    caminho = tmp_path / "registo_entrada.json"
+    antigo = {"seq": 1, "editais": [{
+        "id": 1, "estado": reg_mod.PUBLICADO, "ficheiro_origem": "edital.pdf",
+        "hash": "abc", "num_paginas": 3, "assunto": "COISA", "numero": "2026-0001",
+        "entidade": "", "data_publicacao": "2026-06-29", "data_retirada": None,
+        "confianca": {}, "campos_duvidosos": [],
+        "ficheiros_png": ["ecra_01.png", "ecra_02.png"], "ficheiros_previa": [],
+        "criado_em": "2026-06-29T10:00:00", "historico": [],
+    }]}
+    caminho.write_text(json.dumps(antigo), encoding="utf-8")
+
+    r = reg_mod.RegistoEntrada(str(caminho)).por_id(1)
+    assert r["ecras"] == []
+    # E o que já lá estava continua lá, intacto.
+    assert r["ficheiros_png"] == ["ecra_01.png", "ecra_02.png"]
+    assert r["assunto"] == "COISA"
+    assert r["num_paginas"] == 3

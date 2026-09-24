@@ -715,6 +715,113 @@ def _caixa_justa(pagina, x, y, caixa_w, caixa_h):
     return (x + (caixa_w - nova_w) // 2, y + (caixa_h - nova_h) // 2, nova_w, nova_h)
 
 
+# ===========================================================================
+# O desenho de um ecrã: onde assenta cada folha, e a folha já ajustada.
+#
+# Estas duas funções existem para haver UMA regra, e não duas. Desde a peça 4
+# há dois caminhos que precisam de saber onde as folhas assentam: o que compõe
+# a imagem 4K em Python, para o arquivo, e o que manda as folhas soltas para o
+# browser da televisão as posicionar. Se cada um tivesse a sua cópia da regra,
+# mais cedo ou mais tarde o que ficasse no arquivo deixaria de ser o que esteve
+# no ecrã — e o arquivo é precisamente a prova de que foi aquilo que lá esteve.
+#
+# É a mesma lição do agrupar_indices, na peça anterior, e pela mesma razão.
+# ===========================================================================
+def caixas_do_ecra(paginas):
+    """Onde assenta cada folha deste ecrã, em coordenadas do palco 3840×2160.
+
+    Uma página horizontal sozinha recebe a caixa larga, encolhida ao tamanho
+    exato do que leva dentro; tudo o resto usa a grelha vertical de sempre.
+
+    Args:
+        paginas (list[PIL.Image.Image]): 1 a 3 páginas (o excedente é ignorado).
+
+    Returns:
+        list[tuple[int, int, int, int]]: (x, y, largura, altura) por folha.
+    """
+    paginas = paginas[:MAX_POR_ECRA]
+    if len(paginas) == 1 and e_horizontal(paginas[0]):
+        return [_caixa_justa(paginas[0], MARGEM_LATERAL, SHEET_TOP, LARGA_W, LARGA_H)]
+    return [(x, SHEET_TOP, SHEET_W, SHEET_H) for x in sheet_positions(len(paginas))]
+
+
+def folhas_do_ecra(paginas):
+    """As folhas deste ecrã, já ajustadas à sua caixa, com as coordenadas.
+
+    O _fit_sheet devolve sempre uma imagem do tamanho exato da caixa — o que
+    sobra é preenchido a branco e o conteúdo fica centrado. Por isso a caixa É o
+    desenho: quem recebe estas folhas não tem mais contas a fazer.
+
+    Args:
+        paginas (list[PIL.Image.Image]): 1 a 3 páginas.
+
+    Returns:
+        list[tuple[tuple[int, int, int, int], PIL.Image.Image]]: a caixa e a
+        folha ajustada a ela, pela ordem em que aparecem no ecrã.
+    """
+    paginas = paginas[:MAX_POR_ECRA]
+    caixas = caixas_do_ecra(paginas)
+    # strict=True: as caixas saem do número de páginas, portanto batem por
+    # construção. Se um dia deixarem de bater, é melhor saber-se aqui.
+    return [(caixa, _fit_sheet(pg, caixa[2], caixa[3]))
+            for caixa, pg in zip(caixas, paginas, strict=True)]
+
+
+def ha_espaco_para_o_logotipo(caixas, logo_im, width_frac=0.150, margin_frac=0.032):
+    """Diz se o canto superior esquerdo está livre para o logótipo assentar.
+
+    A composição em Python responde a isto a olhar para os píxeis da imagem já
+    feita: pergunta se a faixa onde o logótipo ia é verde de fundo. Quem compõe
+    no browser não tem imagem nenhuma para olhar, por isso a mesma pergunta
+    responde-se pela GEOMETRIA — a faixa do logótipo sobrepõe-se a alguma folha?
+
+    Não é uma aproximação da regra antiga: é a mesma regra melhor respondida. O
+    que torna um píxel "não é fundo" ali é precisamente estar tapado por uma
+    folha, e as folhas são estas caixas. Há um teste que exige que as duas
+    respostas coincidam, incluindo no caso deitado, onde a folha sobe.
+
+    A regra de fundo mantém-se a de sempre: mais vale sem logótipo do que um
+    logótipo por cima do texto de um edital.
+
+    Args:
+        caixas (list[tuple[int, int, int, int]]): as caixas das folhas do ecrã.
+        logo_im (PIL.Image.Image | None): o logótipo, só para saber o seu rácio.
+        width_frac (float): largura do logótipo como fração do ecrã.
+        margin_frac (float): margem ao canto, como fração da largura do ecrã.
+
+    Returns:
+        bool: True se o logótipo cabe sem tapar folha nenhuma.
+    """
+    if logo_im is None:
+        return False
+    lw, lh = logo_im.size
+    tw = int(CANVAS_W * width_frac)
+    th = int(round(lh * tw / lw))
+    mx = int(CANVAS_W * margin_frac)
+    my = int(CANVAS_W * margin_frac * 0.55)
+    if tw <= 0 or th <= 0:
+        return False
+    # Quanto da faixa do logótipo fica tapado por folhas. As folhas nunca se
+    # sobrepõem umas às outras, por isso somar as interseções não conta nada
+    # duas vezes.
+    tapado = 0
+    for x, y, w, h in caixas:
+        dx = max(0, min(mx + tw, x + w) - max(mx, x))
+        dy = max(0, min(my + th, y + h) - max(my, y))
+        tapado += dx * dy
+    # O mesmo limiar de sempre: menos de 85% de fundo livre e o logótipo não vai.
+    #
+    # Convém saber-se, para quem vier a seguir: com as medidas de hoje esta
+    # guarda NUNCA dispara. A faixa do logótipo acaba em y=215 e as folhas
+    # começam em SHEET_TOP=248, por isso não há sobreposição possível, seja qual
+    # for o número de folhas ou a orientação. Era igualmente verdade na versão
+    # que amostrava píxeis — lá também a faixa dava sempre 100% de fundo. É uma
+    # rede de segurança para o dia em que o SHEET_TOP descer ou o logótipo
+    # crescer, e não lógica viva. Há um teste que a exercita com caixas
+    # inventadas, porque pela porta da frente não se lá chega.
+    return (1 - tapado / (tw * th)) >= 0.85
+
+
 def compose_sheets(pages, seed=7, logo_im=None,
                    logo_width_frac=0.150, logo_margin_frac=0.032, cache_fundos=None):
     """Compõe 1..3 páginas lado a lado, ao mesmo tamanho, sobre o fundo metálico.
@@ -741,24 +848,15 @@ def compose_sheets(pages, seed=7, logo_im=None,
     pages = pages[:MAX_POR_ECRA]
     bg = obter_fundo(seed, cache_fundos).astype(REAL)
 
-    # Uma página horizontal sozinha usa a caixa larga; tudo o resto usa a grelha
-    # vertical de sempre. A decisão fica aqui, e não em quem chama, para que
-    # mesmo uma chamada avulsa — um teste, um script de recurso — faça a coisa
-    # certa sem ter de saber destas regras.
-    if len(pages) == 1 and e_horizontal(pages[0]):
-        caixas = [_caixa_justa(pages[0], MARGEM_LATERAL, SHEET_TOP, LARGA_W, LARGA_H)]
-    else:
-        caixas = [(x, SHEET_TOP, SHEET_W, SHEET_H)
-                  for x in sheet_positions(len(pages))]
+    # Onde assenta cada folha e como se ajusta: decidido por folhas_do_ecra, que
+    # é o mesmo sítio de onde o desenho sai para o browser da televisão. Isto
+    # deixou de ser decidido aqui de propósito — ver o comentário dessa função.
+    desenho = folhas_do_ecra(pages)
 
     # Máscara conjunta de todas as folhas: é a partir dela que se calcula a sombra.
     m = np.zeros((CANVAS_H, CANVAS_W), REAL)
     fitted = []
-    # strict=True: as caixas são geradas a partir de len(pages), portanto os
-    # comprimentos batem por construção. Se um dia deixarem de bater, é melhor
-    # saber-se aqui.
-    for (x0, y0, cw, ch), pg in zip(caixas, pages, strict=True):
-        sheet = _fit_sheet(pg, cw, ch)
+    for (x0, y0, cw, ch), sheet in desenho:
         fitted.append((x0, y0, sheet))
         m[y0:y0 + ch, x0:x0 + cw] = 1.0
 
