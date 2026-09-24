@@ -205,6 +205,18 @@
   .btn:disabled{opacity:.4;cursor:not-allowed}
   .btn.larga{margin-left:auto}
 
+  /* Faixa de trabalho em curso. Compor os ecrãs de um edital demora dezenas de
+     segundos, e o painel não dizia nada durante esse tempo — quem estava ao
+     teclado tinha de escolher entre esperar sem saber e carregar outra vez. */
+  .a-trabalhar{display:none;align-items:center;gap:10px;background:var(--verde-selo);
+    color:#eaf6ee;border-radius:10px;padding:10px 14px;margin-bottom:16px;font-size:13.5px}
+  .a-trabalhar.ver{display:flex}
+  .a-trabalhar .roda{width:14px;height:14px;border:2px solid rgba(255,255,255,.3);
+    border-top-color:var(--ouro);border-radius:50%;flex:0 0 auto;
+    animation:rodar 900ms linear infinite}
+  @keyframes rodar{to{transform:rotate(360deg)}}
+  /* Quem tenha o movimento reduzido ligado vê a roda parada, e a frase chega. */
+  @media (prefers-reduced-motion:reduce){ .a-trabalhar .roda{animation:none} }
   .foco-nav{display:flex;align-items:center;gap:10px;margin-bottom:20px}
   .foco-nav button{background:var(--papel-ficha);border:1px solid var(--linha);border-radius:8px;
     width:36px;height:36px;cursor:pointer;font-size:16px;color:var(--tinta);transition:.15s}
@@ -316,6 +328,9 @@
         <input id="busca" type="search" placeholder="Procurar…" autocomplete="off">
       </div>
     </div>
+    <div class="a-trabalhar" id="aTrabalhar" role="status" aria-live="polite">
+      <span class="roda" aria-hidden="true"></span><span id="aTrabalharTexto"></span>
+    </div>
     <div class="conteudo" id="conteudo"></div>
   </main>
 </div>
@@ -392,6 +407,17 @@
     document.querySelectorAll('.visor-tiras [data-pagina]').forEach(m=>
       m.addEventListener('click',()=>{paginaIdx=+m.dataset.pagina;redesenhar();}));
   }
+  // Faixa de trabalho em curso. Enquanto há trabalho, o painel passa a sondar
+  // de 3 em 3 segundos em vez de 20: uma barra que só se mexe de vinte em vinte
+  // segundos não é progresso, é um cartaz. Quando o trabalho acaba, volta ao
+  // ritmo lento, que é o que serve para a esmagadora maioria do tempo.
+  let aTrabalharAgora=false;
+  function mostrarProgresso(frase){
+    const faixa=document.getElementById('aTrabalhar');
+    document.getElementById('aTrabalharTexto').textContent=frase;
+    faixa.classList.toggle('ver', !!frase);
+    aTrabalharAgora = !!frase;
+  }
   function toast(msg,erro){const t=document.getElementById('toast');t.className='toast ver'+(erro?' erro':'');
     t.innerHTML=(erro?'⚠ ':'✓ ')+esc(msg);setTimeout(()=>t.classList.remove('ver'),2400);}
   async function carregar(){
@@ -405,6 +431,7 @@
       const d=await r.json();
       REGISTOS=d.registos;LABELS=d.estados;TIPOS=d.tipos||[];SESSAO=d.sessao||null;
       aCarregar=false;
+      mostrarProgresso(d.progresso||'');
       mostrarSessao();atualizarBadges();render();
     }catch(e){toast('Sem ligação ao servidor',true);}
   }
@@ -847,7 +874,18 @@
     }
   });
   carregar();
-  setInterval(()=>{ if(!document.querySelector('.ficha-edicao textarea:focus, .ficha-edicao input:focus')) carregar(); },20000);
+  // Ritmo da sondagem: lento em repouso, rápido enquanto há trabalho a decorrer.
+  // O contador reinicia-se em cada volta, por isso a mudança de ritmo é imediata
+  // e não fica à espera de esgotar o intervalo longo que estava a correr.
+  const LENTO=20000, RAPIDO=3000;
+  (function sondar(){
+    const espera = aTrabalharAgora ? RAPIDO : LENTO;
+    setTimeout(()=>{
+      if(!document.querySelector('.ficha-edicao textarea:focus, .ficha-edicao input:focus'))
+        carregar();
+      sondar();
+    }, espera);
+  })();
 </script>
 </body>
 </html>

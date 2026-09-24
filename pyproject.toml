@@ -96,7 +96,7 @@ src = ["lib", "."]
 known-first-party = [
     "agente", "armazenamento", "certidao", "conferencia", "conftest", "diario",
     "documentos", "exportacao", "migracao", "originais", "painel", "prazos",
-    "registo", "tratamento", "utilizadores",
+    "progresso", "registo", "tratamento", "utilizadores",
 ]
 
 [tool.ruff.lint]

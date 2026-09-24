@@ -308,6 +308,7 @@ agente_editais/
     ├── diario.py        # registo técnico (níveis, rotação)
     ├── documentos.py    # conversão + extração de metadados
     ├── conferencia.py   # compara o registo com o disco (relata, não corrige)
+    ├── progresso.py     # o que o agente está a fazer agora, para o painel mostrar
     ├── entrada.html     # página de início de sessão
     ├── exportacao.py    # pastas por estado, construídas a partir do registo
     ├── migracao.py      # traz o modelo antigo para o registo (código com prazo)
@@ -323,7 +324,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 378 testes
+pytest          # 426 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -475,6 +476,27 @@ ficha da lista, antes sequer de abrir.
 > validava um edital de cinco folhas via uma, e assinava uma certidão a afirmar
 > que o tinha afixado. Se vens de uma versão anterior, vale a pena reabrir o que
 > publicaste e conferir o resto.
+
+### Enquanto o agente trabalha
+
+Compor os ecrãs 4K de um edital demora — cerca de **2,5 segundos por ecrã**, e um
+documento de vinte páginas dá oito ecrãs. O painel mostra uma faixa a dizer em
+que vai:
+
+> A compor os ecrãs de «edital_grande.pdf» (3 de 8)
+
+Enquanto há trabalho, o painel actualiza-se de 3 em 3 segundos; em repouso, de 20
+em 20. Não é preciso carregar outra vez em «Publicar»: se a faixa está lá, está a
+andar — e quando o trabalho acaba a faixa desaparece, que é como se sabe que
+acabou.
+
+**Documentos grandes.** Até à 0.17 a leitura carregava todas as páginas para
+memória ao mesmo tempo — cerca de 18 MB por página, sem tecto, o que fazia um
+documento de 50 páginas pedir 955 MB e um de 100 pedir 1,8 GB. Passou a ler uma
+página de cada vez: **pico de 102 MB, seja o documento de 5 ou de 500 páginas**
+— e metade disso são os módulos carregados, antes de se ler fosse o que fosse.
+O que continua a custar é a composição, ~650 MB por ecrã — mas por ecrã, não por
+documento.
 
 ### Descartar, que não é apagar
 
@@ -668,36 +690,6 @@ Cada certidão leva um resumo criptográfico dos factos que afirma. **Não é
 assinatura digital**, e a própria certidão o diz. O que permite é confirmar mais
 tarde que um papel corresponde ao que o registo diz: recalcula-se o resumo a
 partir do registo e compara-se.
-
-Pela mesma razão, a certidão **não tem espaço para assinatura**: confere-se pelo
-selo junto do serviço emissor, e uma linha de assinatura convidaria a tratá-la
-como documento assinado, que não é.
-
-**Formato do selo.** O rodapé diz sobre que conjunto de factos o selo foi
-calculado — «(formato 2)». Quando o conjunto muda, o número sobe, e uma certidão
-que não mencione formato nenhum é do formato 1. Sem isto, acrescentar um facto à
-certidão faria todos os papéis antigos deixar de conferir, o que se parece com
-uma falsificação em vez de com uma actualização.
-
-### O que a certidão diz, e o que admite não saber
-
-A leitura dos documentos é heurística: propõe o assunto, o número e a data, e o
-registo marca o que não teve confiança suficiente. Essa marca desaparece assim
-que alguém corrige o campo no painel — logo, o que sobrar é mesmo por confirmar.
-
-A certidão **di-lo**, em vez de imprimir o palpite ao lado dos factos
-verificados como se fossem a mesma coisa:
-
-> Os seguintes elementos foram lidos automaticamente do documento e não chegaram
-> a ser confirmados por quem o afixou: o assunto, o número.
-
-> [!NOTE]
-> Isto nasceu de uma certidão real. Saiu com o **assunto** «MUNICÍPIO DE
-> MOIMENTA DA BEIRA» — o nome da câmara impresso duas vezes na mesma folha, uma
-> como timbre e outra como matéria daquilo que ela própria tinha afixado. O
-> painel tinha assinalado o campo para confirmação; a certidão imprimiu-o na
-> mesma, com ar de facto. Desde a 0.18 o timbre já não é confundido com o
-> assunto, e o que ninguém confirmou vem dito.
 
 ### Prazos por tipo de documento
 
