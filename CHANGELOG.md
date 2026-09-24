@@ -862,3 +862,45 @@ mais pequenos não resolve nada — o orçamento conta caracteres, não PRs.
 Fica dito, em abono da ferramenta: quando teve orçamento, na #7, o Sourcery
 encontrou uma janela entre conferir uma pasta e limpá-la que mais ninguém tinha
 visto. O problema não é a qualidade da revisão. É ela não acontecer.
+
+---
+
+## 0.20.2 — A revisão automática passa a ler as regras da casa
+
+Terceiro número outra vez: **nada mudou no que a aplicação faz.**
+
+### Acrescentado
+
+- **`.github/workflows/revisao.yml`** — revisão automática em cada PR, pela ação
+  `anthropics/claude-code-action@v1`. O primeiro que faz é ler o `AGENTS.md`,
+  que é o ponto todo: o revisor anterior revia contra convenções genéricas
+  porque não tinha como conhecer as nossas.
+
+  Corre com a conta Claude de quem mantém o projeto e não com uma chave de API
+  — segredo `CLAUDE_CODE_OAUTH_TOKEN`, gerado com `claude setup-token`.
+
+### A decisão que ficou tomada
+
+**Sem credencial, o trabalho salta em vez de falhar.** O contexto `secrets` não
+está disponível num `if` de passo, por isso passa por uma variável de ambiente ao
+nível do trabalho, que é onde está acessível. Sem esse contorno, quem clonasse
+este repositório sem token via **todas** as PRs a vermelho — e uma revisão que
+estraga o CI é pior do que revisão nenhuma.
+
+O gatilho é `[opened, synchronize]`: revê a PR e revê outra vez a cada push. As
+PRs daqui levam correções a meio da revisão e é precisamente aí que entram os
+defeitos. Se o consumo da subscrição incomodar, tira-se o `synchronize` e passa a
+uma revisão por PR.
+
+O comentário é fixo e atualiza-se em vez de se empilhar (`use_sticky_comment`).
+Três revisões acumuladas sobre o mesmo ficheiro não se leem.
+
+### Porque não o CodeRabbit, que também ficou ligado
+
+Nenhuma razão contra — ficam os dois, e por uns tempos é bom que fiquem: revêem
+o mesmo diff e vê-se o que cada um apanha. A preferência por este é de operação e
+não de qualidade: é a conta de quem faz o trabalho, e é o único que lê o
+`AGENTS.md` e revê pela ordem de gravidade deste projeto, em vez da ordem que
+traria de qualquer outro.
+
+O que ficou medido sobre o anterior está na 0.20.1 e não se repete aqui.

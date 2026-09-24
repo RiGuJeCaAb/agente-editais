@@ -832,6 +832,32 @@ Os ficheiros:
 |---|---|
 | `AGENTS.md` | as regras completas, para pessoas e para as ferramentas que o suportam |
 | `.github/copilot-instructions.md` | o resumo, para a revisão do GitHub Copilot |
+| `.github/workflows/revisao.yml` | a revisão automática, que começa por ler o `AGENTS.md` |
+
+### A revisão automática
+
+Corre em cada PR aberta e em cada push para ela. O primeiro que faz é ler o
+`AGENTS.md`, e é contra essas regras que revê — não contra as convenções
+genéricas que traria de outros projetos.
+
+Corre com a conta Claude de quem mantém o projeto, não com uma chave de API. Para
+a ligar:
+
+```bash
+claude setup-token   # localmente; precisa de subscrição Pro ou Max
+```
+
+e o valor que sair vai para `Settings > Secrets and variables > Actions`, com o
+nome `CLAUDE_CODE_OAUTH_TOKEN`.
+
+**Sem esse segredo o trabalho não falha, salta.** É de propósito: uma revisão que
+põe o CI a vermelho em quem clona o repositório sem credencial é pior do que
+revisão nenhuma. Quem clonar isto e não tiver token vê a `verificar` a correr
+normalmente e a `revisao` a dizer, numa linha, o que falta.
+
+Se o consumo da subscrição incomodar, a linha a mexer é o gatilho:
+`types: [opened, synchronize]` passa a `types: [opened]` e revê-se uma vez por
+PR em vez de a cada push.
 
 ### A revisão à mão continua
 
