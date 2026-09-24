@@ -810,3 +810,38 @@ agrupados e o horizontal isolado, na sua vez, sem perder a ordem.
 
 **O que NÃO mudou:** a composição dos documentos verticais é idêntica ao píxel —
 verificado contra a versão anterior, 100 % dos píxeis iguais em 1, 2 e 3 folhas.
+
+---
+
+## 19. Como se revê este código — NOVO
+
+As regras de trabalho passaram a estar escritas num ficheiro, `AGENTS.md`, em vez
+de dispersas por estas 800 linhas. A diferença não é de arrumação: é que um
+revisor automático lê um e não lê as outras.
+
+Até aqui, qualquer revisor que chegasse a uma PR deste repositório não tinha como
+saber que se escreve em português europeu, que não entram emojis, que o
+`CHANGELOG.md` cresce para baixo, que os testes correm de propósito sem
+LibreOffice, ou que a classe de defeito que interessa mesmo é um edital que não
+aparece na televisão. Revia contra o que conhecesse de outros projetos — e foi
+mais ou menos isso que se viu acontecer.
+
+Os ficheiros:
+
+| ficheiro | quem o lê |
+|---|---|
+| `AGENTS.md` | as regras completas, para pessoas e para as ferramentas que o suportam |
+| `.github/copilot-instructions.md` | o resumo, para a revisão do GitHub Copilot |
+
+### A revisão à mão continua
+
+Não é um remendo à espera de ferramenta melhor. Em sete PRs seguidas, a revisão à
+mão — ler o diff outra vez, à procura do que se estragou — encontrou defeitos que
+nenhuma análise estática apanha: um sinalizador de progresso que nunca era
+desligado, uma conversão de Word repetida cinco vezes por documento, uma lista de
+exclusão que engolia títulos de edital legítimos, uma verificação de terminal que
+rebentava precisamente no ambiente que devia proteger.
+
+A regra que a torna útil está no `AGENTS.md` e vale a pena repetir aqui: **um
+teste novo tem de falhar contra o código anterior.** Um teste que passa dos dois
+lados não prova nada, e dá a sensação de provar — que é pior.

@@ -810,4 +810,55 @@ todos a mesma resposta — não há teclado do outro lado.
 o que exige que nada recente seja apagado, e o que aceita uma pasta inexistente —
 passam nos dois lados **de propósito**, porque fixam o que a limpeza *não* pode
 fazer.
-\n
+
+---
+
+## 0.20.1 — As regras da casa, por escrito
+
+Terceiro número e não segundo: **nada mudou no que a aplicação faz.** O que mudou
+foi aquilo contra o que ela passa a ser revista.
+
+### O que se descobriu
+
+O repositório não tinha ficheiro nenhum de instruções para quem revê: nem
+`AGENTS.md`, nem `CLAUDE.md`, nem `CONTRIBUTING.md`, nem
+`.github/copilot-instructions.md`. A doutrina toda — português europeu, nada de
+emojis, o `CHANGELOG` a crescer para baixo, os testes a correrem de propósito sem
+LibreOffice, os assuntos de commit sem acentos — vivia em 800 linhas de `README`
+escritas para pessoas.
+
+Nenhum revisor automático lê um `README` de 800 linhas à procura de convenções.
+Revê contra o que conhece de outros projetos. Isso explica boa parte do que se
+viu: descrição em vez de achados.
+
+### Acrescentado
+
+- **`AGENTS.md`** — as regras completas, derivadas de prova neste repositório e
+  não de boas intenções. Cada uma delas nasceu de um defeito concreto: a regra de
+  que um teste novo tem de falhar contra o código anterior nasceu de três testes
+  que descreviam o caso difícil e exercitavam o fácil; a regra de medir os dois
+  lados com a mesma régua nasceu de uma tabela de memória que dizia o contrário
+  do que acontecia; o aviso sobre alargar listas de exclusão nasceu da correção
+  que engolia sete em sete títulos de edital legítimos.
+- **`.github/copilot-instructions.md`** — o mesmo em resumo, para a revisão do
+  Copilot, que trabalha com menos contexto.
+- **`README`, secção 19** — o processo de revisão, e porque é que a revisão à mão
+  fica de pé independentemente da ferramenta que estiver ligada.
+
+### Corrigido
+
+- O `CHANGELOG.md` tinha, na última linha, um `\n` literal — resto de um heredoc
+  mal fechado numa peça anterior. Estava publicado assim desde a 0.20.0. Não tem
+  consequência nenhuma além de ser feio, e é exatamente o género de coisa que uma
+  revisão automática apanha e que uma pessoa cansada não vê.
+
+### Sobre a revisão automática
+
+As sete PRs anteriores mediram-se: 325 759 caracteres de diff em 1 dia e 20 horas.
+O orçamento do Sourcery são 250 000 caracteres por 7 dias, ou seja 35 714 por dia.
+Este ritmo é cinco vezes o que esse orçamento aguenta, e partir as PRs em pedaços
+mais pequenos não resolve nada — o orçamento conta caracteres, não PRs.
+
+Fica dito, em abono da ferramenta: quando teve orçamento, na #7, o Sourcery
+encontrou uma janela entre conferir uma pasta e limpá-la que mais ninguém tinha
+visto. O problema não é a qualidade da revisão. É ela não acontecer.
