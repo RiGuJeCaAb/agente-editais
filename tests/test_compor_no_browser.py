@@ -235,3 +235,64 @@ def test_a_exportacao_conta_os_ecras_do_que_esta_afixado(posto):
     nossa = [x for x in linhas if x["id"] == str(rid)]
     assert nossa, f"o edital publicado não aparece na exportação: {linhas}"
     assert nossa[0]["ecras_na_tv"] == "1"
+
+
+# ---------------------------------------------------------------------------
+# O documento deitado, que leva a caixa larga
+#
+# Os testes acima usavam só páginas verticais. A caixa larga tem outra regra —
+# encolhe ao tamanho exato do que leva dentro, em vez de ser fixa — e é por aí
+# que uma diferença entre o que a televisão desenha e o que o arquivo guarda
+# entraria sem ninguém dar por ela. Foi uma lacuna encontrada a olhar para a
+# televisão a funcionar, e não a ler o código.
+# ---------------------------------------------------------------------------
+@pytest.fixture
+def posto_misto(posto):
+    """Duas verticais, uma deitada e outra vertical: três ecrãs, o do meio largo."""
+    import fitz
+    os.remove(os.path.join(posto["cfg"]["entrada"], "edital.pdf"))
+    d = fitz.open()
+    for larg, alt, txt in [(595, 842, "v1"), (595, 842, "v2"),
+                           (842, 595, "deitada"), (595, 842, "v3")]:
+        pg = d.new_page(width=larg, height=alt)
+        pg.insert_text((60, 120), txt, fontsize=26)
+    d.save(os.path.join(posto["cfg"]["entrada"], "misto.pdf"))
+    d.close()
+    return posto
+
+
+def test_a_deitada_recebe_a_caixa_larga_no_desenho(posto_misto):
+    rid = publicar(posto_misto)
+    ecras = posto_misto["reg"].por_id(rid)["ecras"]
+    assert len(ecras) == 3
+    larguras = [e["folhas"][0]["w"] for e in ecras]
+    assert larguras[1] > trat.SHEET_W, "o ecrã da deitada devia ser mais largo"
+    assert larguras[0] == larguras[2] == trat.SHEET_W
+
+
+def test_as_caixas_da_deitada_sao_as_que_o_python_compoe(posto_misto):
+    """A caixa larga encolhe ao conteúdo e recentra-se. Se a televisão e a
+    composição do arquivo a calculassem em separado, divergiriam aqui primeiro."""
+    from PIL import Image
+    rid = publicar(posto_misto)
+    ecras = posto_misto["reg"].por_id(rid)["ecras"]
+    deitada = [Image.new("RGB", (2526, 1785), "white")]
+    esperada = trat.caixas_do_ecra(deitada)[0]
+    f = ecras[1]["folhas"][0]
+    assert (f["x"], f["y"], f["w"], f["h"]) == esperada
+
+
+def test_retirar_um_documento_de_varios_ecras_arquiva_os_todos(posto_misto):
+    """Só se tinha provado com um ecrã. Um edital de três folhas que deixasse
+    duas por arquivar perdia dois terços da prova do que esteve afixado."""
+    rid = publicar(posto_misto)
+    posto_misto["reg"].mover_estado(rid, reg_mod.RETIRADO, utilizador="ana.abreu")
+    agente.publicar_registos(posto_misto["cfg"], posto_misto["reg"], posto_misto["logo"])
+
+    r = posto_misto["reg"].por_id(rid)
+    assert len(r["ficheiros_png"]) == 3
+    zpath = os.path.join(posto_misto["cfg"]["arquivo"], "arquivo_editais.zip")
+    with zipfile.ZipFile(zpath) as z:
+        assert sorted(z.namelist()) == sorted(r["ficheiros_png"])
+    assert folhas_na_pasta(posto_misto["cfg"]) == []
+    assert conferencia.conferir(posto_misto["cfg"], posto_misto["reg"])["png_orfaos"] == []

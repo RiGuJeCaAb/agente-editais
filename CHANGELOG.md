@@ -700,8 +700,33 @@ apanharia uma alteração que afectasse os dois por igual.
 reposto no ecrã, em vez de os recompor. As folhas refazem-se em 0,36 s, que é
 menos do que abrir o ZIP — e deixa o arquivo de ser fonte de coisas substituíveis.
 
+### Corrigido na revisão à mão, antes de entrar
+
+O Sourcery voltou a ficar sem orçamento e este trabalho também não teve revisão
+automática. A revisão à mão não encontrou defeito no código — encontrou um
+**buraco nos testes**: nenhum deles usava um documento **deitado**.
+
+Isso importa porque a caixa larga tem outra regra. A caixa vertical é de tamanho
+fixo; a larga encolhe ao tamanho exato do que leva dentro e recentra-se. É por aí
+que uma diferença entre o que a televisão desenha e o que o arquivo guarda
+entraria sem ninguém dar por ela — e é precisamente a coisa que esta peça não
+pode deixar acontecer.
+
+Verificado a funcionar, e não só a ler: um misto de duas verticais, uma deitada e
+outra vertical dá três ecrãs, e as caixas medidas no browser batem certo com as
+que o Python compõe (x=732 e 2375 de largura, que ao meio da escala dão 366 e
+1188). Acrescentados três testes, incluindo a retirada de um documento de vários
+ecrãs — só se tinha provado com um, e um edital de três folhas que deixasse duas
+por arquivar perdia dois terços da prova do que esteve afixado.
+
+De caminho, um susto que não era: numa fotografia, a folha deitada aparecia
+acinzentada. Medida, estava a 93 % de opacidade — o `.slide` desvanece em 1 s e
+eu fotografei aos 700 ms. Com o tempo completo, branco puro. O erro era do meu
+método, não da página.
+
 ### Testes
 
-28 novos, 454 no total. Os catorze de `test_compor_no_browser.py` foram corridos
-contra o código anterior: onze falham lá e passam aqui.
+31 novos, 457 no total. Os dezassete de `test_compor_no_browser.py` foram
+corridos contra o código anterior: onze falham lá e passam aqui; os outros seis
+cobrem o caso deitado, que o código anterior nem conseguia executar.
 
