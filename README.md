@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 472 testes
+pytest          # 480 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -357,8 +357,9 @@ publicação do dia não esperar por elas.
   Para documentos com layout muito diferente, confirma o `assunto` no JSON.
 - **Imagens sem texto** (cartazes): não há texto para ler, por isso o assunto
   vem do nome do ficheiro — preenche no JSON se quiseres outro.
-- **Data de retirada**: é mesmo manual, por opção. Se um dia quiseres
-  "30 dias após publicação" automático, é uma linha a mudar — diz.
+- **Data de retirada**: deixou de ser manual. Ao publicar, o tipo do documento
+  propõe o prazo, e o painel mostra-o antes de se publicar — ver a secção 20.
+  Para o tipo por omissão, que não tem prazo declarado, continua em branco.
 - **Word**: depende do LibreOffice. Sem ele, PDFs e imagens continuam a funcionar.
 ```
 
@@ -908,3 +909,50 @@ rebentava precisamente no ambiente que devia proteger.
 A regra que a torna útil está no `AGENTS.md` e vale a pena repetir aqui: **um
 teste novo tem de falhar contra o código anterior.** Um teste que passa dos dois
 lados não prova nada, e dá a sensação de provar — que é pior.
+
+---
+
+## 20. A data de retirada, proposta pelo tipo — NOVO
+
+Duas metades já existiam e nunca se tinham encontrado. O módulo `prazos.py`
+sabia calcular o prazo de cada tipo de documento, com a base legal ao lado. O
+registo sabia retirar sozinho tudo o que estivesse publicado com a data
+vencida. A data chegava de duas maneiras — alguém a escrever no painel, ou a
+migração a trazê-la do modelo antigo — e nas duas a retirada dava-se. **O que
+nunca ganhava data era um edital nascido no fluxo atual**, e a retirada
+automática só olha para quem a tem.
+
+Num posto real isso deu **oito editais publicados e zero retirados**, com
+documentos de junho ainda no ecrã em setembro.
+
+### Como funciona agora
+
+Ao **publicar**, se ninguém tiver escrito uma data de retirada, ela passa a vir
+do tipo do documento: o mínimo legal quando existe, o prazo sugerido quando não
+há mínimo. Para uma deliberação de órgão autárquico são cinco dias, pelo artigo
+56.º do Anexo I da Lei n.º 75/2013.
+
+E o painel mostra a data proposta **antes** de se publicar, no campo da retirada,
+com uma linha a dizer de onde veio. Quem estiver ao teclado altera-a se o caso
+pedir outra coisa — e aí a decisão é da pessoa, como sempre foi.
+
+### Os três limites, e a razão de cada um
+
+- **Só na publicação.** É aí que o relógio legal começa, e é da afixação que a
+  certidão conta o prazo. Propor antes seria contar de uma data que ainda pode
+  mudar.
+- **Nunca por cima de uma data escrita.** A tabela informa; o posto decide.
+- **Nada para o tipo por omissão.** Esse não tem prazo declarado, e a aplicação
+  não inventa um prazo legal para um documento cuja natureza ninguém declarou.
+  Fica em branco, e fica à espera de uma pessoa — que é o comportamento certo.
+
+Quando a data vem da tabela, **o histórico do edital di-lo**, com o tipo que a
+produziu. Quem audita tem de poder distinguir um prazo que alguém decidiu de um
+que saiu de uma regra.
+
+### Os prazos alteram-se sem tocar no código
+
+A tabela de tipos vive em `lib/prazos.py` com valores de partida, e cada
+município sobrepõe os seus em `config.json`. Cada tipo declara a norma e a
+fonte, porque um prazo sem proveniência é um número que ninguém pode confirmar
+nem contestar.

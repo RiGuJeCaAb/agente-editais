@@ -519,8 +519,35 @@ class RegistoEntrada:
             if novo_estado == RETIRADO:
                 reg["desafixado_em"] = _agora()
                 reg["desafixado_por"] = utilizador
+            # A data de retirada, quando ninguém a escreveu. O prazo já se sabia
+            # calcular e já se sabia aplicar -- faltava o meio, e sem ele um
+            # edital publicado sem data ficava afixado para sempre: a retirada
+            # automática só olha para quem tem data, e sem data não há o que
+            # vencer. Num posto real deu 8 publicados e ZERO retirados, com
+            # editais de junho ainda no ecrã em setembro.
+            #
+            # Três limites, de propósito:
+            #   - só na publicação, porque é aí que o relógio legal começa e é
+            #     de `afixado_em` que a certidão conta;
+            #   - nunca por cima de uma data escrita por alguém;
+            #   - nada para o tipo por omissão, que não tem prazo declarado --
+            #     `propor_retirada` devolve None e a aplicação não inventa um
+            #     prazo para um documento cuja natureza ninguém declarou.
+            proposta = None
+            if novo_estado == PUBLICADO and not reg.get("data_retirada"):
+                proposta = pr.propor_retirada(reg.get("tipo"),
+                                              (reg.get("afixado_em") or "")[:10])
+                if proposta:
+                    reg["data_retirada"] = proposta
             reg["estado"] = novo_estado
-            self._anotar(reg, utilizador, atual, novo_estado, nota or "Mudança de estado")
+            registo_da_nota = nota or "Mudança de estado"
+            if proposta:
+                # Fica escrito de onde veio a data. Quem audita tem de poder
+                # distinguir um prazo que uma pessoa decidiu de um que saiu da
+                # tabela -- e saber qual a regra que o produziu.
+                registo_da_nota += (f" · retirada {proposta}, proposta pelo tipo "
+                                    f"«{pr.tipo(reg.get('tipo')).get('rotulo', '')}»")
+            self._anotar(reg, utilizador, atual, novo_estado, registo_da_nota)
             self._guardar()
             return {"ok": True, "erro": None, "registo": copy.deepcopy(reg)}
 
