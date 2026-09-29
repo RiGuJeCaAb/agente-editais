@@ -29,6 +29,10 @@ TV abre num URL — mais um ZIP de arquivo.
 
 ## 2. Instalação
 
+> Para instalar **no posto**, a passos e com o que tens de ver a cada um, usa a
+> **[lista de verificação](servico/LISTA-DE-VERIFICACAO.md)**. Esta secção diz o
+> que é preciso; a lista diz por que ordem e como saber que correu bem.
+
 Requer **Python 3.10+**. Dependências:
 
 ```bash
@@ -219,8 +223,11 @@ corre o agente. Opções, da mais simples à mais robusta:
   TV aponta para `http://IP-DA-MAQUINA:8080/`.
 
 - **Produção** (recomendado): servir `saida/` com **nginx** ou **IIS** como site
-  estático, em HTTP(S) na porta 80/443. A página já se auto-recarrega de 5 em 5
-  minutos para apanhar editais novos — não é preciso tocar na TV.
+  estático, em HTTP(S) na porta 80/443. A página busca o `slides.json` de 15 em
+  15 segundos e aplica os editais novos **sem recarregar** — não é preciso tocar
+  na TV, e o carrossel nem sequer se interrompe. (Isto esteve aqui descrito como
+  «auto-recarrega de 5 em 5 minutos». Era errado nas duas metades: não recarrega,
+  e é vinte vezes mais rápido do que isso.)
 
 A TV fica com um único URL fixo na app de browser/kiosk. Nunca mais lhe mexes.
 
