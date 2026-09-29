@@ -79,6 +79,37 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
 
 _painel = diario.obter("PAINEL")
 
+# Diz a data de retirada que o tipo do documento propõe, para o painel a poder
+# mostrar ANTES de alguém publicar.
+def _com_proposta(registos):
+    """Acrescenta a cada registo sem data de retirada a que o tipo dele propõe.
+
+    É campo derivado e não estado: calcula-se a cada leitura e não se grava. A
+    conta vive em prazos.propor_retirada e só ali -- o painel recebe-a feita em
+    vez de a repetir em JavaScript, porque duas implementações da mesma regra
+    divergem, e aritmética de datas no browser ainda por cima arrisca o fuso.
+
+    Conta-se aqui da data de publicação declarada, e não da afixação: antes de
+    se publicar ainda não há afixação nenhuma. Ao publicar, o registo refaz a
+    conta a partir do instante real em que afixou, que é o que a lei conta e o
+    que a certidão cita -- e não mexe se quem esteve ao teclado tiver guardado
+    esta. O que se vê aqui é uma proposta; a que fica é a que alguém aceitou ou
+    a que a publicação calculou.
+
+    Args:
+        registos (list[dict]): os registos, já copiados por registo.todos().
+
+    Returns:
+        list[dict]: os mesmos, com 'retirada_proposta' quando há proposta a
+        fazer — e None quando já há data escrita ou o tipo não tem prazo.
+    """
+    for r in registos:
+        r["retirada_proposta"] = (
+            None if r.get("data_retirada")
+            else pr_mod.propor_retirada(r.get("tipo"), r.get("data_publicacao")))
+    return registos
+
+
 class PainelServer:
     """Encapsula o servidor do painel e as dependências que ele precisa.
 
@@ -358,7 +389,8 @@ class PainelServer:
                     # sondagem a bater no servidor de dois em dois segundos, só
                     # para saber se há trabalho em curso, era pagar um custo
                     # permanente por uma informação que quase sempre é «nada».
-                    return self._json({"registos": servidor.registo.todos(),
+                    return self._json({"registos": _com_proposta(
+                                           servidor.registo.todos()),
                                        "estados": reg_mod.ESTADO_LABEL,
                                        "tipos": pr_mod.tipos_para_painel(),
                                        "progresso": prog.frase(),

@@ -950,3 +950,69 @@ não de qualidade: é a conta de quem faz o trabalho, e é o único que lê o
 traria de qualquer outro.
 
 O que ficou medido sobre o anterior está na 0.20.1 e não se repete aqui.
+
+---
+
+## 0.21.0 — A data de retirada, proposta pelo tipo
+
+Segundo número: **isto muda o que a aplicação faz.**
+
+### O defeito, que era um buraco entre duas coisas certas
+
+O `prazos.py` sabia calcular o prazo de cada tipo de documento, com a base legal
+declarada e testado desde a Onda 2. O `registo.aplicar_retiradas_automaticas()`
+sabia retirar sozinho tudo o que estivesse publicado com a data vencida, e é
+chamado pelo agente a cada ciclo.
+
+**Entre os dois não havia nada.** O `propor_retirada()` não era chamado em lado
+nenhum fora dos próprios testes, e a `data_retirada` continuava a nascer vazia e
+a depender de alguém se lembrar. A retirada automática só olha para quem tem
+data — sem data, não há o que vencer.
+
+Para ser exato, porque a primeira versão desta entrada exagerava: a data chegava
+por **duas** vias, e as duas funcionavam. Alguém a escrever no painel, e a
+migração do modelo antigo, que a traz do `retiradas.txt` (`lib/migracao.py`).
+Os editais migrados tinham data e retiraram-se sozinhos como deviam.
+
+O que nunca acontecia era um edital **nascido no fluxo atual** ganhar data. Esse
+ficava afixado para sempre — e é toda a produção desde a Onda 2.
+
+Não se descobriu a ler o código: descobriu-se a correr `--conferir` num posto
+real, que respondeu **`publicado: 8 · retirado: 0`**, com documentos de junho
+ainda no ecrã em setembro.
+
+### Acrescentado
+
+- **Ao publicar, o tipo do documento propõe a data de retirada** quando ninguém
+  a escreveu. Mínimo legal quando existe; prazo sugerido quando não há mínimo.
+  Cinco dias para uma deliberação de órgão autárquico, pelo artigo 56.º do
+  Anexo I da Lei n.º 75/2013.
+- **O painel mostra a proposta antes de se publicar**, no campo da retirada e
+  com uma linha a dizer de onde veio. Se preenchesse em silêncio, decidia — e o
+  `prazos.py` diz de si próprio, na primeira linha, que propõe e não decide.
+- **O histórico regista de onde veio a data**, com o tipo que a produziu. Quem
+  audita tem de poder distinguir um prazo decidido de um prazo calculado.
+
+### As três recusas
+
+- **Só na publicação**, porque é aí que o relógio legal começa e é da afixação
+  que a certidão conta. Propor na validação seria contar de uma data que ainda
+  pode mudar.
+- **Nunca por cima de uma data escrita por uma pessoa.**
+- **Nada para o tipo por omissão.** O `propor_retirada` devolve `None` e não se
+  inventa um prazo legal para um documento cuja natureza ninguém declarou. Fica
+  em branco à espera de uma pessoa, que é o comportamento certo.
+
+### A conta não se repete em JavaScript
+
+O painel recebe a data já calculada pelo servidor, num campo derivado que não se
+grava. A alternativa — mandar os dias para o browser e somá-los lá — punha a
+mesma regra em dois sítios, e aritmética de datas em JavaScript ainda por cima
+arrisca o fuso horário.
+
+### Testes
+
+8 novos, 480 no total. **Seis falham contra o código anterior.** Os outros dois
+passam dos dois lados **de propósito**, e está escrito no ficheiro: fixam o que
+a alteração não podia mudar — que uma data escrita por uma pessoa não é pisada,
+e que um tipo sem prazo não ganha data nenhuma.
