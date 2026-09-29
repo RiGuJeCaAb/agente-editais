@@ -105,13 +105,23 @@
     font-weight:400;letter-spacing:.04em;text-transform:uppercase;margin-top:1px}
   .ficha .assunto{font-size:14.5px;font-weight:600;line-height:1.38;margin-bottom:11px;
     display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
-  .ficha .meta{display:flex;flex-direction:column;gap:3px;font-size:12.5px;color:var(--tinta-suave);
-    border-top:1px dashed var(--linha);padding-top:9px}
-  .ficha .meta .l{display:flex;justify-content:space-between;gap:10px}
-  .ficha .meta .l.motivo{flex-direction:column;gap:2px;align-items:flex-start;
+  /* O `.ficha-edicao` tem de estar aqui a par do `.ficha`: em CSS, um elemento
+     com class="ficha-edicao" NÃO corresponde a `.ficha` -- são dois nomes
+     diferentes, não um prefixo. Sem isto, o bloco de afixação desenhado no
+     formulário de edição ficava sem o `display:flex`, e o rótulo colava-se ao
+     valor: «Afixado em2026-09-29 às 11:38». */
+  .ficha .meta,
+  .ficha-edicao .meta{display:flex;flex-direction:column;gap:3px;font-size:12.5px;
+    color:var(--tinta-suave);border-top:1px dashed var(--linha);padding-top:9px}
+  .ficha .meta .l,
+  .ficha-edicao .meta .l{display:flex;justify-content:space-between;gap:10px}
+  .ficha .meta .l.motivo,
+  .ficha-edicao .meta .l.motivo{flex-direction:column;gap:2px;align-items:flex-start;
     border-top:1px dashed var(--linha);margin-top:4px;padding-top:6px}
-  .ficha .meta .l.motivo b{font-weight:600;font-style:italic;text-align:left}
-  .ficha .meta b{color:var(--tinta);font-weight:600}
+  .ficha .meta .l.motivo b,
+  .ficha-edicao .meta .l.motivo b{font-weight:600;font-style:italic;text-align:left}
+  .ficha .meta b,
+  .ficha-edicao .meta b{color:var(--tinta);font-weight:600}
   .ficha .aviso{margin-top:10px;display:inline-flex;align-items:center;gap:5px;font-size:11px;
     color:var(--alerta);background:var(--alerta-fundo);border:1px solid #e9d3a3;border-radius:20px;padding:3px 9px;font-weight:600}
 
@@ -168,6 +178,7 @@
   .campo input:focus,.campo textarea:focus{outline:none;border-color:var(--ouro);
     box-shadow:0 0 0 3px rgba(200,168,75,.16);background:var(--papel-ficha)}
   .campo.duvidoso input,.campo.duvidoso textarea{border-color:var(--alerta);background:var(--alerta-fundo)}
+  .campo .nota-proposta .btn-proposta{font-size:.78rem;font-style:normal;margin-left:.35rem;padding:.1rem .45rem;cursor:pointer}
   .campo .nota-proposta{font-size:.78rem;color:var(--tinta-suave);margin-top:.25rem;font-style:italic}
   .campo .nota-conf{font-size:11.5px;color:var(--alerta);margin-top:5px;display:none;align-items:center;gap:5px}
   .campo.duvidoso .nota-conf{display:flex}
@@ -509,8 +520,8 @@
             <input id="f-data_publicacao" type="date" value="${r.data_publicacao||''}">
             <div class="nota-conf">⚠ Confirme a data de publicação.</div></div>
           <div class="campo"><label>Data de retirada de exposição <span style="color:var(--tinta-suave);font-weight:400;text-transform:none">(opcional)</span></label>
-            <input id="f-data_retirada" type="date" value="${r.data_retirada||r.retirada_proposta||''}">
-            ${r.retirada_proposta?`<div class="nota-proposta">Proposta pelo tipo do documento. Altere se o caso pedir outra data.</div>`:''}</div>
+            <input id="f-data_retirada" type="date" value="${r.data_retirada||''}">
+            ${r.retirada_proposta?`<div class="nota-proposta">O tipo do documento propõe <b>${r.retirada_proposta}</b>. <button type="button" class="btn-proposta" data-proposta="${r.retirada_proposta}">Usar esta data</button><br>Em branco, a data é calculada na publicação a partir da afixação real.</div>`:''}</div>
           <div class="prazos" id="prazos"></div>
           <div class="acoes">
             <button class="btn btn-neutro" data-acao="guardar">Guardar</button>
@@ -715,7 +726,7 @@
         <div class="campo ${duv('numero')}"><label>Número do edital</label><input id="f-numero" value="${esc(r.numero)}"><div class="nota-conf">⚠ Confirme.</div></div>
         ${campoTipoHTML(r)}
         <div class="campo ${duv('data_publicacao')}"><label>Data de publicação <span class="obrig">· obrigatória</span></label><input id="f-data_publicacao" type="date" value="${r.data_publicacao||''}"><div class="nota-conf">⚠ Confirme.</div></div>
-        <div class="campo"><label>Data de retirada</label><input id="f-data_retirada" type="date" value="${r.data_retirada||r.retirada_proposta||''}">${r.retirada_proposta?`<div class="nota-proposta">Proposta pelo tipo do documento. Altere se o caso pedir outra data.</div>`:''}</div>
+        <div class="campo"><label>Data de retirada</label><input id="f-data_retirada" type="date" value="${r.data_retirada||''}">${r.retirada_proposta?`<div class="nota-proposta">O tipo do documento propõe <b>${r.retirada_proposta}</b>. <button type="button" class="btn-proposta" data-proposta="${r.retirada_proposta}">Usar esta data</button><br>Em branco, a data é calculada na publicação a partir da afixação real.</div>`:''}</div>
         <div class="prazos" id="prazos"></div>
         ${afixacaoHTML(r)}
         <div class="acoes">${acoes}</div>
@@ -786,6 +797,19 @@
     ['f-tipo','f-data_publicacao','f-data_retirada'].forEach(id=>{
       const el=document.getElementById(id);
       if(el) el.addEventListener('change',actualizarPrazos);
+    });
+    // O botão da proposta enche o campo, e só então a data passa a ser uma
+    // decisão de quem está ao teclado. Antes disto o campo vinha preenchido, e
+    // um Guardar feito para corrigir outra coisa qualquer enviava a proposta
+    // como se alguém a tivesse escrito -- a publicação deixava de a recalcular
+    // da afixação real, e um edital podia sair do ecrã antes do prazo.
+    document.querySelectorAll('.btn-proposta').forEach(b=>{
+      b.addEventListener('click',()=>{
+        const el=document.getElementById('f-data_retirada');
+        if(!el) return;
+        el.value=b.dataset.proposta;
+        el.dispatchEvent(new Event('change'));
+      });
     });
     actualizarPrazos();
   }

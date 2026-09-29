@@ -513,8 +513,22 @@ class RegistoEntrada:
             # porque o que a lei conta é quando o edital foi afixado, e um
             # edital reposto depois de uma retirada indevida não passou a ser
             # afixado de novo. A desafixação, essa, é sempre a última.
+            # Calcula-se ANTES de carimbar seja o que for. Um prazo mal escrito
+            # no config.json de um município faz o `int(dias)` rebentar, e com o
+            # carimbo já posto a transição ficava com a afixação de uma tentativa
+            # falhada -- que a repetição seguinte reutilizava como relógio legal,
+            # porque o carimbo só se põe quando está vazio. Assim, se rebentar,
+            # nada foi tocado e a transição repete-se limpa.
+            proposta = None
+            instante_afixacao = None
+            if novo_estado == PUBLICADO:
+                instante_afixacao = reg.get("afixado_em") or _agora()
+                if not reg.get("data_retirada"):
+                    proposta = pr.propor_retirada(reg.get("tipo"),
+                                                  instante_afixacao[:10])
+
             if novo_estado == PUBLICADO and not reg.get("afixado_em"):
-                reg["afixado_em"] = _agora()
+                reg["afixado_em"] = instante_afixacao
                 reg["afixado_por"] = utilizador
             if novo_estado == RETIRADO:
                 reg["desafixado_em"] = _agora()
@@ -533,12 +547,8 @@ class RegistoEntrada:
             #   - nada para o tipo por omissão, que não tem prazo declarado --
             #     `propor_retirada` devolve None e a aplicação não inventa um
             #     prazo para um documento cuja natureza ninguém declarou.
-            proposta = None
-            if novo_estado == PUBLICADO and not reg.get("data_retirada"):
-                proposta = pr.propor_retirada(reg.get("tipo"),
-                                              (reg.get("afixado_em") or "")[:10])
-                if proposta:
-                    reg["data_retirada"] = proposta
+            if proposta:
+                reg["data_retirada"] = proposta
             reg["estado"] = novo_estado
             registo_da_nota = nota or "Mudança de estado"
             if proposta:

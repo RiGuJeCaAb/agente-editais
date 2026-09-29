@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 480 testes
+pytest          # 483 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -932,9 +932,16 @@ do tipo do documento: o mínimo legal quando existe, o prazo sugerido quando nã
 há mínimo. Para uma deliberação de órgão autárquico são cinco dias, pelo artigo
 56.º do Anexo I da Lei n.º 75/2013.
 
-E o painel mostra a data proposta **antes** de se publicar, no campo da retirada,
-com uma linha a dizer de onde veio. Quem estiver ao teclado altera-a se o caso
-pedir outra coisa — e aí a decisão é da pessoa, como sempre foi.
+E o painel **mostra** a data proposta antes de se publicar, por baixo do campo da
+retirada, com um botão que a aceita. O campo em si fica **vazio**, de propósito:
+assim, deixá-lo em branco é o estado natural, e enchê-lo é um ato de quem está
+ao teclado.
+
+A primeira versão desta peça pré-preenchia o campo, e era um defeito. Quem
+abrisse o registo para corrigir o assunto e carregasse em Guardar enviava a
+proposta como se a tivesse escrito — a partir daí a publicação já não a
+recalculava da afixação real, e se a data de publicação declarada fosse anterior
+à afixação, **o edital saía do ecrã antes do prazo legal**.
 
 ### Os três limites, e a razão de cada um
 

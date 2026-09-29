@@ -1087,9 +1087,53 @@ grava. A alternativa — mandar os dias para o browser e somá-los lá — punha
 mesma regra em dois sítios, e aritmética de datas em JavaScript ainda por cima
 arrisca o fuso horário.
 
+### Dois defeitos meus, apanhados pela revisão automática nesta própria peça
+
+**O campo pré-preenchido enviava a proposta como se fosse uma decisão.**
+
+A primeira versão enchia o campo da retirada com a data proposta. Escrevi na
+descrição da PR que, se alguém a guardasse, «passava a ser uma decisão de uma
+pessoa». Está errado, e o revisor foi mais fino do que eu: **a pessoa não tem de
+decidir nada.** Abre o registo para corrigir o assunto, carrega em Guardar, e a
+proposta sai no pedido como se a tivesse escrito. A publicação deixa de a
+recalcular da afixação real, e o histórico regista uma edição comum em vez da
+proveniência.
+
+A consequência é a classe número um do `AGENTS.md`: se a data de publicação
+declarada for anterior à afixação, **o edital sai do ecrã antes do prazo legal**.
+
+O campo passa a ficar **vazio**, e a proposta aparece por baixo com um botão que
+a aceita. Deixar em branco é o estado natural; encher é um ato deliberado.
+
+**O cálculo rebentava depois de carimbar a afixação.**
+
+Um município pode escrever o prazo por extenso no `config.json`. O `int(dias)`
+rebenta — e o carimbo da afixação já estava posto, por isso a tentativa falhada
+deixava lá uma data que a repetição seguinte reutilizava como relógio legal,
+já que o carimbo só se põe quando está vazio. O cálculo passa a correr **antes**
+de se tocar em seja o que for: se rebentar, a transição repete-se limpa.
+
+### E um defeito visual, visto no ecrã de quem usa isto
+
+```
+Afixado em2026-09-29 às 11:38
+Afixado porricardo.abreu
+```
+
+As regras do `.meta` estavam escritas para `.ficha`, e o bloco da afixação é
+desenhado dentro de `.ficha-edicao` — que em CSS é **outro nome**, não um
+prefixo. Sem o `display:flex`, o rótulo colava-se ao valor.
+
+O comportamento estava certo; só a apresentação é que não, e por isso nenhum
+teste de estado o apanhava. Fica um ficheiro novo, `tests/test_painel_apresentacao.py`,
+para as guardas desta natureza — lidas do próprio `painel.html`.
+
+Vai nesta peça por estar no mesmo ficheiro e por se ver no ecrã enquanto isto se
+escrevia. Não é parente da retirada automática, e fica dito.
+
 ### Testes
 
-8 novos, 480 no total. **Seis falham contra o código anterior.** Os outros dois
+11 novos, 483 no total. **Oito falham contra o código anterior.** Os outros dois
 passam dos dois lados **de propósito**, e está escrito no ficheiro: fixam o que
 a alteração não podia mudar — que uma data escrita por uma pessoa não é pisada,
 e que um tipo sem prazo não ganha data nenhuma.
