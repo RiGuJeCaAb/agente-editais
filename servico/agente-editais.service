@@ -47,8 +47,25 @@ RestrictSUIDSGID=true
 RestrictRealtime=true
 LockPersonality=true
 # Só estas pastas são escrevíveis. Se um dia o agente passar a escrever noutro
-# sítio, é aqui que se declara — e a falha será clara em vez de silenciosa.
-ReadWritePaths=/opt/agente-editais/entrada /opt/agente-editais/saida \
+# sítio, é aqui que se declara.
+#
+# A RAIZ está na lista, e não estava — era um defeito, e dos maus. O
+# `registo_entrada.json`, o `utilizadores.json` e o `registo_auditoria.jsonl`
+# vivem na raiz do projeto, e a gravação atómica cria o temporário na MESMA
+# pasta do destino (tem de ser: `os.replace` só é atómico dentro do mesmo
+# sistema de ficheiros). Sem a raiz escrivível, o serviço arrancava, o /saude
+# respondia, e NADA se gravava: nem uma conta, nem um edital, nem uma linha de
+# auditoria. O comentário que aqui estava prometia que a falha seria «clara em
+# vez de silenciosa», e foi exatamente ao contrário.
+#
+# O custo: o código passa a ser escrivível pelo utilizador do serviço. É uma
+# troca consciente, e a alternativa mais apertada está no LEIAME — passa por
+# `StateDirectory=`, que a documentação do systemd diz excluir a pasta do efeito
+# do `ProtectSystem=`, com o `config.json` a apontar o estado para lá. Não vai
+# já porque mudar onde o estado vive faz uma instalação existente deixar de
+# encontrar o registo dela, e isso perde-se uma vez só.
+ReadWritePaths=/opt/agente-editais \
+               /opt/agente-editais/entrada /opt/agente-editais/saida \
                /opt/agente-editais/previas /opt/agente-editais/originais \
                /opt/agente-editais/arquivo /opt/agente-editais/fundos \
                /opt/agente-editais/trabalho /opt/agente-editais/diario

@@ -953,6 +953,83 @@ O que ficou medido sobre o anterior está na 0.20.1 e não se repete aqui.
 
 ---
 
+## 0.20.3 — A instalação no posto, por passos
+
+Terceiro número: **nada mudou no que a aplicação faz.** O que mudou foi o que
+existe para quem a vai instalar.
+
+### Acrescentado
+
+- **`servico/LISTA-DE-VERIFICACAO.md`** — a instalação toda por passos, da
+  máquina à televisão. Cada passo diz **o que fazer** e **o que tens de ver**,
+  porque uma lista que só manda fazer deixa quem a segue sem saber se resultou.
+
+  Duas coisas que lá estão de propósito e não são burocracia: **a prova com
+  editais verdadeiros** antes de dar a instalação por feita — é a única forma de
+  saber se as heurísticas de extração servem para os editais desta câmara — e
+  **alguém do posto a publicar um edital à frente de quem instala**. Se ninguém
+  ali souber usar isto, não está instalado, está copiado.
+
+  A lista acaba a dizer que, se alguma coisa não bater certo com ela, o defeito
+  é dela. É para ser corrigida por quem a usou no terreno.
+
+### Corrigido
+
+- **O `config.exemplo.json` mandava definir `painel_senha`**, que foi retirada
+  na Onda 2 e há três versões só serve para o agente avisar, no arranque, que
+  já não faz nada. Quem copiasse o exemplo ficava a julgar que tinha o painel
+  protegido por essa senha. Saiu, e o ficheiro passa a trazer o `municipio` e o
+  `local_do_expositor` — que são os dois campos que saem impressos na certidão
+  de afixação e que, esses sim, ninguém quer errados.
+
+Apanhado a escrever a lista de verificação: ao conferir chave a chave o que o
+exemplo mandava pôr contra o que o código lê mesmo, a `painel_senha` tinha uma
+única ocorrência em todo o projeto — o aviso a dizer que não servia para nada.
+
+### E três defeitos que a primeira revisão automática apanhou nesta própria peça
+
+O revisor no CI correu pela primeira vez sobre esta PR e encontrou três coisas.
+As três verificadas no código antes de se lhes tocar. A primeira é grave.
+
+**1. A unidade systemd arrancava e não gravava nada.**
+
+`ProtectSystem=strict` torna tudo só de leitura salvo o que estiver em
+`ReadWritePaths` — e a lista tinha as pastas de trabalho mas **não a raiz do
+projeto**, onde vivem o `registo_entrada.json`, o `utilizadores.json` e o
+`registo_auditoria.jsonl`. Pior: a gravação atómica cria o temporário na mesma
+pasta do destino (tem de ser — `os.replace` só é atómico dentro do mesmo sistema
+de ficheiros), por isso nem declarar os ficheiros um a um resolveria. É a pasta
+que tem de ser escrivível.
+
+O serviço subia. O `/saude` respondia. O painel abria. E **nem uma conta, nem um
+edital, nem uma linha de auditoria chegavam ao disco.** A pior forma de uma
+falha se apresentar, porque parece que está a funcionar.
+
+O custo da correção fica dito na unidade: o código passa a ser escrivível pelo
+utilizador do serviço. A alternativa mais apertada — `StateDirectory=`, que a
+documentação do systemd diz excluir a pasta do efeito do `ProtectSystem=` — fica
+documentada no `servico/LEIAME.md` e não vai já, porque mudar onde o estado vive
+faz uma instalação existente deixar de encontrar o registo dela.
+
+**E a lista de verificação ganhou o passo que teria apanhado isto:** publicar um
+edital verdadeiro **com o serviço instalado**. A lista mandava confirmar que o
+serviço se levantava, e ele levantava-se. Arrancar não é funcionar.
+
+**2. A televisão não recarrega de 5 em 5 minutos.**
+
+Nunca recarregou. Busca o `slides.json` de **15 em 15 segundos**, compara a
+versão e aplica os editais novos **sem recarregar** — o carrossel nem se
+interrompe, e o `agente.py` até diz isso à letra num comentário. A afirmação
+errada estava na lista nova *e* no README desde a secção 5.1. Corrigida nos
+dois: era errada nas duas metades, porque não recarrega e é vinte vezes mais
+rápida do que se dizia.
+
+**3. A lista dava comandos que não correm em Windows.**
+
+`.venv/bin/python` é Linux. O posto a que esta lista se destina é Windows, onde
+o caminho é `.venv\Scripts\python.exe`. A lista estabelece agora a convenção
+uma vez, com as duas formas, e usa-a nos cinco comandos.
+
 ## 0.21.0 — A data de retirada, proposta pelo tipo
 
 Segundo número: **isto muda o que a aplicação faz.**
