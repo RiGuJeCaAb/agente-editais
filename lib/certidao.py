@@ -54,6 +54,7 @@ except ImportError:  # PyMuPDF anterior a 1.24
     import fitz  # type: ignore[no-redef]
 
 import prazos as pr
+import registo as reg_mod
 
 # Geometria da página A4 em pontos, e as margens do corpo.
 LARGURA, ALTURA = 595, 842
@@ -184,6 +185,7 @@ def factos(reg: dict) -> dict:
         # faz parte da identidade daquilo que lá esteve.
         "num_paginas": reg.get("num_paginas") or 0,
         "data_retirada": reg.get("data_retirada") or "",
+        "referencia": reg_mod.referencia(reg),
         # Campos que a leitura automática propôs e que NENHUMA pessoa confirmou.
         # O registo limpa esta lista quando alguém corrige o campo, por isso o
         # que aqui ficar é mesmo por confirmar. Uma certidão que imprime um
@@ -451,6 +453,10 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # quem lê a certidão não sabia se o documento não tinha número ou se o
     # sistema o tinha deixado cair.
     folha.campo("Número", f["numero"] or "(não atribuído)")
+    # A seguir ao número e nunca no lugar dele. O número é do Gestiona e é
+    # oficial; isto é a etiqueta da nossa aplicação, e o rótulo tem de dizer
+    # qual é qual a quem leia a certidão daqui a cinco anos.
+    folha.campo("Referência interna", f["referencia"])
     folha.campo("Assunto", f["assunto"] or "(sem assunto registado)")
     if f["entidade"]:
         folha.campo("Entidade emissora", f["entidade"])

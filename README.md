@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 480 testes
+pytest          # 486 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -956,3 +956,53 @@ A tabela de tipos vive em `lib/prazos.py` com valores de partida, e cada
 município sobrepõe os seus em `config.json`. Cada tipo declara a norma e a
 fonte, porque um prazo sem proveniência é um número que ninguém pode confirmar
 nem contestar.
+
+---
+
+## 21. A referência interna, e os lençóis — NOVO
+
+### A referência não é o número do edital
+
+O **número do edital** vem do **Gestiona**, é oficial, e quem está ao teclado
+copia-o de lá para o campo. A aplicação **nunca** lho atribui — inventar uma
+designação que sai impressa numa certidão de afixação é a primeira coisa que
+este projeto se proibiu de fazer.
+
+A **referência interna** é outra coisa: uma etiqueta nossa, para se poder dizer
+«o AE-20260929-0021» em vez de «aquele aviso da escola, salvo erro». Aparece no
+painel e na certidão, sempre rotulada como interna, a seguir ao número e nunca
+no lugar dele.
+
+```
+AE-20260929-0021
+   └ data     └ id do registo
+```
+
+**É derivada e não guardada.** Sai da data de criação e do id, que já existem e
+já são imutáveis. Guardá-la outra vez abria a porta a que divergisse do que a
+produziu, e obrigava a uma migração para nada.
+
+**A data sozinha não chegava.** Num único minuto entram vários ficheiros de uma
+vez — já entraram, está no registo deste posto. O id é o que garante que duas
+referências nunca colidem, e uma referência que pode colidir é pior do que não
+existir.
+
+### Os lençóis
+
+O fundo da televisão eram vinte e seis linhas traçadas com 0,6 a 2,2 px, e
+liam-se como filamentos. Engrossar o traço não resolvia: uma linha grossa é uma
+fita, não um tecido.
+
+O que faz ler como pano são quatro coisas, e nenhuma é a espessura sozinha:
+
+1. É uma **faixa preenchida**, com duas margens, e não um traço.
+2. A espessura **respira** ao longo do comprimento. Um lençol apanhado pelo ar
+   não tem a mesma largura de ponta a ponta; uma fita tem.
+3. As duas margens ondulam com **fases diferentes** — é isso que torce o pano.
+4. **Duas frequências somadas**, para a margem não ser uma senóide perfeita.
+   Nada em tecido é.
+
+São onze em vez de vinte e seis, e mais fracos: a área de cada um cresceu umas
+quarenta vezes, e vinte e seis lençóis a esta escala não é um fundo, é sopa.
+
+Se ficar pesado na televisão, o número está numa linha só — `var N = 11`.

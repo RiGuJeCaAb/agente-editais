@@ -614,6 +614,38 @@ class RegistoEntrada:
 
 
 # ---------------------------------------------------------------------------
+# Referência interna
+# ---------------------------------------------------------------------------
+def referencia(reg):
+    """Devolve a referência interna de um registo: AE-AAAAMMDD-NNNN.
+
+    NÃO é o número do edital. Esse é atribuído pelo Gestiona, é oficial, e a
+    aplicação nunca lhe toca — inventar uma designação que sai impressa numa
+    certidão de afixação é a primeira coisa que este projeto se proibiu de
+    fazer. Isto é outra coisa: uma etiqueta nossa, para se poder dizer «o
+    AE-20260929-0021» em vez de «aquele aviso da escola, salvo erro».
+
+    É DERIVADA e não guardada. Sai da data de criação e do id, que já existem,
+    já são imutáveis e já estão no registo — guardá-la outra vez seria abrir a
+    porta a que divergisse do que a produziu, e obrigaria a uma migração para
+    nada.
+
+    A data sozinha não chega: num único minuto entram vários ficheiros de uma
+    vez, e já entraram. O id é o que garante que duas referências nunca
+    colidem, e é por isso que ele lá está.
+
+    Args:
+        reg (dict): o registo.
+
+    Returns:
+        str: a referência, ou 'AE-NNNN' se por alguma razão faltar a data.
+    """
+    dia = (reg.get("criado_em") or "")[:10].replace("-", "")
+    rid = int(reg.get("id") or 0)
+    return f"AE-{dia}-{rid:04d}" if len(dia) == 8 else f"AE-{rid:04d}"
+
+
+# ---------------------------------------------------------------------------
 # Auxiliares de módulo
 # ---------------------------------------------------------------------------
 def _agora():

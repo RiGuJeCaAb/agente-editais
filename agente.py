@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.21.0"
+VERSAO = "0.22.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -895,21 +895,47 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     function dim(){ W = cv.width = window.innerWidth; H = cv.height = window.innerHeight; }
     window.addEventListener('resize', dim); dim();
 
-    // Cada veia é uma linha diagonal que ondula com o tempo. Guardamos parâmetros
-    // fixos por veia (posição, ângulo, frequência, fase) para o movimento ser
-    // orgânico mas estável — não aleatório a cada frame.
+    // Cada lençol é uma faixa diagonal que ondula com o tempo. Guardamos
+    // parâmetros fixos por lençol para o movimento ser orgânico mas estável —
+    // não aleatório a cada frame.
+    //
+    // Eram linhas traçadas com 0,6 a 2,2 px de espessura, e liam-se como
+    // filamentos. Engrossar o traço não resolvia: uma linha grossa é uma fita,
+    // não um tecido. O que faz ler como pano são quatro coisas, e nenhuma é a
+    // espessura sozinha:
+    //
+    //   1. É uma FAIXA preenchida, com duas margens, e não um traço.
+    //   2. A espessura RESPIRA ao longo do comprimento. Um lençol apanhado
+    //      pelo ar não tem a mesma largura de ponta a ponta; uma fita tem.
+    //   3. As duas margens ondulam com FASES DIFERENTES, e é isso que torce o
+    //      pano. Se andassem a par, voltava a ser uma fita grossa.
+    //   4. Duas frequências somadas, para a margem não ser uma senóide
+    //      perfeita — nada em tecido é.
+    //
+    // São menos e mais fracos do que as veias eram: onze em vez de vinte e
+    // seis, e a opacidade desce porque a área de cada um cresceu umas quarenta
+    // vezes. Vinte e seis lençóis a esta escala não é um fundo, é sopa.
     var veias = [];
-    var N = 26;
+    var N = 11;
     for (var i=0;i<N;i++){
       veias.push({
-        y0: Math.random()*1.2 - 0.1,      // origem vertical (fração do ecrã)
-        ang: -0.6 + Math.random()*0.35,   // inclinação diagonal ascendente
-        amp: 8 + Math.random()*22,        // amplitude da ondulação (px)
-        freq: 0.6 + Math.random()*1.4,    // nº de ondas ao longo da largura
+        y0: Math.random()*1.3 - 0.15,     // origem vertical (fração do ecrã)
+        ang: -0.5 + Math.random()*0.3,    // inclinação diagonal ascendente
+        amp: 22 + Math.random()*45,       // amplitude da ondulação (px)
+        freq: 0.35 + Math.random()*0.75,  // nº de ondas ao longo da largura
         fase: Math.random()*Math.PI*2,    // desfasamento inicial
-        vel: 0.12 + Math.random()*0.25,   // velocidade da ondulação
-        larg: 0.6 + Math.random()*1.6,    // espessura do traço
-        alfa: 0.05 + Math.random()*0.13   // opacidade (subtil)
+        vel: 0.10 + Math.random()*0.18,   // velocidade da ondulação
+        // A segunda harmónica, que tira a perfeição à senóide.
+        freq2: 1.6 + Math.random()*1.3,
+        fase2: Math.random()*Math.PI*2,
+        amp2: 6 + Math.random()*14,
+        // A torção: o desfasamento entre a margem de cima e a de baixo.
+        torcao: 0.25 + Math.random()*0.75,
+        // A espessura, e o ritmo a que ela respira ao longo do comprimento.
+        esp: 45 + Math.random()*95,
+        freqE: 0.5 + Math.random()*1.1,
+        faseE: Math.random()*Math.PI*2,
+        alfa: 0.035 + Math.random()*0.055  // mais fraco: a área é muito maior
       });
     }
 
@@ -921,26 +947,57 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       ctx.fillStyle = g; ctx.fillRect(0,0,W,H);
     }
 
+    // A ondulação de uma margem, no ponto fx, no instante t. As duas margens do
+    // mesmo lençol chamam isto com desfasamentos diferentes — é daí que vem a
+    // torção, e é a torção que faz o pano parecer pano.
+    function ondula(v, fx, t, desfase){
+      return Math.sin(fx*Math.PI*2*v.freq + v.fase + desfase + t*v.vel) * v.amp
+           + Math.sin(fx*Math.PI*2*v.freq2 + v.fase2 + t*v.vel*1.7) * v.amp2;
+    }
+
     function desenha(t){
       fundoGradiente();
       ctx.lineCap = 'round';
       for (var i=0;i<veias.length;i++){
         var v = veias[i];
-        ctx.beginPath();
-        // Traça a veia amostrando pontos ao longo da largura e aplicando a onda.
-        for (var x=-40; x<=W+40; x+=16){
+        var topo = [], baixo = [];
+        for (var x=-60; x<=W+60; x+=16){
           var fx = x / W;
-          var base = v.y0*H + Math.tan(v.ang) * x;              // linha diagonal
-          var onda = Math.sin(fx*Math.PI*2*v.freq + v.fase + t*v.vel) * v.amp; // ondulação
-          var y = base + onda;
-          if (x===-40) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+          var base = v.y0*H + Math.tan(v.ang) * x;   // a diagonal por onde assenta
+          // A espessura respira: o `abs` de um seno dá um ritmo de fole, com
+          // apertos marcados em vez da oscilação macia que um seno puro daria.
+          var esp = v.esp * (0.35 + 0.65*Math.abs(
+            Math.sin(fx*Math.PI*v.freqE + v.faseE + t*v.vel*0.6)));
+          topo.push(x, base + ondula(v, fx, t, 0) - esp*0.5);
+          baixo.push(x, base + ondula(v, fx, t, v.torcao) + esp*0.5);
         }
-        // Gradiente dourado ao longo do traço, para "brilhar" mais no meio.
+
+        // O corpo do lençol: margem de cima da esquerda para a direita, margem
+        // de baixo no sentido inverso, e fecha.
+        ctx.beginPath();
+        for (var k=0; k<topo.length; k+=2){
+          if (k===0) ctx.moveTo(topo[k], topo[k+1]); else ctx.lineTo(topo[k], topo[k+1]);
+        }
+        for (var k=baixo.length-2; k>=0; k-=2) ctx.lineTo(baixo[k], baixo[k+1]);
+        ctx.closePath();
+
+        // Dourado que se apaga nas pontas, para o lençol entrar e sair do ecrã
+        // sem ter um princípio e um fim visíveis.
         var grad = ctx.createLinearGradient(0,0,W,0);
         grad.addColorStop(0, 'rgba(200,168,75,0)');
         grad.addColorStop(0.5, 'rgba(230,207,141,'+v.alfa+')');
         grad.addColorStop(1, 'rgba(200,168,75,0)');
-        ctx.strokeStyle = grad; ctx.lineWidth = v.larg;
+        ctx.fillStyle = grad;
+        ctx.fill();
+
+        // As bainhas. São o que mais faz o pano parecer pano: um preenchimento
+        // translúcido sozinho lê-se como mancha, e é a margem apanhada pela luz
+        // que lhe dá a dobra. Vão ao dobro da opacidade do corpo, e finas.
+        var bainha = ctx.createLinearGradient(0,0,W,0);
+        bainha.addColorStop(0, 'rgba(200,168,75,0)');
+        bainha.addColorStop(0.5, 'rgba(240,222,170,'+Math.min(v.alfa*2.2, 0.16)+')');
+        bainha.addColorStop(1, 'rgba(200,168,75,0)');
+        ctx.strokeStyle = bainha; ctx.lineWidth = 1.4;
         ctx.stroke();
       }
     }

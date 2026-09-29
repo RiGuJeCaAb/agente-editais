@@ -1093,3 +1093,62 @@ arrisca o fuso horário.
 passam dos dois lados **de propósito**, e está escrito no ficheiro: fixam o que
 a alteração não podia mudar — que uma data escrita por uma pessoa não é pisada,
 e que um tipo sem prazo não ganha data nenhuma.
+
+---
+
+## 0.22.0 — A referência interna, e os lençóis
+
+### A referência, e sobretudo o que ela não é
+
+Ficou esclarecido de onde vem o número do edital: do **Gestiona**, a aplicação
+de gestão documental da Câmara. É oficial, e quem está ao teclado copia-o de lá.
+**A aplicação não lho atribui, e esta peça não muda isso** — inventar uma
+designação que sai impressa numa certidão de afixação é a primeira coisa que
+este projeto se proibiu de fazer, e a tentação de «preencher o campo só para não
+ficar vazio» é exatamente a forma que essa falha tomaria.
+
+O que entra é uma etiqueta **nossa**, ao lado e nunca no lugar:
+
+```
+AE-20260929-0021
+```
+
+Aparece no painel e na certidão, rotulada como «Referência interna», a seguir ao
+número. Serve para se dizer «o AE-20260929-0021» em vez de «aquele aviso da
+escola, salvo erro».
+
+**Derivada, não guardada.** Sai do `criado_em` e do `id`, que já existem e já são
+imutáveis. Guardá-la abria a porta a divergir do que a produziu, e obrigava a uma
+migração para nada.
+
+**A data sozinha não chegava.** Num minuto entram vários ficheiros de uma vez, e
+no registo deste posto entraram. O id é o que garante que não colidem.
+
+### Os lençóis dourados
+
+Pedido de quem usa isto: os filamentos do fundo da televisão deviam parecer
+lençóis a esvoaçar. Eram vinte e seis linhas de 0,6 a 2,2 px de espessura.
+
+Engrossar o traço não resolvia — uma linha grossa é uma fita, não um tecido. São
+agora faixas preenchidas com duas margens, com a espessura a respirar ao longo
+do comprimento, as duas margens em fases diferentes (é a torção que faz o pano
+parecer pano) e duas frequências somadas para a margem não ser uma senóide
+perfeita. Onze em vez de vinte e seis, e mais fracos: a área de cada um cresceu
+umas quarenta vezes.
+
+**Verificado com os olhos, não por dedução.** A página foi renderizada em
+Chromium e fotografada em dois instantes, com o `requestAnimationFrame`
+substituído por um que chama a função duas vezes com tempos escolhidos — assim
+corre o código verdadeiro e a fotografia é de um segundo exato, reproduzível.
+
+E a primeira leitura dessas fotografias foi **errada**: «a animação não corre».
+Corria. O ecrã de arranque tem `z-index: 50` e fundo opaco, e eu estava a
+fotografar a cortina. A segunda impressão também foi errada — «perdeu o
+dourado» — e a medição desmentiu-a: nas zonas claras, o R menos o B passou de
+−21,7 para −13,3. A versão nova é **mais** quente, não menos.
+
+### Testes
+
+6 novos, 486 no total. Quatro falham contra o código anterior. Os outros dois
+passam dos dois lados **de propósito**, e está escrito no ficheiro: fixam que a
+referência não é guardada e que a aplicação nunca preenche o número do edital.

@@ -79,10 +79,11 @@ CSP = ("default-src 'self'; script-src 'self' 'unsafe-inline'; "
 
 _painel = diario.obter("PAINEL")
 
-# Diz a data de retirada que o tipo do documento propõe, para o painel a poder
-# mostrar ANTES de alguém publicar.
-def _com_proposta(registos):
-    """Acrescenta a cada registo sem data de retirada a que o tipo dele propõe.
+# Junta ao que está gravado os dois campos que se calculam: a data de retirada
+# que o tipo propõe, para o painel a poder mostrar ANTES de alguém publicar, e a
+# referência interna, que é uma etiqueta e não um dado.
+def _derivados(registos):
+    """Acrescenta a cada registo os campos que se calculam e não se guardam.
 
     É campo derivado e não estado: calcula-se a cada leitura e não se grava. A
     conta vive em prazos.propor_retirada e só ali -- o painel recebe-a feita em
@@ -101,12 +102,14 @@ def _com_proposta(registos):
 
     Returns:
         list[dict]: os mesmos, com 'retirada_proposta' quando há proposta a
-        fazer — e None quando já há data escrita ou o tipo não tem prazo.
+        fazer — e None quando já há data escrita ou o tipo não tem prazo — e
+        'referencia' sempre, porque essa deriva do que todo o registo tem.
     """
     for r in registos:
         r["retirada_proposta"] = (
             None if r.get("data_retirada")
             else pr_mod.propor_retirada(r.get("tipo"), r.get("data_publicacao")))
+        r["referencia"] = reg_mod.referencia(r)
     return registos
 
 
@@ -389,7 +392,7 @@ class PainelServer:
                     # sondagem a bater no servidor de dois em dois segundos, só
                     # para saber se há trabalho em curso, era pagar um custo
                     # permanente por uma informação que quase sempre é «nada».
-                    return self._json({"registos": _com_proposta(
+                    return self._json({"registos": _derivados(
                                            servidor.registo.todos()),
                                        "estados": reg_mod.ESTADO_LABEL,
                                        "tipos": pr_mod.tipos_para_painel(),
