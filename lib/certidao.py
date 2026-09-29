@@ -185,7 +185,13 @@ def factos(reg: dict) -> dict:
         # faz parte da identidade daquilo que lá esteve.
         "num_paginas": reg.get("num_paginas") or 0,
         "data_retirada": reg.get("data_retirada") or "",
-        "referencia": reg_mod.referencia(reg),
+        # A referência interna NÃO entra aqui, e imprime-se na folha à mesma.
+        # Duas razões, e a segunda é a que decide. A primeira: é uma etiqueta
+        # nossa, não um facto da afixação -- o selo atesta o que esteve afixado,
+        # quando e por quem, e pôr a etiqueta debaixo dele dava-lhe a dignidade
+        # de um facto que ela não tem. A segunda: a referência deriva do
+        # `criado_em`, que o selo não cobre, e um facto derivado de um campo não
+        # selado faz o selo mudar sem que nenhum facto selado tenha mudado.
         # Campos que a leitura automática propôs e que NENHUMA pessoa confirmou.
         # O registo limpa esta lista quando alguém corrige o campo, por isso o
         # que aqui ficar é mesmo por confirmar. Uma certidão que imprime um
@@ -456,7 +462,10 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # A seguir ao número e nunca no lugar dele. O número é do Gestiona e é
     # oficial; isto é a etiqueta da nossa aplicação, e o rótulo tem de dizer
     # qual é qual a quem leia a certidão daqui a cinco anos.
-    folha.campo("Referência interna", f["referencia"])
+    #
+    # Vem do registo e não de `factos()` de propósito: ali entraria no selo, e
+    # a razão está escrita onde ela sairia. Imprime-se, não se atesta.
+    folha.campo("Referência interna", reg_mod.referencia(reg))
     folha.campo("Assunto", f["assunto"] or "(sem assunto registado)")
     if f["entidade"]:
         folha.campo("Entidade emissora", f["entidade"])

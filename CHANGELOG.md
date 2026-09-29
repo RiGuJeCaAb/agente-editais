@@ -1147,8 +1147,36 @@ fotografar a cortina. A segunda impressão também foi errada — «perdeu o
 dourado» — e a medição desmentiu-a: nas zonas claras, o R menos o B passou de
 −21,7 para −13,3. A versão nova é **mais** quente, não menos.
 
+### O defeito que a revisão apanhou, e onde passa a fronteira do selo
+
+A referência tinha entrado em `certidao.factos()`, e o selo de conferência é
+calculado sobre esse dicionário. Medido: o mesmo registo passava de
+`6295 6080 C2D5 1D18` para `DAA5 8F48 31AC 94A7`, com o rodapé a dizer «formato
+2» nos dois casos. **Uma certidão emitida na 0.21.0 deixava de conferir** — e o
+comentário que descreve exatamente este caso está no código, cinco linhas acima
+de onde o campo foi acrescentado. Passei por cima dele.
+
+Havia duas saídas: subir o `FORMATO` para 3, ou tirar a referência dos factos. A
+medição decidiu, e não a preferência: a referência deriva do `criado_em`, que o
+selo **não** cobre. Com ela lá dentro, o selo mudava sem que nenhum facto selado
+tivesse mudado. Subir o formato tornava a discrepância legível mas deixava essa
+dependência de pé.
+
+Fica portanto fora dos factos e imprime-se na folha à mesma — **imprime-se, não
+se atesta**. O selo volta ao valor da 0.21.0, e as duas certidões já emitidas
+conferem outra vez. O `FORMATO` fica em 2, que é o que é verdade.
+
 ### Testes
 
-6 novos, 486 no total. Quatro falham contra o código anterior. Os outros dois
-passam dos dois lados **de propósito**, e está escrito no ficheiro: fixam que a
-referência não é guardada e que a aplicação nunca preenche o número do edital.
+9 novos, 489 no total. Sete falham contra alguma versão anterior: quatro contra
+a 0.21.0 (a referência não existia), dois contra o código desta mesma PR antes
+da correção (o selo mexia-se), e um contra a 0.21.0 por outra via (a certidão
+não imprimia a referência).
+
+Os outros dois passam dos dois lados **de propósito**, e está escrito no
+ficheiro: fixam que a referência não é guardada e que a aplicação nunca preenche
+o número do edital.
+
+O teste do selo é deliberadamente mais largo do que o defeito: não diz «a
+referência não pode entrar nos factos», diz que **nenhum campo derivado do
+`criado_em` pode mexer no selo**. Vale para o que lá quiserem pôr a seguir.

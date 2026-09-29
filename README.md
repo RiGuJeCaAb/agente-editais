@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 486 testes
+pytest          # 489 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -986,6 +986,21 @@ produziu, e obrigava a uma migração para nada.
 vez — já entraram, está no registo deste posto. O id é o que garante que duas
 referências nunca colidem, e uma referência que pode colidir é pior do que não
 existir.
+
+**Imprime-se, não se atesta.** A referência sai na certidão mas fica **fora dos
+factos que o selo de conferência cobre**, e isso é deliberado. Duas razões:
+
+1. O selo atesta o que esteve afixado, quando e por quem. A referência é uma
+   etiqueta nossa, não um facto do ato administrativo.
+2. A referência deriva do `criado_em`, que o selo não cobre. Um facto derivado
+   de um campo não selado faz o selo mudar sem que nenhum facto selado tenha
+   mudado — e quem confere um papel legítimo vê uma discrepância que ninguém
+   consegue explicar.
+
+Isto custou um defeito a aprender, dentro desta mesma peça: a referência entrou
+nos factos, o selo do mesmo registo mudou, e as certidões emitidas na 0.21.0
+deixavam de conferir com o rodapé a dizer «formato 2» na mesma. Está no
+CHANGELOG com os dois selos medidos.
 
 ### Os lençóis
 
