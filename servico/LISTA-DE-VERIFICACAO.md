@@ -56,9 +56,13 @@ O README explica o porquê de cada coisa; esta lista é a ordem das operações.
 - [ ] **Tesseract**, só se quiseres ler texto de imagens e digitalizações.
       Também é opcional, e também só tira funcionalidade se faltar.
 
+> **Daqui para a frente, `PYTHON` é o Python do ambiente virtual:**
+> `.venv\Scripts\python.exe` em **Windows**, `.venv/bin/python` em **Linux**.
+> Não é o `python` do sistema — esse não tem as dependências instaladas.
+
 - [ ] **Confirmar que arranca:**
       ```
-      .venv/bin/python agente.py --versao
+      PYTHON agente.py --versao
       ```
       Tens de ver o número da versão. Se rebentar aqui, para e resolve — não
       vale a pena continuar.
@@ -100,7 +104,7 @@ O README explica o porquê de cada coisa; esta lista é a ordem das operações.
 
 - [ ] Criar a conta de administrador, **numa janela de terminal**:
       ```
-      .venv/bin/python agente.py --criar-utilizador ana --administrador
+      PYTHON agente.py --criar-utilizador ana --administrador
       ```
       Pede nome completo e senha (mínimo 10 caracteres), sem eco.
 
@@ -112,7 +116,7 @@ O README explica o porquê de cada coisa; esta lista é a ordem das operações.
 
 - [ ] Confirmar:
       ```
-      .venv/bin/python agente.py --utilizadores
+      PYTHON agente.py --utilizadores
       ```
       Tens de ver a conta na lista.
 
@@ -128,7 +132,7 @@ extração servem para os editais **desta** câmara.
 
 - [ ] Arrancar o painel:
       ```
-      .venv/bin/python agente.py --painel
+      PYTHON agente.py --painel
       ```
 
 - [ ] Abrir `http://127.0.0.1:8770` no browser da máquina e entrar com a conta.
@@ -186,6 +190,13 @@ quando uma pessoa autoriza.
       A unidade tem `Restart=always` com 10 segundos de espera, de propósito —
       se morrer às três da manhã ninguém o vai levantar à mão.
 
+- [ ] **Publicar um edital COM O SERVIÇO INSTALADO**, e não só à mão antes.
+      Este passo não estava aqui, e a falta dele deixou passar um defeito real:
+      a unidade systemd arrancava com a raiz do projeto só de leitura, por isso
+      o serviço subia, o `/saude` respondia, e **nada se gravava**. Arrancar não
+      é funcionar. Só se sabe que está instalado quando um edital verdadeiro
+      atravessa o circuito todo com o serviço a correr.
+
 - [ ] **Confirmar o `/saude`:**
       ```
       curl http://127.0.0.1:8770/saude
@@ -223,9 +234,13 @@ partilhada nem por pen.
 ## H. A televisão
 
 - [ ] Abrir o browser da TV no URL e pô-lo em **modo quiosque / ecrã inteiro**.
-- [ ] Confirmar que a página **se recarrega sozinha** — está feita para apanhar
-      editais novos de 5 em 5 minutos. Publica um edital e espera: tem de
-      aparecer sem ninguém tocar na televisão.
+- [ ] Confirmar que a página **apanha editais novos sozinha**. Busca o
+      `slides.json` de **15 em 15 segundos** e aplica o que houver de novo **sem
+      recarregar** — o carrossel nem se interrompe. Publica um edital e conta
+      até vinte: tem de aparecer sem ninguém tocar na televisão.
+
+      (A versão anterior desta lista, e o README, diziam «recarrega de 5 em 5
+      minutos». Era errado nas duas metades.)
 - [ ] **Desligar a proteção de ecrã e a suspensão** da TV.
 - [ ] Confirmar que, depois de a TV se desligar e ligar, volta ao URL sozinha.
       Se não voltar, procura a opção de arranque automático no browser dela.
@@ -258,7 +273,7 @@ O esboço completo, com as regras, está na secção 5.2 do README.
       à tua frente. Se ninguém souber usar isto, não está instalado.
 - [ ] `--conferir` a correr limpo:
       ```
-      .venv/bin/python agente.py --conferir
+      PYTHON agente.py --conferir
       ```
       Relata o que estiver desalinhado entre o registo e o disco. Não apaga nada.
 
