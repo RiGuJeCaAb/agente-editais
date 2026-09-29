@@ -119,23 +119,6 @@ jobs:
           claude_args: |
             --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr diff:*),Bash(gh pr view:*),Read,Grep,Glob"
 
-      # TEMPORARIO: distingue "o segredo nao esta no repositorio" de "a guarda
-      # esta errada". Nao imprime o segredo -- so se chegou ou nao. Sai daqui
-      # assim que a duvida estiver resolvida.
-      - name: Diagnostico do segredo
-        env:
-          SEGREDO: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
-        run: |
-          if [ -n "$SEGREDO" ]; then
-            echo "O segredo CHEGA ao workflow (comprimento ${#SEGREDO})."
-            echo "Se a guarda disser false, a guarda e que esta errada."
-          else
-            echo "O segredo NAO chega ao workflow: vem vazio."
-            echo "Nao esta em Settings > Secrets and variables > Actions"
-            echo "deste repositorio, ou tem outro nome."
-          fi
-          echo "A guarda calculou TEM_CREDENCIAL = $TEM_CREDENCIAL"
-
       - name: Dizer o que falta
         if: env.TEM_CREDENCIAL != 'true'
         run: |
