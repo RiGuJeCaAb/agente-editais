@@ -69,3 +69,29 @@ def test_a_referencia_nunca_toca_no_numero_do_edital(registo):
     registo.mover_estado(r["id"], reg_mod.VALIDADO, utilizador="ana")
     registo.mover_estado(r["id"], reg_mod.PUBLICADO, utilizador="ana")
     assert registo.por_id(r["id"])["numero"] == "", "a aplicação atribuiu um número"
+
+
+# --- a etiqueta no ecrã -------------------------------------------------------
+# A certidão imprime «Referência interna» por uma razão escrita num teste ali:
+# uma etiqueta nossa ao lado de um número oficial, sem nada a distingui-los, é
+# pior do que não a mostrar. O painel saiu sem a etiqueta, e isso valia para lá
+# na mesma. Apanhado em revisão, não por mim.
+#
+# Isto é análise estática do painel.html: prova que a forma exata do defeito não
+# volta -- e sobretudo que não volta em METADE dos sítios, que é como ele nasceu.
+# Não prova que o painel desenha bem no browser; isso vê-se a olho.
+
+PAINEL = (Path(__file__).resolve().parents[1] / "lib" / "painel.html").read_text(
+    encoding="utf-8")
+
+
+def test_a_referencia_aparece_rotulada_nas_duas_vistas():
+    """Duas vistas desenham a ficha, e as duas têm de dizer o que ali está.
+
+    São dois sítios no mesmo ficheiro. Uma alteração futura que só mexa num
+    deixa o outro a mostrar um AE-... cru por baixo do número do Gestiona.
+    """
+    linhas = [linha for linha in PAINEL.splitlines() if 'class="ref"' in linha]
+    assert len(linhas) == 2, f"esperava dois sítios de desenho, encontrei {len(linhas)}"
+    for linha in linhas:
+        assert "Referência interna" in linha, linha.strip()

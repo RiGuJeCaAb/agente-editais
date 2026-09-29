@@ -1166,12 +1166,27 @@ Fica portanto fora dos factos e imprime-se na folha à mesma — **imprime-se, n
 se atesta**. O selo volta ao valor da 0.21.0, e as duas certidões já emitidas
 conferem outra vez. O `FORMATO` fica em 2, que é o que é verdade.
 
+**Os três revisores apanharam este defeito, os três na mesma linha.** Os três
+prescreveram subir o `FORMATO`; dois deles pediram ainda «verificação ciente da
+versão», que não existe neste código — não há verificador nenhum, o selo
+imprime-se e quem confere refaz a conta à mão. Construir esse mecanismo para
+poder selar um campo que não devia ser selado era resolver o problema ao
+contrário.
+
+### A etiqueta no painel
+
+Segundo achado, do CodeRabbit: o painel mostrava o `AE-...` cru, por baixo do
+número do Gestiona, sem nada a distingui-los. A certidão imprime «Referência
+interna» precisamente por essa razão — e eu apliquei a regra à certidão e não ao
+painel. São dois sítios de desenho no `painel.html`, e o teste conta-os: se um
+terceiro aparecer, ou se uma alteração futura mexer só num, falha.
+
 ### Testes
 
-9 novos, 489 no total. Sete falham contra alguma versão anterior: quatro contra
+10 novos, 490 no total. Oito falham contra alguma versão anterior: quatro contra
 a 0.21.0 (a referência não existia), dois contra o código desta mesma PR antes
-da correção (o selo mexia-se), e um contra a 0.21.0 por outra via (a certidão
-não imprimia a referência).
+da correção do selo, um contra a 0.21.0 por outra via (a certidão não imprimia a
+referência) e um contra o painel sem etiqueta.
 
 Os outros dois passam dos dois lados **de propósito**, e está escrito no
 ficheiro: fixam que a referência não é guardada e que a aplicação nunca preenche
