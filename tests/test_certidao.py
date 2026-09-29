@@ -353,3 +353,42 @@ def test_o_selo_cobre_os_factos_novos(afixado):
     for campo, valor in [("num_paginas", 99), ("data_retirada", "2026-12-31"),
                          ("campos_duvidosos", ["assunto"])]:
         assert cert.selo(cert.factos(dict(afixado, **{campo: valor}))) != base, campo
+
+
+# --- a referência interna, e a fronteira do selo ------------------------------
+# Estes três nasceram de um defeito desta mesma peça, apanhado em revisão: a
+# referência tinha entrado em factos(), e o selo é calculado sobre esse
+# dicionário. O selo do MESMO registo passou a ser outro com o rodapé a dizer
+# «formato 2» na mesma, e as certidões já emitidas deixavam de conferir.
+
+def test_a_referencia_nao_e_um_facto_selado(afixado):
+    """O selo atesta o que esteve afixado, quando e por quem. A referência é
+    uma etiqueta nossa, e dar-lhe o selo era dar-lhe uma dignidade que não tem.
+    """
+    assert "referencia" not in cert.factos(afixado)
+
+
+def test_o_selo_nao_se_mexe_por_causa_de_um_campo_que_nao_cobre(afixado):
+    """A regra geral, e não só o caso desta peça.
+
+    O `criado_em` não está nos factos selados. Se um campo derivado dele entrar
+    no selo, o selo passa a mudar sem que nenhum facto selado tenha mudado — e
+    quem confere um papel legítimo vê uma discrepância que ninguém consegue
+    explicar. Vale para a referência e para o que lá quiserem pôr a seguir.
+    """
+    base = cert.selo(cert.factos(dict(afixado, criado_em="2026-06-28T08:00:00")))
+    outro = cert.selo(cert.factos(dict(afixado, criado_em="2026-01-02T23:59:59")))
+    assert base == outro
+
+
+def test_a_referencia_imprime_se_na_folha_a_seguir_ao_numero(afixado):
+    """Sair do selo não é sair da certidão: imprime-se, só não se atesta.
+
+    E imprime-se rotulada, porque uma etiqueta interna ao lado de um número
+    oficial sem nada a distingui-los é pior do que não a imprimir de todo.
+    """
+    t = texto_de(cert.gerar(dict(afixado, criado_em="2026-06-28T08:00:00"), CFG,
+                            emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "Referência interna" in t
+    assert "AE-20260628-0017" in t
+    assert t.index("Número") < t.index("Referência interna")

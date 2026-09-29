@@ -1093,3 +1093,105 @@ arrisca o fuso horário.
 passam dos dois lados **de propósito**, e está escrito no ficheiro: fixam o que
 a alteração não podia mudar — que uma data escrita por uma pessoa não é pisada,
 e que um tipo sem prazo não ganha data nenhuma.
+
+---
+
+## 0.22.0 — A referência interna, e os lençóis
+
+### A referência, e sobretudo o que ela não é
+
+Ficou esclarecido de onde vem o número do edital: do **Gestiona**, a aplicação
+de gestão documental da Câmara. É oficial, e quem está ao teclado copia-o de lá.
+**A aplicação não lho atribui, e esta peça não muda isso** — inventar uma
+designação que sai impressa numa certidão de afixação é a primeira coisa que
+este projeto se proibiu de fazer, e a tentação de «preencher o campo só para não
+ficar vazio» é exatamente a forma que essa falha tomaria.
+
+O que entra é uma etiqueta **nossa**, ao lado e nunca no lugar:
+
+```
+AE-20260929-0021
+```
+
+Aparece no painel e na certidão, rotulada como «Referência interna», a seguir ao
+número. Serve para se dizer «o AE-20260929-0021» em vez de «aquele aviso da
+escola, salvo erro».
+
+**Derivada, não guardada.** Sai do `criado_em` e do `id`, que já existem e já são
+imutáveis. Guardá-la abria a porta a divergir do que a produziu, e obrigava a uma
+migração para nada.
+
+**A data sozinha não chegava.** Num minuto entram vários ficheiros de uma vez, e
+no registo deste posto entraram. O id é o que garante que não colidem.
+
+### Os lençóis dourados
+
+Pedido de quem usa isto: os filamentos do fundo da televisão deviam parecer
+lençóis a esvoaçar. Eram vinte e seis linhas de 0,6 a 2,2 px de espessura.
+
+Engrossar o traço não resolvia — uma linha grossa é uma fita, não um tecido. São
+agora faixas preenchidas com duas margens, com a espessura a respirar ao longo
+do comprimento, as duas margens em fases diferentes (é a torção que faz o pano
+parecer pano) e duas frequências somadas para a margem não ser uma senóide
+perfeita. Onze em vez de vinte e seis, e mais fracos: a área de cada um cresceu
+umas quarenta vezes.
+
+**Verificado com os olhos, não por dedução.** A página foi renderizada em
+Chromium e fotografada em dois instantes, com o `requestAnimationFrame`
+substituído por um que chama a função duas vezes com tempos escolhidos — assim
+corre o código verdadeiro e a fotografia é de um segundo exato, reproduzível.
+
+E a primeira leitura dessas fotografias foi **errada**: «a animação não corre».
+Corria. O ecrã de arranque tem `z-index: 50` e fundo opaco, e eu estava a
+fotografar a cortina. A segunda impressão também foi errada — «perdeu o
+dourado» — e a medição desmentiu-a: nas zonas claras, o R menos o B passou de
+−21,7 para −13,3. A versão nova é **mais** quente, não menos.
+
+### O defeito que a revisão apanhou, e onde passa a fronteira do selo
+
+A referência tinha entrado em `certidao.factos()`, e o selo de conferência é
+calculado sobre esse dicionário. Medido: o mesmo registo passava de
+`6295 6080 C2D5 1D18` para `DAA5 8F48 31AC 94A7`, com o rodapé a dizer «formato
+2» nos dois casos. **Uma certidão emitida na 0.21.0 deixava de conferir** — e o
+comentário que descreve exatamente este caso está no código, cinco linhas acima
+de onde o campo foi acrescentado. Passei por cima dele.
+
+Havia duas saídas: subir o `FORMATO` para 3, ou tirar a referência dos factos. A
+medição decidiu, e não a preferência: a referência deriva do `criado_em`, que o
+selo **não** cobre. Com ela lá dentro, o selo mudava sem que nenhum facto selado
+tivesse mudado. Subir o formato tornava a discrepância legível mas deixava essa
+dependência de pé.
+
+Fica portanto fora dos factos e imprime-se na folha à mesma — **imprime-se, não
+se atesta**. O selo volta ao valor da 0.21.0, e as duas certidões já emitidas
+conferem outra vez. O `FORMATO` fica em 2, que é o que é verdade.
+
+**Os três revisores apanharam este defeito, os três na mesma linha.** Os três
+prescreveram subir o `FORMATO`; dois deles pediram ainda «verificação ciente da
+versão», que não existe neste código — não há verificador nenhum, o selo
+imprime-se e quem confere refaz a conta à mão. Construir esse mecanismo para
+poder selar um campo que não devia ser selado era resolver o problema ao
+contrário.
+
+### A etiqueta no painel
+
+Segundo achado, do CodeRabbit: o painel mostrava o `AE-...` cru, por baixo do
+número do Gestiona, sem nada a distingui-los. A certidão imprime «Referência
+interna» precisamente por essa razão — e eu apliquei a regra à certidão e não ao
+painel. São dois sítios de desenho no `painel.html`, e o teste conta-os: se um
+terceiro aparecer, ou se uma alteração futura mexer só num, falha.
+
+### Testes
+
+10 novos, 490 no total. Oito falham contra alguma versão anterior: quatro contra
+a 0.21.0 (a referência não existia), dois contra o código desta mesma PR antes
+da correção do selo, um contra a 0.21.0 por outra via (a certidão não imprimia a
+referência) e um contra o painel sem etiqueta.
+
+Os outros dois passam dos dois lados **de propósito**, e está escrito no
+ficheiro: fixam que a referência não é guardada e que a aplicação nunca preenche
+o número do edital.
+
+O teste do selo é deliberadamente mais largo do que o defeito: não diz «a
+referência não pode entrar nos factos», diz que **nenhum campo derivado do
+`criado_em` pode mexer no selo**. Vale para o que lá quiserem pôr a seguir.

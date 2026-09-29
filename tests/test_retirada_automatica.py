@@ -81,7 +81,7 @@ def test_o_painel_recebe_a_proposta_antes_de_publicar(registo):
     r = registo.criar_rascunho(ficheiro_origem="e.pdf", hash_ficheiro="h",
                                num_paginas=1, meta=dict(META_BOA))
     registo.editar(r["id"], {"tipo": DELIBERACAO}, utilizador="ana")
-    vista = pnl._com_proposta(registo.todos())
+    vista = pnl._derivados(registo.todos())
     # META_BOA publica-se a 2026-06-29; cinco dias depois é 4 de julho.
     assert vista[0]["retirada_proposta"] == "2026-07-04"
 
@@ -92,7 +92,7 @@ def test_o_painel_nao_propoe_o_que_ja_esta_decidido(registo):
                                num_paginas=1, meta=dict(META_BOA))
     registo.editar(r["id"], {"tipo": DELIBERACAO, "data_retirada": "2026-08-01"},
                    utilizador="ana")
-    assert pnl._com_proposta(registo.todos())[0]["retirada_proposta"] is None
+    assert pnl._derivados(registo.todos())[0]["retirada_proposta"] is None
 
 
 # --- os dois que fixam o que NÃO pode mudar --------------------------------
