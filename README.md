@@ -29,6 +29,10 @@ TV abre num URL — mais um ZIP de arquivo.
 
 ## 2. Instalação
 
+> Para instalar **no posto**, a passos e com o que tens de ver a cada um, usa a
+> **[lista de verificação](servico/LISTA-DE-VERIFICACAO.md)**. Esta secção diz o
+> que é preciso; a lista diz por que ordem e como saber que correu bem.
+
 Requer **Python 3.10+**. Dependências:
 
 ```bash

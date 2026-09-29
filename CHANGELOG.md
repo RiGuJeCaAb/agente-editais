@@ -950,3 +950,38 @@ não de qualidade: é a conta de quem faz o trabalho, e é o único que lê o
 traria de qualquer outro.
 
 O que ficou medido sobre o anterior está na 0.20.1 e não se repete aqui.
+
+---
+
+## 0.20.3 — A instalação no posto, por passos
+
+Terceiro número: **nada mudou no que a aplicação faz.** O que mudou foi o que
+existe para quem a vai instalar.
+
+### Acrescentado
+
+- **`servico/LISTA-DE-VERIFICACAO.md`** — a instalação toda por passos, da
+  máquina à televisão. Cada passo diz **o que fazer** e **o que tens de ver**,
+  porque uma lista que só manda fazer deixa quem a segue sem saber se resultou.
+
+  Duas coisas que lá estão de propósito e não são burocracia: **a prova com
+  editais verdadeiros** antes de dar a instalação por feita — é a única forma de
+  saber se as heurísticas de extração servem para os editais desta câmara — e
+  **alguém do posto a publicar um edital à frente de quem instala**. Se ninguém
+  ali souber usar isto, não está instalado, está copiado.
+
+  A lista acaba a dizer que, se alguma coisa não bater certo com ela, o defeito
+  é dela. É para ser corrigida por quem a usou no terreno.
+
+### Corrigido
+
+- **O `config.exemplo.json` mandava definir `painel_senha`**, que foi retirada
+  na Onda 2 e há três versões só serve para o agente avisar, no arranque, que
+  já não faz nada. Quem copiasse o exemplo ficava a julgar que tinha o painel
+  protegido por essa senha. Saiu, e o ficheiro passa a trazer o `municipio` e o
+  `local_do_expositor` — que são os dois campos que saem impressos na certidão
+  de afixação e que, esses sim, ninguém quer errados.
+
+Apanhado a escrever a lista de verificação: ao conferir chave a chave o que o
+exemplo mandava pôr contra o que o código lê mesmo, a `painel_senha` tinha uma
+única ocorrência em todo o projeto — o aviso a dizer que não servia para nada.

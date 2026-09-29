@@ -3,6 +3,10 @@
 O README descrevia isto em prosa. Aqui ficam os ficheiros, que é o que
 efetivamente se instala.
 
+`LISTA-DE-VERIFICACAO.md` é a instalação toda por passos, para levar ao posto:
+da máquina à televisão, com o que tens de ver a cada passo para saber que
+correu bem.
+
 ## Linux (systemd) — recomendado
 
 `agente-editais.service` está pronto a copiar. Ajuste `User`, `Group` e os
