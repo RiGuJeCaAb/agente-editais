@@ -11,6 +11,7 @@ import pymupdf
 import pytest
 
 import certidao as cert
+import extenso as ext
 import prazos as pr
 
 CFG = {
@@ -52,14 +53,39 @@ def texto_de(pdf: bytes) -> str:
         return "\n".join(p.get_text() for p in d)
 
 
+def corrido(pdf: bytes) -> str:
+    """O mesmo texto, com os espaços todos reduzidos a um.
+
+    A certidão é prosa justificada: cada linha é desenhada à parte e a extração
+    devolve-a com a quebra lá dentro. Procurar «não chegaram a ser confirmados»
+    no texto cru falha quando a frase calha partir-se ao meio — e o que esses
+    testes defendem é que a frase LÁ ESTÁ, não onde o parágrafo quebra.
+    """
+    return " ".join(texto_de(pdf).split())
+
+
 def test_a_certidao_afirma_os_factos_todos(afixado):
     """Tudo o que identifica o ato tem de estar escrito no documento."""
-    t = texto_de(cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
-    for esperado in ("CERTIDÃO DE AFIXAÇÃO E DESAFIXAÇÃO", "2026-0017",
-                     "ASSEMBLEIA MUNICIPAL", "29/06/2026", "Ana Abreu", "Rui Santos",
-                     "29/06/2026 às 09:14", "06/07/2026 às 17:02", "7 dias",
+    t = corrido(cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    for esperado in ("C E R T I D Ã O", "de afixação e desafixação de edital",
+                     "C E R T I F I C A", "2026-0017",
+                     "ASSEMBLEIA MUNICIPAL", "Ana Abreu", "Rui Santos",
+                     # As datas e as horas por extenso, que é o que muda tudo:
+                     # um algarismo altera-se com um traço de caneta, «vinte e
+                     # nove» não. Era por isso que os livros de notas se
+                     # escreviam assim, e é a razão de esta certidão voltar lá.
+                     "vinte e nove dias do mês de junho de 2026",
+                     "pelas nove horas e catorze minutos",
+                     "seis dias do mês de julho de 2026",
+                     "pelas dezassete horas e dois minutos",
+                     "permanecido afixado sete dias",
                      "Artigo 56.º do Anexo I da Lei n.º 75/2013",
-                     CFG["local_do_expositor"]):
+                     # A inicial desce porque a frase diz «foi afixado NO
+                     # expositor...»: um nome próprio a meio de uma frase com
+                     # maiúscula de início de frase lê-se como erro.
+                     "no " + CFG["local_do_expositor"][0].lower()
+                     + CFG["local_do_expositor"][1:],
+                     "Por ser verdade e me ter sido pedida"):
         assert esperado in t, f"falta na certidão: {esperado}"
 
 
@@ -69,7 +95,7 @@ def test_diz_que_nao_e_assinatura_eletronica(afixado):
     Sem esta frase, um selo de aspeto criptográfico convida a ser tomado por
     uma assinatura qualificada, que não é.
     """
-    t = texto_de(cert.gerar(afixado, CFG, emitida_por="ana.abreu"))
+    t = corrido(cert.gerar(afixado, CFG, emitida_por="ana.abreu"))
     assert "Não constitui assinatura eletrónica" in t
 
 
@@ -80,15 +106,15 @@ def test_o_incumprimento_aparece_na_certidao(afixado):
     seria pior do que não haver certidão nenhuma.
     """
     curto = dict(afixado, desafixado_em="2026-07-01T10:00:00")
-    t = texto_de(cert.gerar(curto, CFG, emitida_por="ana.abreu"))
-    assert "Observação" in t and "abaixo do mínimo" in t
+    t = corrido(cert.gerar(curto, CFG, emitida_por="ana.abreu"))
+    assert "Ressalva-se" in t and "abaixo do mínimo" in t
 
 
 def test_edital_ainda_no_ecra(afixado):
     """Sem desafixação, a certidão diz que se mantém, e conta os dias decorridos."""
-    t = texto_de(cert.gerar(dict(afixado, desafixado_em="", desafixado_por=""),
+    t = corrido(cert.gerar(dict(afixado, desafixado_em="", desafixado_por=""),
                             CFG, emitida_por="ana.abreu"))
-    assert "Mantém-se afixado" in t and "Desafixado em" not in t
+    assert "se mantém afixado" in t and "foi retirado aos" not in t
 
 
 def test_anexo_distingue_disponibilidade_de_afixacao(afixado):
@@ -98,13 +124,14 @@ def test_anexo_distingue_disponibilidade_de_afixacao(afixado):
     e o registo do expositor é confirmação material. Confundi-los poria a
     validade de um ato a depender do uptime de uma televisão.
     """
-    t = texto_de(cert.gerar(afixado, CFG, emitida_por="ana.abreu"))
-    assert "ANEXO" in t and "não substitui o instante de afixação" in t
+    t = corrido(cert.gerar(afixado, CFG, emitida_por="ana.abreu"))
+    assert "NOTA DE CONFERÊNCIA" in t
+    assert "não substitui o instante de afixação" in t
 
 
 def test_sem_registo_de_disponibilidade_o_anexo_desvaloriza_se(afixado):
     """A ausência do registo material não pode parecer um defeito da afixação."""
-    t = texto_de(cert.gerar(dict(afixado, disponivel_em=""), CFG, emitida_por="ana.abreu"))
+    t = corrido(cert.gerar(dict(afixado, disponivel_em=""), CFG, emitida_por="ana.abreu"))
     assert "não afeta a afixação certificada" in t
 
 
@@ -274,9 +301,8 @@ def test_o_numero_em_falta_diz_se_em_vez_de_desaparecer(ficha):
     Só se imprimia quando existia, e quem lia a certidão não sabia se o
     documento não tinha número ou se o sistema o tinha deixado cair.
     """
-    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
-    assert "Número" in t
-    assert "(não atribuído)" in t
+    t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "a que não foi atribuído número" in t
 
 
 def test_a_certidao_diz_quantas_folhas_foram_afixadas(ficha):
@@ -285,37 +311,40 @@ def test_a_certidao_diz_quantas_folhas_foram_afixadas(ficha):
     Se amanhã alguém discutir o que esteve no expositor, o número de páginas
     faz parte da identidade daquilo que lá esteve.
     """
-    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
-    assert "5 páginas" in t
+    t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "composto de cinco folhas" in t
 
 
 def test_uma_pagina_nao_leva_plural(afixado):
-    t = texto_de(cert.gerar(dict(afixado, num_paginas=1), CFG,
+    t = corrido(cert.gerar(dict(afixado, num_paginas=1), CFG,
                             emitida_por="ana.abreu", nomes_completos=NOMES))
-    assert "1 página" in t
-    assert "1 páginas" not in t
+    assert "composto de uma folha" in t
+    assert "uma folhas" not in t
 
 
 def test_um_documento_ainda_afixado_diz_ate_quando(ficha):
     """Dizer «mantém-se afixado» sem dizer até quando deixa por responder a
     pergunta mais útil da certidão — e é a data que a lei fixa."""
-    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
-    assert "Retirada prevista" in t
-    assert "20/10/2026" in t
+    t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "retirada prevista para vinte dias do mês de outubro de 2026" in t
 
 
 @pytest.mark.parametrize("dias,esperado", [
-    (0, "Menos de um dia"), (1, "1 dia"), (2, "2 dias"), (30, "30 dias"),
+    (0, "menos de um dia"), (1, "um dia"), (2, "dois dias"), (30, "trinta dias"),
 ])
 def test_os_dias_escrevem_se_com_concordancia(dias, esperado):
     """«0 dia(s)» era duas coisas más de uma vez: o parêntesis do plural, que
     não se escreve num documento que vai para um processo, e o zero, que em
-    português não é uma duração."""
-    assert cert.dias_por_extenso(dias) == esperado
+    português não é uma duração.
+
+    A conta mudou de casa para o extenso.py quando a certidão passou a prosa:
+    numa frase corrida, «2 dias» desafina ao lado de «vinte e nove dias do mês
+    de junho»."""
+    assert ext.dias(dias) == esperado
 
 
 def test_a_certidao_nao_tem_o_parentesis_do_plural(ficha):
-    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
     assert "dia(s)" not in t
 
 
@@ -323,7 +352,7 @@ def test_a_certidao_declara_o_que_ninguem_confirmou(ficha):
     """Um palpite da máquina impresso com o mesmo ar de um facto verificado
     passa a facto oficial. Foi assim que o timbre da câmara virou o assunto de
     um documento afixado."""
-    t = texto_de(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
     assert "não chegaram a ser confirmados" in t
     assert "o assunto" in t
     assert "o número" in t
@@ -332,7 +361,7 @@ def test_a_certidao_declara_o_que_ninguem_confirmou(ficha):
 def test_sem_duvidas_a_certidao_cala_se(afixado):
     """A ressalva só aparece quando há alguma coisa a ressalvar. Uma nota que
     está sempre lá deixa de ser lida."""
-    t = texto_de(cert.gerar(dict(afixado, campos_duvidosos=[]), CFG,
+    t = corrido(cert.gerar(dict(afixado, campos_duvidosos=[]), CFG,
                             emitida_por="ana.abreu", nomes_completos=NOMES))
     assert "não chegaram a ser confirmados" not in t
 
@@ -342,7 +371,7 @@ def test_a_certidao_diz_o_formato_a_que_o_selo_pertence(afixado):
     mesmo registo, e uma certidão antiga deixaria de conferir — o que se parece
     com uma falsificação em vez de com uma actualização. Com o formato impresso,
     quem confere sabe que conta refazer."""
-    t = texto_de(cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    t = corrido(cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
     assert f"formato {cert.FORMATO}" in t
 
 
@@ -387,8 +416,104 @@ def test_a_referencia_imprime_se_na_folha_a_seguir_ao_numero(afixado):
     E imprime-se rotulada, porque uma etiqueta interna ao lado de um número
     oficial sem nada a distingui-los é pior do que não a imprimir de todo.
     """
-    t = texto_de(cert.gerar(dict(afixado, criado_em="2026-06-28T08:00:00"), CFG,
+    t = corrido(cert.gerar(dict(afixado, criado_em="2026-06-28T08:00:00"), CFG,
                             emitida_por="ana.abreu", nomes_completos=NOMES))
-    assert "Referência interna" in t
-    assert "AE-20260628-0017" in t
-    assert t.index("Número") < t.index("Referência interna")
+    assert "referência interna AE-20260628-0017" in t
+    assert t.index("com o n.º") < t.index("referência interna")
+
+
+# --- o que a mudança para prosa não podia mexer ------------------------------
+# A certidão mudou de forma por inteiro. Estes guardam o que tinha de ficar
+# exatamente igual, e dois deles guardam defeitos que a mudança destapou.
+#
+# DOIS PASSAM DOS DOIS LADOS DE PROPÓSITO, e está dito aqui porque a casa obriga
+# a dizê-lo: o do selo e o da sobreposição de palavras. Não provam o que se
+# acrescentou — provam que o que se acrescentou não passou por cima de nada.
+#
+#   - o do selo fixa um valor que TEM de ser o mesmo antes e depois: é a prova
+#     de que a reescrita não tocou num facto. Falhar aqui é a certidão de um
+#     registo antigo deixar de conferir, que é o pior defeito deste projeto.
+#   - o da sobreposição passava antes porque não havia justificação nenhuma e
+#     portanto não havia como duas palavras colidirem. Falhou — e foi assim que
+#     se apanhou — contra a versão intermédia desta mesma peça, com a régua
+#     ainda errada nas aspas angulares.
+#
+# Os outros dois falham contra o código anterior, confirmado com git stash.
+
+def test_o_selo_de_um_registo_conhecido_nao_mudou(afixado):
+    """O selo deste registo tem de continuar a ser este, dígito a dígito.
+
+    É a regra do FORMATO ao contrário: ele sobe quando muda o CONJUNTO DE
+    FACTOS e nunca quando muda o aspeto. Esta peça mudou o aspeto todo — de
+    formulário para prosa — e não podia tocar num facto. Se este valor mudar,
+    as certidões já emitidas deixam de conferir com o rodapé a dizer o mesmo
+    formato, que é o aspeto exato de uma falsificação.
+
+    Quando um dia houver mesmo um facto novo, sobe-se o FORMATO e atualiza-se
+    este número — e aí a mudança é deliberada, que é todo o ponto.
+    """
+    assert cert.FORMATO == 2
+    assert cert.selo(cert.factos(afixado)) == "0129 7FA6 7E5E B66C"
+    # As 17 chaves que o selo cobre, nem mais nem menos. Uma chave a mais muda
+    # o selo de todos os registos de uma vez.
+    assert len(cert.factos(afixado)) == 17
+
+
+def test_a_regua_mede_as_aspas_angulares(afixado):
+    """O get_text_length do PyMuPDF para de contar no primeiro carácter que não
+    sabe ler, e as aspas angulares são um deles.
+
+    Medido: '«a' devolvia 5,50 e desenha 10,38 — acrescentar uma letra não
+    aumentava a medida nenhuma. A régua anterior media o texto com os ACENTOS
+    retirados e acertava só neles; a certidão passou a citar o assunto entre
+    «angulares» e a primeira palavra do assunto saía desenhada por cima da
+    segunda.
+    """
+    for texto in ("«a", "«DELIBERAÇÕES", "AÇÃO»", "«assunto qualquer»"):
+        medido = cert._largura(texto, cert.SERIF, 11)
+        soma = sum(cert._largura(c, cert.SERIF, 11) for c in texto)
+        assert abs(medido - soma) < 0.01, texto
+        assert medido > cert._largura(texto[1:], cert.SERIF, 11)
+
+
+def test_nenhuma_palavra_se_desenha_por_cima_da_seguinte(afixado):
+    """A justificação coloca cada palavra pela conta da régua, uma a uma.
+
+    Uma régua que meça a menos não dá uma linha torta: dá palavras sobrepostas,
+    ilegíveis, num documento que vai para um processo. Este teste olha para as
+    palavras realmente desenhadas e exige que cada uma acabe antes de a
+    seguinte começar.
+    """
+    pdf = cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES)
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        for pagina in d:
+            # (x0, y0, x1, y1, palavra, bloco, linha, n.º da palavra)
+            por_linha: dict = {}
+            for p in pagina.get_text("words"):
+                por_linha.setdefault((p[5], p[6]), []).append(p)
+            for palavras in por_linha.values():
+                palavras.sort(key=lambda p: p[0])
+                for antes, depois in zip(palavras, palavras[1:], strict=False):
+                    assert antes[2] <= depois[0] + 0.5, \
+                        f"«{antes[4]}» sobrepõe-se a «{depois[4]}»"
+
+
+def test_o_nome_do_municipio_concorda_na_frase():
+    """A configuração de campo tem «Moimenta da Beira», sem o «Município de».
+
+    Numa certidão em prosa isso dá «do Moimenta da Beira». O formulário antigo
+    nunca esbarrou nisto porque punha o nome sozinho num cabeçalho, onde não
+    concorda com nada — foi a mudança para prosa que o destapou.
+    """
+    reg = {"id": 1, "numero": "1", "assunto": "A", "entidade": "", "tipo": "outro",
+           "data_publicacao": "2026-06-29", "ficheiro_origem": "e.pdf",
+           "criado_em": "2026-06-28T08:00:00", "num_paginas": 1,
+           "afixado_em": "2026-06-29T09:00:00", "afixado_por": "ana.abreu"}
+    t = corrido(cert.gerar(reg, {"municipio": "Moimenta da Beira"},
+                           emitida_por="ana.abreu"))
+    assert "do Município de Moimenta da Beira" in t
+    assert "do Moimenta da Beira" not in t
+    # E quem já escreveu o nome por extenso não leva o prefixo duas vezes.
+    t2 = corrido(cert.gerar(reg, {"municipio": "Município de Moimenta da Beira"},
+                            emitida_por="ana.abreu"))
+    assert "Município de Município" not in t2

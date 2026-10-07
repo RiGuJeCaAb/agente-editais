@@ -64,7 +64,12 @@ def test_avisa_quando_a_afixacao_e_curta_de_mais():
     """Menos de cinco dias é incumprimento, e diz-se com a norma ao lado."""
     avisos = pr.verificar(DELIBERACAO, "2026-06-29", "2026-07-01", "2026-06-29")
     assert len(avisos) == 1 and avisos[0]["grau"] == "aviso"
-    assert "2 dia(s)" in avisos[0]["texto"] and "mínimo de 5" in avisos[0]["texto"]
+    # «2 dia(s)» era o que aqui estava, e o parêntesis do plural não se escreve
+    # num texto que acaba impresso numa certidão — que é onde este aviso vai
+    # parar. O teste da certidão que proibia «dia(s)» passava por sorte: a sua
+    # fixture não gerava incumprimento nenhum, e por isso nunca chegava aqui.
+    assert "dois dias" in avisos[0]["texto"] and "mínimo de 5" in avisos[0]["texto"]
+    assert "dia(s)" not in avisos[0]["texto"]
     assert "56" in avisos[0]["base_legal"]
 
 

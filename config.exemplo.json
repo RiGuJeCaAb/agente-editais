@@ -2,6 +2,14 @@
   "_INSTRUCOES": "Copie este ficheiro para 'config.json' e ajuste os valores. Use um editor SIMPLES (Bloco de Notas em modo texto), NUNCA o Word — aspas curvas partem o ficheiro. Não há senha aqui: o painel tem contas individuais, criadas com 'python agente.py --criar-utilizador NOME --administrador'.",
   "municipio": "Moimenta da Beira",
   "local_do_expositor": "Átrio do edifício dos Paços do Concelho",
+
+  "_TIMBRE_DA_CERTIDAO": "Os quatro campos seguintes aparecem na certidão de afixação. COPIE-OS DO CABEÇALHO E DO RODAPÉ DOS EDITAIS verdadeiros do município — não são adivinháveis, e uma certidão com a morada errada é um documento com um erro. Deixados em branco, a certidão sai sem eles.",
+  "servico": "",
+  "cargo_de_quem_certifica": "",
+  "morada": "",
+  "sitio": "",
+  "telefone": "",
+
   "painel_host": "127.0.0.1",
   "painel_porta": 8770,
   "usar_registo_entrada": true,
