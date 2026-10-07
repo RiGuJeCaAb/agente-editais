@@ -325,7 +325,7 @@ def test_um_documento_ainda_afixado_diz_ate_quando(ficha):
     """Dizer «mantém-se afixado» sem dizer até quando deixa por responder a
     pergunta mais útil da certidão — e é a data que a lei fixa."""
     t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
-    assert "retirada prevista para vinte dias do mês de outubro de 2026" in t
+    assert "retirada prevista para vinte de outubro de 2026" in t
 
 
 @pytest.mark.parametrize("dias,esperado", [
@@ -486,11 +486,16 @@ def test_nenhuma_palavra_se_desenha_por_cima_da_seguinte(afixado):
     pdf = cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES)
     with pymupdf.open(stream=pdf, filetype="pdf") as d:
         for pagina in d:
+            # Agrupa pela ALTURA e não pelo par (bloco, linha) que o PyMuPDF
+            # atribui. Apanhado em revisão: como cada palavra é inserida à parte,
+            # nada garante que duas palavras vizinhas caiam no mesmo bloco — e
+            # agrupar por bloco deixava passar precisamente a sobreposição entre
+            # blocos, que é o caso que este teste existe para apanhar.
             # (x0, y0, x1, y1, palavra, bloco, linha, n.º da palavra)
-            por_linha: dict = {}
+            por_altura: dict = {}
             for p in pagina.get_text("words"):
-                por_linha.setdefault((p[5], p[6]), []).append(p)
-            for palavras in por_linha.values():
+                por_altura.setdefault(round(p[1], 1), []).append(p)
+            for palavras in por_altura.values():
                 palavras.sort(key=lambda p: p[0])
                 for antes, depois in zip(palavras, palavras[1:], strict=False):
                     assert antes[2] <= depois[0] + 0.5, \

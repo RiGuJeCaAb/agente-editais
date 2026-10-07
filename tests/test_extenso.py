@@ -71,18 +71,52 @@ def test_fora_do_alcance_devolve_algarismos():
 
 
 @pytest.mark.parametrize("valor,esperado", [
-    ("2026-09-29", "vinte e nove dias do mês de setembro de 2026"),
-    # Dia um é singular: «um dia do mês de», e não «um dias».
-    ("2026-03-01", "um dia do mês de março de 2026"),
-    ("2026-12-31", "trinta e um dias do mês de dezembro de 2026"),
+    ("2026-09-29", "vinte e nove de setembro de 2026"),
+    ("2026-03-01", "um de março de 2026"),
+    ("2026-12-31", "trinta e um de dezembro de 2026"),
 ])
-def test_a_data_escreve_se_como_numa_certidao(valor, esperado):
-    """Os meses vão em minúscula, que é o que a norma em vigor manda.
+def test_a_data_citada_no_meio_de_uma_frase(valor, esperado):
+    """A forma de CITAR uma data: «com data de ...», «prevista para ...».
 
-    A certidão vai buscar o seu ar antigo à estrutura e às fórmulas, não a
-    erros de ortografia.
+    Os meses vão em minúscula, que é o que a norma em vigor manda. A certidão
+    vai buscar o seu ar antigo à estrutura e às fórmulas, não a erros de
+    ortografia.
     """
     assert ext.data(valor) == esperado
+
+
+@pytest.mark.parametrize("valor,esperado", [
+    ("2026-09-29", "aos vinte e nove dias do mês de setembro de 2026"),
+    # O dia 1 não leva «aos um dia»: leva «AO PRIMEIRO dia», no singular.
+    ("2026-03-01", "ao primeiro dia do mês de março de 2026"),
+    ("2026-12-31", "aos trinta e um dias do mês de dezembro de 2026"),
+])
+def test_a_formula_de_datar_um_ato_traz_a_preposicao_de_dentro(valor, esperado):
+    """A preposição muda com o dia, e por isso não pode ficar a cargo de quem
+    chama.
+
+    A primeira versão deixava o «aos» do lado da certidão e escrevia «aos um dia
+    do mês de março» — em todos os dias 1 de todos os meses. Apanhado em revisão.
+    """
+    assert ext.aos(valor) == esperado
+
+
+@pytest.mark.parametrize("n,esperado", [
+    (2, "duas"), (21, "vinte e uma"), (102, "cento e duas"),
+    (200, "duzentas"), (202, "duzentas e duas"), (2000, "duas mil"),
+    # Invariáveis: não se tocam.
+    (12, "doze"), (20, "vinte"), (100, "cem"), (1000, "mil"),
+])
+def test_o_numero_concorda_com_um_nome_feminino(n, esperado):
+    """«duas folhas», «pelas duas horas», «duzentas folhas».
+
+    A primeira versão deste módulo só tinha a forma masculina, e a certidão
+    saía com «dois folhas» e «pelas dois horas» — erros que saltam à cara de
+    quem a recebe. Converte os TERMOS completos e não os finais de palavra:
+    «doze» acaba em «ze» e não se toca, mas «cento e dois» tem de dar «cento e
+    duas» e «dois mil» tem de dar «duas mil».
+    """
+    assert ext.numero_f(n) == esperado
 
 
 @pytest.mark.parametrize("valor,esperado", [
@@ -92,6 +126,11 @@ def test_a_data_escreve_se_como_numa_certidao(valor, esperado):
     ("2026-09-29T17:01:00", "pelas dezassete horas e um minuto"),
     ("2026-09-29T00:30:00", "pelas zero horas e trinta minutos"),
     ("2026-09-29T15:00:00", "pelas quinze horas"),
+    # «hora» é feminino: «pelas DUAS horas», e não «pelas dois horas».
+    ("2026-09-29T02:00:00", "pelas duas horas"),
+    ("2026-09-29T22:00:00", "pelas vinte e duas horas"),
+    # ... e «minuto» é masculino, pelo que fica na forma de numero().
+    ("2026-09-29T02:02:00", "pelas duas horas e dois minutos"),
 ])
 def test_a_hora_leva_a_preposicao_que_lhe_pertence(valor, esperado):
     """«pela uma hora» e «pelas nove horas»: deixar a concordância a cargo de
@@ -101,6 +140,8 @@ def test_a_hora_leva_a_preposicao_que_lhe_pertence(valor, esperado):
 
 @pytest.mark.parametrize("n,esperado", [
     (1, "uma folha"), (5, "cinco folhas"), (0, ""),
+    # «folha» é feminino, e o número tem de o acompanhar.
+    (2, "duas folhas"), (21, "vinte e uma folhas"), (200, "duzentas folhas"),
 ])
 def test_as_folhas_concordam_em_genero_e_numero(n, esperado):
     """«folha» é feminino: «UMA folha», e não «um folha»."""

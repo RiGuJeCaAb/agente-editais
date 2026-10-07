@@ -484,16 +484,38 @@ class _Folha:
         Só aqui se sabe quantas páginas há, e é por isso que esta chamada é a
         última de gerar(): «fl. 2 de 3» não se pode escrever antes de se saber
         que são três.
+
+        O texto QUEBRA-SE à largura que sobra depois do folio. A primeira versão
+        escrevia-o de uma assentada na mesma linha de base: medido com uma morada
+        realista — «Largo do Tabolado e Praceta das Oliveiras, n.º 123, 3620-324
+        Moimenta da Beira, Viseu, Portugal» — dava 484,7 pt para 426,1 pt de
+        espaço, ou seja passava por cima do número de folha e saía da página.
+        Quem configura a morada não tem como adivinhar o limite, por isso o
+        limite trata de si próprio.
         """
         total = self.n_paginas
         base = ALTURA - MARGEM_BAIXO + 26
+        folio_largo = max(_largura(f"fl. {i} de {total}", SERIF, 7)
+                          for i in range(1, total + 1))
+        # 14 pt de intervalo entre o texto e o folio, para não se tocarem.
+        disponivel = LARGURA - 2 * MARGEM_X - folio_largo - 14
+        linhas = _quebrar(texto, disponivel, 7, SERIF) if texto else []
+        # Duas linhas é o que a faixa de baixo comporta sem invadir o corpo. Se
+        # nem assim couber, encolhe-se a letra: um rodapé pequeno lê-se, um
+        # rodapé cortado a meio da morada não.
+        tamanho = 7.0
+        while len(linhas) > 2 and tamanho > 5.0:
+            tamanho -= 0.5
+            linhas = _quebrar(texto, disponivel, tamanho, SERIF)
+        linhas = linhas[:2]
         for i in range(1, total + 1):
             pagina = self.doc[i - 1]
-            pagina.draw_line((MARGEM_X, base - 12), (LARGURA - MARGEM_X, base - 12),
+            topo = base - (len(linhas) - 1) * (tamanho + 2) if linhas else base
+            pagina.draw_line((MARGEM_X, topo - 12), (LARGURA - MARGEM_X, topo - 12),
                              color=(0.82, 0.80, 0.74), width=0.6)
-            if texto:
-                pagina.insert_text((MARGEM_X, base), texto, fontname=SERIF,
-                                   fontsize=7, color=CINZA)
+            for n, linha in enumerate(linhas):
+                pagina.insert_text((MARGEM_X, topo + n * (tamanho + 2)), linha,
+                                   fontname=SERIF, fontsize=tamanho, color=CINZA)
             folha = f"fl. {i} de {total}"
             pagina.insert_text(
                 (LARGURA - MARGEM_X - _largura(folha, SERIF, 7), base), folha,
@@ -503,6 +525,7 @@ class _Folha:
                     (LARGURA - MARGEM_X - _largura(direita_por_pagina, SERIF, 7),
                      base + 9), direita_por_pagina,
                     fontname=SERIF, fontsize=7, color=CINZA)
+
 
 
 # Larguras de cada carácter, por (tipo de letra, tamanho). O _largura() mede
@@ -678,14 +701,14 @@ def _frase_do_documento(f: dict, d: dict, referencia: str, local: str) -> str:
 def _frase_da_afixacao(f: dict, nomes: dict) -> str:
     """Compõe a frase do ato: quando foi afixado, por quem, e até quando."""
     quem = nomes.get(f["afixado_por"], f["afixado_por"]) or "quem então servia"
-    inicio = (f"Mais certifico que a afixação teve lugar aos "
-              f"{ext.data(f['afixado_em'])}, {ext.hora(f['afixado_em'])}, "
+    inicio = (f"Mais certifico que a afixação teve lugar "
+              f"{ext.aos(f['afixado_em'])}, {ext.hora(f['afixado_em'])}, "
               f"por {quem}")
     dias = dias_de_afixacao(f) or 0
     if f["desafixado_em"]:
         tirou = nomes.get(f["desafixado_por"], f["desafixado_por"]) or "quem então servia"
-        return (f"{inicio}, e que foi retirado aos "
-                f"{ext.data(f['desafixado_em'])}, {ext.hora(f['desafixado_em'])}, "
+        return (f"{inicio}, e que foi retirado "
+                f"{ext.aos(f['desafixado_em'])}, {ext.hora(f['desafixado_em'])}, "
                 f"por {tirou}, tendo permanecido afixado {ext.dias(dias)}.")
     fim = (f"{inicio}, e que à data de hoje se mantém afixado, decorridos "
            f"{ext.dias(dias)} sobre a afixação")
@@ -824,15 +847,18 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
             if aviso["grau"] == "aviso":
                 ressalvas.append(aviso["texto"][0].lower() + aviso["texto"][1:])
     for i, ressalva in enumerate(ressalvas):
+        # rstrip do ponto: os avisos do prazos.py já acabam em ponto final, e
+        # juntar outro imprimia «...deste tipo de documento..» em toda a
+        # certidão que relatasse um incumprimento.
         folha.paragrafo(("Ressalva-se que " if i == 0 else "Ressalva-se ainda que ")
-                        + ressalva + ".", fonte=SERIF_ITALICO)
+                        + ressalva.rstrip(". ") + ".", fonte=SERIF_ITALICO)
 
     # ---- fecho e assinatura ---------------------------------------------
     folha.paragrafo("Por ser verdade e me ter sido pedida, mandei passar a "
                     "presente certidão, que vai por mim assinada.",
                     espaco_antes=6)
     hoje = datetime.now()
-    folha.paragrafo(f"{municipio}, aos {ext.data(hoje)}.", recuo_primeira=0,
+    folha.paragrafo(f"{municipio}, {ext.aos(hoje)}.", recuo_primeira=0,
                     espaco_depois=2)
     folha.assinatura(emitente, cargo)
 
