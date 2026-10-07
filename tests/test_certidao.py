@@ -80,11 +80,10 @@ def test_a_certidao_afirma_os_factos_todos(afixado):
                      "pelas dezassete horas e dois minutos",
                      "permanecido afixado sete dias",
                      "Artigo 56.º do Anexo I da Lei n.º 75/2013",
-                     # A inicial desce porque a frase diz «foi afixado NO
-                     # expositor...»: um nome próprio a meio de uma frase com
-                     # maiúscula de início de frase lê-se como erro.
-                     "no " + CFG["local_do_expositor"][0].lower()
-                     + CFG["local_do_expositor"][1:],
+                     # O local sai TAL E QUAL foi configurado, entre angulares:
+                     # não há artigo a concordar com ele, e por isso não há como
+                     # errar o género nem o número.
+                     f"no local designado por «{CFG['local_do_expositor']}»",
                      "Por ser verdade e me ter sido pedida"):
         assert esperado in t, f"falta na certidão: {esperado}"
 
@@ -517,3 +516,50 @@ def test_o_nome_do_municipio_concorda_na_frase():
     t2 = corrido(cert.gerar(reg, {"municipio": "Município de Moimenta da Beira"},
                             emitida_por="ana.abreu"))
     assert "Município de Município" not in t2
+
+
+def test_um_local_do_expositor_em_branco_nao_impede_a_certidao():
+    """Um «"local_do_expositor": ""» no config.json rebentava com IndexError.
+
+    O load_config() faz cfg.update(json.loads(...)): a chave presente com valor
+    vazio SOBREPÕE-SE ao valor por omissão e chega cá como "". O .get(chave,
+    omissao) só protege a chave em FALTA, e a seguir fazia-se local[0].
+
+    Antes da reescrita isto imprimia um campo vazio; depois dela deixava de
+    emitir a certidão — e este é o caminho do pedido de certidão, onde não se
+    rebenta. Apanhado em revisão, e reproduzido antes de se lhe tocar.
+    """
+    reg = {"id": 1, "numero": "1", "assunto": "A", "entidade": "", "tipo": "outro",
+           "data_publicacao": "2026-06-29", "ficheiro_origem": "e.pdf",
+           "criado_em": "2026-06-28T08:00:00", "num_paginas": 1,
+           "afixado_em": "2026-06-29T09:00:00", "afixado_por": "ana.abreu"}
+    t = corrido(cert.gerar(reg, {"municipio": "Moimenta da Beira",
+                                 "local_do_expositor": ""},
+                           emitida_por="ana.abreu"))
+    assert "Expositor eletrónico do Município" in t
+
+
+@pytest.mark.parametrize("local", [
+    "Átrio do edifício dos Paços do Concelho",   # masculino singular
+    "Receção do edifício dos Paços do Concelho",  # feminino
+    "Paços do Concelho",                          # plural
+    "Vitrina exterior",                           # feminino singular
+])
+def test_o_local_nao_tem_de_concordar_com_artigo_nenhum(local):
+    """A frase dizia «foi afixado no {local}», com o artigo fixo e a inicial
+    minusculizada à força. Para «Receção» dava «no receção»; para «Paços do
+    Concelho», «no Paços».
+
+    O valor vem da configuração de cada município e pode ser de qualquer género
+    e número — não há artigo que sirva a todos. A frase passa a citá-lo entre
+    angulares, onde não concorda com nada, e o valor sai tal e qual foi escrito.
+    """
+    reg = {"id": 1, "numero": "1", "assunto": "A", "entidade": "", "tipo": "outro",
+           "data_publicacao": "2026-06-29", "ficheiro_origem": "e.pdf",
+           "criado_em": "2026-06-28T08:00:00", "num_paginas": 1,
+           "afixado_em": "2026-06-29T09:00:00", "afixado_por": "ana.abreu"}
+    t = corrido(cert.gerar(reg, {"municipio": "Moimenta da Beira",
+                                 "local_do_expositor": local},
+                           emitida_por="ana.abreu"))
+    assert f"«{local}»" in t, "o local tem de sair tal e qual foi configurado"
+    assert f"no {local[0].lower()}{local[1:]}" not in t

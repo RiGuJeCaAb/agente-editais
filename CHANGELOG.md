@@ -1310,7 +1310,7 @@ caso comum voltou a caber numa folha.
 
 ### Testes
 
-**537 no total, 47 novos.** Quarenta e três vêm do `extenso.py`, que é módulo
+**542 no total, 52 novos.** Quarenta e três vêm do `extenso.py`, que é módulo
 novo e portanto não tinha como passar contra código onde ele não existe: as
 formas do português europeu uma a uma, a regra do «e» depois dos milhares, a
 concordância da preposição das horas e o plural das folhas e dos dias.
@@ -1329,3 +1329,32 @@ dos dois lados de propósito**, com a razão escrita no ficheiro:
 
 No `test_prazos.py`, o teste do aviso curto passa a exigir «dois dias» e a
 proibir `dia(s)` no próprio aviso, que é onde o parêntesis nascia.
+
+### Apanhado em revisão: a certidão não se emitia com o local em branco
+
+Um `"local_do_expositor": ""` no `config.json` rebentava com `IndexError`.
+Reproduzido antes de se lhe tocar, e o mecanismo confirmado no código: o
+`load_config()` faz `cfg.update(json.loads(...))`, portanto a chave presente com
+valor vazio **sobrepõe-se** ao valor por omissão. O `.get(chave, omissao)` só
+cobre a chave em falta, e a seguir fazia-se `local[0]`.
+
+Antes desta peça isso imprimia um campo vazio. Depois dela deixava de emitir a
+certidão — no caminho do pedido de certidão.
+
+A revisão sugeria documentar que a chave tem de ser um nome masculino singular.
+**Fui mais longe**, porque isso resolvia o sintoma e deixava a armadilha montada:
+«Paços do Concelho» é um valor plausível para muita câmara, e é plural.
+
+```
+antes:  foi afixado no {local}              ->  «no receção», «no Paços»
+agora:  no local designado por «{local}»    ->  certo para qualquer género e número
+```
+
+O valor sai tal e qual foi configurado, entre angulares, sem minusculizar a
+inicial. **Deixa de concordar com o que quer que seja** — que é o que o torna
+certo para todos os casos de uma vez, em vez de certo para os que hoje por acaso
+lá estão.
+
+Cinco testes, todos a falhar contra o código desta PR antes da correção: um para
+o valor em branco, e quatro parametrizados com um local masculino, um feminino,
+um plural e outro feminino singular.

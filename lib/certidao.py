@@ -664,8 +664,15 @@ def _identificacao(f: dict, d: dict, referencia: str) -> str:
 
 def _frase_do_documento(f: dict, d: dict, referencia: str, local: str) -> str:
     """A frase que certifica a afixação e identifica o que foi afixado."""
-    return (f"que, para os devidos efeitos, foi afixado {local}, por este "
-            f"Município, o seguinte documento: {_identificacao(f, d, referencia)}.")
+    # «no local designado por «X»» e não «no X»: o artigo tinha de concordar com
+    # um valor que vem da configuração e pode ser de qualquer género e número.
+    # Com «no» fixo e a inicial minusculizada, um município que escrevesse
+    # «Receção» ou «Paços do Concelho» obtinha «no receção» e «no Paços». Assim
+    # o valor sai tal e qual foi escrito, entre angulares, e não concorda com
+    # nada — que é o que o torna correto para todos os casos de uma vez.
+    return (f"que, para os devidos efeitos, foi afixado por este Município, no "
+            f"local designado por «{local}», o seguinte documento: "
+            f"{_identificacao(f, d, referencia)}.")
 
 
 def _frase_da_afixacao(f: dict, nomes: dict) -> str:
@@ -745,9 +752,13 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
         municipio = f"Município de {municipio}"
     emitente = nome_de_quem_emite or nomes.get(emitida_por, emitida_por)
     cargo = cfg.get("cargo_de_quem_certifica", "")
-    local = cfg.get("local_do_expositor", "no expositor eletrónico do Município")
-    if not local.lower().startswith(("no ", "na ", "em ")):
-        local = f"no {local[0].lower()}{local[1:]}"
+    # O `or` e não um `.get(chave, omissao)`: o load_config faz
+    # cfg.update(json.loads(...)), portanto um "local_do_expositor": "" escrito
+    # no config.json SOBREPÕE-SE ao valor por omissão e chega aqui vazio. A
+    # versão anterior fazia local[0] a seguir e rebentava com IndexError — no
+    # caminho de emissão de uma certidão, que é o pior sítio para rebentar.
+    local = (cfg.get("local_do_expositor") or "").strip() or \
+        "Expositor eletrónico do Município"
 
     # ---- timbre ----------------------------------------------------------
     folha.imagem(cfg.get("logo_certidao") or cfg.get("logo_txt") or "",
