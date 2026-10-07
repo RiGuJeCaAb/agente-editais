@@ -1310,7 +1310,7 @@ caso comum voltou a caber numa folha.
 
 ### Testes
 
-**542 no total, 52 novos.** Quarenta e três vêm do `extenso.py`, que é módulo
+**561 no total, 71 novos.** Quarenta e três vêm do `extenso.py`, que é módulo
 novo e portanto não tinha como passar contra código onde ele não existe: as
 formas do português europeu uma a uma, a regra do «e» depois dos milhares, a
 concordância da preposição das horas e o plural das folhas e dos dias.
@@ -1358,3 +1358,56 @@ lá estão.
 Cinco testes, todos a falhar contra o código desta PR antes da correção: um para
 o valor em branco, e quatro parametrizados com um local masculino, um feminino,
 um plural e outro feminino singular.
+
+### Cinco erros de português apanhados pela revisão automática
+
+Todos reproduzidos antes de se lhes tocar, e todos num documento que entra num
+processo — que é onde um erro de português custa mais do que um erro de código.
+
+**1. O feminino (o mais grave).** O módulo só tinha a forma masculina:
+
+```
+pelas dois horas            ->  pelas duas horas
+pelas vinte e dois horas    ->  pelas vinte e duas horas
+dois folhas                 ->  duas folhas
+vinte e um folhas           ->  vinte e uma folhas
+duzentos folhas             ->  duzentas folhas
+dois mil folhas             ->  duas mil folhas
+```
+
+«Hora» e «folha» são femininos. «Minuto» e «dia» são masculinos e ficam na forma
+de `numero()` — «duas horas e dois minutos» está certo assim. A conversão é por
+TERMOS completos e não por finais de palavra: «doze» acaba em «ze» e não se
+toca, mas «cento e dois» tem de dar «cento e duas».
+
+**2. «aos um dia do mês de março».** Em todos os dias 1 de todos os meses. A
+preposição passa para dentro do módulo, como já estava na hora:
+
+```
+ext.aos("2026-03-01")  ->  ao primeiro dia do mês de março de 2026
+ext.aos("2026-03-29")  ->  aos vinte e nove dias do mês de março de 2026
+```
+
+E o `ext.data()` fica com a forma de CITAR — «com data de vinte e nove de junho
+de 2026» — que é outra coisa e lê-se melhor.
+
+**3. O rodapé passava por cima do número de folha.** Medido com uma morada
+realista: 484,7 pt de texto para 426,1 pt de espaço. Quem configura a morada não
+tem como adivinhar o limite, por isso o limite passa a tratar de si: o texto
+quebra à largura disponível, até duas linhas, e encolhe a letra se nem assim
+couber.
+
+**4. «...deste tipo de documento..»** Os avisos do `prazos.py` já acabam em
+ponto final, e a ressalva juntava outro.
+
+**5. O meu próprio teste da sobreposição tinha um buraco.** Agrupava as palavras
+pelo par (bloco, linha) que o PyMuPDF atribui — e como cada palavra é inserida à
+parte, nada garante que duas vizinhas caiam no mesmo bloco. Deixava passar
+precisamente a sobreposição ENTRE blocos, que é o caso que ele existe para
+apanhar. Passa a agrupar pela altura. Verificado: neste documento nenhuma linha
+atravessa blocos, pelo que o buraco não chegou a morder — mas estava lá.
+
+Os casos destas cinco correções levam a suite a **561**. Dezanove novos nesta
+ronda, e vinte e dois dos existentes falhavam contra o código da PR antes dela —
+as formas femininas, a fórmula de datar e a hora, todos verificados com
+`git stash`.
