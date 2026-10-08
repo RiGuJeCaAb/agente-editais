@@ -605,27 +605,80 @@ def test_um_rodape_comprido_nao_passa_por_cima_do_numero_de_folha(afixado):
     Medido com uma morada realista: 484,7 pt de texto para 426,1 pt de espaço
     antes do «fl. N de M». Escrevia-se de uma assentada na mesma linha de base,
     e o insert_text não se queixa de nada.
+
+    Exige as duas coisas, e não só a largura: a primeira versão deste teste
+    media apenas o span mais à direita, e por isso teria passado igualmente se o
+    rodapé tivesse desaparecido por completo — que é a outra maneira de não
+    transbordar. Apanhado na revisão automática.
     """
-    cfg = dict(CFG, morada="Largo do Tabolado e Praceta das Oliveiras, n.º 123, "
-                           "3620-324 Moimenta da Beira, Viseu, Portugal",
-               sitio="www.cm-moimenta.pt", telefone="+351 254 520 070")
+    morada = ("Largo do Tabolado e Praceta das Oliveiras, n.º 123, "
+              "3620-324 Moimenta da Beira, Viseu, Portugal")
+    cfg = dict(CFG, morada=morada, sitio="www.cm-moimenta.pt",
+               telefone="+351 254 520 070")
     pdf = cert.gerar(afixado, cfg, emitida_por="ana.abreu", nomes_completos=NOMES)
     limite = cert.LARGURA - cert.MARGEM_X
     with pymupdf.open(stream=pdf, filetype="pdf") as d:
         pior = max(s["bbox"][2] for p in d for b in p.get_text("dict")["blocks"]
                    for linha in b["lines"] for s in linha["spans"])
     assert pior <= limite, f"o rodapé transborda {pior - limite:.1f} pt"
+    saiu = corrido(pdf)
+    for pedaco in (morada, "www.cm-moimenta.pt", "+351 254 520 070"):
+        assert " ".join(pedaco.split()) in saiu, f"o rodapé perdeu {pedaco!r}"
+
+
+def test_um_rodape_de_tres_linhas_sai_inteiro(afixado):
+    """O corte estava escrito como «duas linhas», e duas é o que cabe a 7 pt.
+
+    A 5 pt — que é onde a letra para de encolher — cabem três, e a terceira
+    estava a ser deitada fora em silêncio. Num município com morada, sítio,
+    correio eletrónico, telefone e horário no rodapé do edital, o que se perdia
+    era contacto institucional num documento que entra num processo.
+    """
+    cauda = ("geral@cm-moimenta.pt | Tel. +351 254 520 070 | Fax +351 254 520 071 | "
+             "NIF 506 663 171 | Horário de atendimento: dias úteis das 9h00 às "
+             "12h30 e das 14h00 às 17h30 | Atendimento por marcação prévia através "
+             "do formulário em www.cm-moimenta.pt/atendimento ou pelo telefone "
+             "acima | Serviços descentralizados: Loja do Munícipe de Leomil, Rua "
+             "Direita, 3620-200 Leomil, e Posto de Atendimento de Alvite, Largo "
+             "da Igreja, 3620-010 Alvite")
+    cfg = dict(CFG, morada="Largo do Tabolado, 3620-324 Moimenta da Beira, Viseu, "
+                           "Portugal", sitio="www.cm-moimenta.pt", telefone=cauda)
+    saiu = corrido(cert.gerar(afixado, cfg, emitida_por="ana.abreu",
+                              nomes_completos=NOMES))
+    # Medido: este rodapé dá três linhas a 5 pt, e a terceira começa aqui.
+    assert "Serviços descentralizados" in saiu, "a terceira linha do rodapé caiu"
+    assert "3620-010 Alvite" in saiu, "a terceira linha saiu cortada a meio"
+
+
+def test_um_rodape_que_nem_assim_cabe_e_cortado_mas_com_aviso(afixado, caplog):
+    """Cortar é inevitável quando a faixa acaba. Cortar em SILÊNCIO não é.
+
+    Quem configurou a morada não vê a certidão a ser gerada; o que lhe resta é o
+    registo técnico dizer-lhe o que ficou de fora.
+    """
+    enorme = " | ".join(f"Delegação n.º {i}, Rua das Oliveiras {i}, "
+                        f"3620-32{i % 10} Moimenta da Beira" for i in range(1, 12))
+    cfg = dict(CFG, morada=enorme, sitio="", telefone="")
+    with caplog.at_level("WARNING", logger="editais.CERTIDAO"):
+        cert.gerar(afixado, cfg, emitida_por="ana.abreu", nomes_completos=NOMES)
+    assert any("rodapé da certidão cortado" in r.message for r in caplog.records), \
+        f"cortou sem avisar: {[r.message for r in caplog.records]}"
 
 
 def test_a_ressalva_legal_cita_se_tal_e_qual(afixado):
     """Os avisos do prazos.py são frases COMPLETAS, e às vezes duas.
 
-    «Sem data de retirada: fica no ecrã indefinidamente. O mínimo legal é 5 dias
-    de afixação.» metido no molde «Ressalva-se que » + minúscula dava
-    «Ressalva-se que sem data de retirada: fica no ecrã...», que não é
-    português — e o ponto final a dobrar vinha por cima. São dois tipos de
-    ressalva: as minhas, meias-frases feitas à medida do molde, e as de outra
-    autoria, que se citam tal e qual.
+    Duas, por exemplo, no aviso da janela legal: «A afixação termina a ...,
+    depois do limite de ... Os dias fora da janela não contam para o mínimo.»
+    Metido no molde «Ressalva-se que » com a inicial minusculizada dava
+    «Ressalva-se que a afixação termina ... Os dias fora ...», com o ponto final
+    a dobrar. São dois tipos de ressalva: as minhas, meias-frases feitas à
+    medida do molde, e as de outra autoria, que se citam tal e qual.
+
+    Nota, porque é fácil enganar-se a escolher o exemplo: a certidão só cita os
+    avisos de grau «aviso». O «Sem data de retirada: ...», que também tem duas
+    frases, é de grau «informacao» e nunca chega aqui — um edital ainda afixado
+    não tem data de retirada, e isso é o seu estado normal e não uma falta.
     """
     reg = dict(afixado, desafixado_em="2026-07-01T10:00:00",
                desafixado_por="ana.abreu", campos_duvidosos=[])

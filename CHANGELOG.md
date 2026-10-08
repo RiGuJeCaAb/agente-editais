@@ -1310,7 +1310,7 @@ caso comum voltou a caber numa folha.
 
 ### Testes
 
-**561 no total, 71 novos.** Quarenta e três vêm do `extenso.py`, que é módulo
+**542 no total, 52 novos.** Quarenta e três vêm do `extenso.py`, que é módulo
 novo e portanto não tinha como passar contra código onde ele não existe: as
 formas do português europeu uma a uma, a regra do «e» depois dos milhares, a
 concordância da preposição das horas e o plural das folhas e dos dias.
@@ -1436,13 +1436,55 @@ parágrafo que venha a começar por um resumo ou um nome de ficheiro abre a port
 frases COMPLETAS, e às vezes duas:
 
 ```
-Sem data de retirada: fica no ecrã indefinidamente. O mínimo legal é 5 dias
-de afixação.
+A afixação termina a 2026-10-30, depois do limite de 2026-10-11 — 10 dias
+após a data do documento. Os dias fora da janela não contam para o mínimo.
 ```
 
 Metidas no molde «Ressalva-se que » com a inicial em minúscula, davam
-«Ressalva-se que sem data de retirada: fica no ecrã...», que não é português —
-e o ponto a dobrar vinha por cima. Passam a citar-se **tal e qual**, que é o que
-se faz a um texto de outra autoria: «Ressalva-se o seguinte: A afixação dura
-dois dias, abaixo do mínimo...». As minhas, que são meias-frases feitas à
-medida, continuam com o «que».
+«Ressalva-se que a afixação termina ... Os dias fora ...», com o ponto a dobrar
+pelo meio. Passam a citar-se **tal e qual**, que é o que se faz a um texto de
+outra autoria: «Ressalva-se o seguinte: A afixação dura dois dias, abaixo do
+mínimo...». As minhas, que são meias-frases feitas à medida, continuam com o
+«que».
+
+### Terceira ronda: o rodapé cortava em silêncio
+
+Três apontamentos da revisão automática da PR, os três verificados antes de se
+lhes tocar.
+
+**O rodapé deitava fora o que não coubesse em duas linhas.** Duas é o que cabe
+a 7 pt — e a letra encolhe até 5 pt, onde cabem três. A terceira linha
+desaparecia sem uma palavra. Medido com um rodapé de 547 caracteres (morada,
+sítio, correio, telefone, fax, NIF, horário e serviços descentralizados, que é
+o que um município põe no rodapé dos seus editais):
+
+```
+antes:  3 linhas a 5 pt, a terceira deitada fora -> «Serviços descentralizados:
+        Loja do Munícipe de Leomil...» nunca chegava ao papel
+agora:  as três saem inteiras
+```
+
+O número de linhas deixa de ser um valor escrito à mão e sai da **geometria da
+faixa**: a última linha assenta `RODAPE_DESCIDA` abaixo da margem do corpo, a
+régua fica `RODAPE_ACIMA_DA_REGUA` acima da primeira, e a régua não pode subir
+acima da margem sob pena de invadir o texto. Dá duas a 7 pt e três a 5 pt, que
+é o que lá cabe e não o que alguém contou de cabeça.
+
+E quando nem três chegam, **corta mas diz**: fica um aviso no registo técnico
+com o que ficou de fora. Quem configurou a morada não vê a certidão a ser
+gerada; o que lhe resta é o registo contar-lhe.
+
+**O meu teste do rodapé olhava só para o span mais à direita**, e por isso teria
+passado igualmente se o rodapé tivesse desaparecido por completo — que é a outra
+maneira de não transbordar. Passa a exigir também que a morada, o sítio e o
+telefone configurados apareçam no texto extraído do PDF.
+
+**A docstring citava um aviso que a certidão nunca imprime.** O «Sem data de
+retirada: ...» é de grau `informacao`, e a certidão só cita os de grau `aviso` —
+filtro que já lá estava e que está certo: um edital ainda afixado não tem data
+de retirada, e isso é o seu estado normal, não uma falta. O exemplo passa a ser
+o aviso da janela legal, que tem mesmo duas frases e chega mesmo ao papel.
+
+**A contagem de testes da entrada 0.23.0** tinha ficado com os números desta
+PR. Volta a dizer o que a 0.23.0 entregou — 542 no total, 52 novos — e os desta
+ficam na 0.23.1, que é onde pertencem.

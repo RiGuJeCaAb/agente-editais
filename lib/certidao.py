@@ -53,9 +53,12 @@ try:
 except ImportError:  # PyMuPDF anterior a 1.24
     import fitz  # type: ignore[no-redef]
 
+import diario
 import extenso as ext
 import prazos as pr
 import registo as reg_mod
+
+_log = diario.obter("CERTIDAO")
 
 # Geometria da página A4 em pontos, e as margens do corpo.
 LARGURA, ALTURA = 595, 842
@@ -85,6 +88,14 @@ MARGEM_TOPO = 64
 # A faixa de baixo é do rodapé, e o texto não entra nela. Sem esta reserva, a
 # última linha de uma página escrevia-se por cima da morada do município.
 MARGEM_BAIXO = 76
+
+# As três medidas da faixa do rodapé, que estavam espalhadas pelo rodape() como
+# números soltos. Ficam aqui porque é delas que sai quantas linhas lá cabem, e
+# essa conta tinha-se feito de cabeça: estava escrito «duas» e duas é o que cabe
+# a 7 pt. A 5 pt cabem três, e a diferença era texto configurado a desaparecer.
+RODAPE_DESCIDA = 26        # quanto a última linha desce abaixo da margem do corpo
+RODAPE_ACIMA_DA_REGUA = 12  # distância da régua à primeira linha
+RODAPE_ENTRELINHA = 2       # acrescento à altura da letra
 
 # Tipos de letra base do PDF. São os embutidos no formato (não precisam de ser
 # incorporados no ficheiro) e cobrem os acentos e o cedilha por WinAnsi, que é
@@ -264,6 +275,22 @@ def dias_de_afixacao(factos_: dict) -> int | None:
     # negativo. A certidão diz zero dias, que é o que de facto durou, e o
     # problema aparece nas observações do ponto 4, onde faz sentido.
     return max(0, (fim - inicio).days)
+
+
+# Quantas linhas de rodapé cabem na faixa reservada, a este tamanho de letra.
+def _linhas_de_rodape(tamanho):
+    """Devolve o número de linhas que a faixa do rodapé comporta.
+
+    Sai da geometria e não de um número escolhido: a última linha assenta
+    RODAPE_DESCIDA abaixo da margem do corpo, a régua fica
+    RODAPE_ACIMA_DA_REGUA acima da primeira, e a régua não pode subir acima da
+    margem do corpo sob pena de a faixa invadir o texto. Daí
+    (n - 1) * (tamanho + entrelinha) <= descida - acima.
+
+    Dá duas linhas a 7 pt — que era o valor escrito à mão — e três a 5 pt.
+    """
+    folga = RODAPE_DESCIDA - RODAPE_ACIMA_DA_REGUA
+    return 1 + int(folga // (tamanho + RODAPE_ENTRELINHA))
 
 
 class _Folha:
@@ -491,7 +518,10 @@ class _Folha:
         Moimenta da Beira, Viseu, Portugal» — dava 484,7 pt para 426,1 pt de
         espaço, ou seja passava por cima do número de folha e saía da página.
         Quem configura a morada não tem como adivinhar o limite, por isso o
-        limite trata de si próprio.
+        limite trata de si próprio: o texto quebra, a letra encolhe até 5 pt, e
+        o número de linhas que cabem sai da geometria da faixa — duas a 7 pt,
+        três a 5 pt. Se nem assim couber, corta-se e DIZ-SE no registo, em vez
+        de desaparecer morada configurada sem ninguém dar por isso.
         """
         total = self.n_paginas
         base = ALTURA - MARGEM_BAIXO + 26
@@ -504,10 +534,20 @@ class _Folha:
         # nem assim couber, encolhe-se a letra: um rodapé pequeno lê-se, um
         # rodapé cortado a meio da morada não.
         tamanho = 7.0
-        while len(linhas) > 2 and tamanho > 5.0:
+        while len(linhas) > _linhas_de_rodape(tamanho) and tamanho > 5.0:
             tamanho -= 0.5
             linhas = _quebrar(texto, disponivel, tamanho, SERIF)
-        linhas = linhas[:2]
+        cabem = _linhas_de_rodape(tamanho)
+        if len(linhas) > cabem:
+            # Chegados aqui, a letra já está no mínimo e o texto continua a não
+            # caber na faixa. Corta-se — mas DIZ-SE: a primeira versão cortava
+            # em silêncio, e o que se perdia era morada, telefone ou sítio de um
+            # município num documento que entra num processo.
+            _log.warning(
+                "rodapé da certidão cortado: %d linhas configuradas, %d cabem a "
+                "%.1f pt. Perde-se: %r", len(linhas), cabem, tamanho,
+                " ".join(linhas[cabem:]))
+            linhas = linhas[:cabem]
         for i in range(1, total + 1):
             pagina = self.doc[i - 1]
             topo = base - (len(linhas) - 1) * (tamanho + 2) if linhas else base
