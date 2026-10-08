@@ -1597,6 +1597,24 @@ mão, portanto ninguém o conferia. É a terceira versão errada do mesmo teste.
 teste passa a comparar o número de pares com o número de frações que a página
 leva, para a próxima fração nova falhar em vez de passar em silêncio.
 
+**E o próprio teto não tinha medição nenhuma no browser.** Os testes de
+Chromium servem todos um logótipo de 576×148, com o qual o teto nunca morde:
+o ramo tinha 52 testes do lado do Python e **zero** do lado que corre no posto.
+Entra uma segunda pasta servida, com um logótipo de rácio 0,5, e um caso que
+compara o browser com o `desenho_no_ecra()` em três ecrãs. Verificado a estragar
+a transcrição de propósito:
+
+```
+sem o `lw *= encolher` no JS:
+  o logotipo saiu com largura=516.0 e o Python manda 124.8
+```
+
+O teste destapou também uma interação que não estava escrita em lado nenhum:
+com um brasão alto e três folhas, o ecrã sai **sem logótipo**. Não é defeito —
+é a guarda antiga do `ha_espaco_para_o_logotipo()`, que corre no palco e recusa
+um logótipo que taparia editais. São duas regras, a níveis diferentes: a antiga
+decide se o logótipo vai, o teto decide de que tamanho vai.
+
 Um quinto apontamento não se confirmou: o arranque do painel **regenera** a
 página da TV (`agente.py:1531`), e isso foi verificado a correr.
 

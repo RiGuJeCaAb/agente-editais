@@ -39,6 +39,11 @@ sync_playwright = pytest.importorskip(
 
 RACIO_DO_LOGOTIPO = 576 / 148
 LOGOTIPO = (576, 148)
+
+# Um logótipo mais alto do que largo — um brasão, e não uma faixa. É com este
+# que o teto de 25 % entra em ação; com o de cima nunca entra.
+RACIO_ALTO = 0.5
+LOGOTIPO_ALTO = (300, 600)
 A4 = (1785, 2526)
 DEITADA = (1920, 1080)
 
@@ -79,9 +84,33 @@ def expositor(tmp_path_factory):
     um fetch a partir de file:// é recusado pelo browser — o que daria uma
     televisão vazia e um teste a falhar por razão errada.
     """
-    pasta = tmp_path_factory.mktemp("expositor")
+    yield from _servir(tmp_path_factory.mktemp("expositor"), LOGOTIPO)
+
+
+@pytest.fixture(scope="module")
+def expositor_de_logotipo_alto(tmp_path_factory):
+    """O mesmo, com um logótipo mais ALTO do que largo (rácio 0,5).
+
+    Existe porque a rede de segurança tinha um buraco: o teto do logótipo —
+    que o encolhe antes de ele comer o ecrã — nunca é percorrido com o
+    logótipo de 576×148 que a outra pasta serve, e portanto a transcrição
+    desse ramo para JS não estava a ser medida por ninguém. Era o Python a ter
+    52 testes e o browser, que é o que corre no posto, a ter zero.
+
+    Apanhado na revisão da PR.
+    """
+    yield from _servir(tmp_path_factory.mktemp("expositor_alto"), LOGOTIPO_ALTO)
+
+
+def _servir(pasta, logotipo):
+    """Monta uma pasta de saída com este logótipo e serve-a por HTTP.
+
+    Servida e não aberta em file://: a página busca o slides.json por fetch, e
+    um fetch a partir de file:// é recusado pelo browser — o que daria uma
+    televisão vazia e um teste a falhar por razão errada.
+    """
     (pasta / "index.html").write_text(_html(), encoding="utf-8")
-    Image.new("RGBA", LOGOTIPO, (200, 168, 75, 255)).save(pasta / "logotipo.png")
+    Image.new("RGBA", logotipo, (200, 168, 75, 255)).save(pasta / "logotipo.png")
     for nome, tam in (("a4.png", A4), ("dt.png", DEITADA)):
         Image.new("RGB", tam, "white").save(pasta / nome)
 
@@ -94,7 +123,7 @@ def expositor(tmp_path_factory):
             "folhas": [{"src": src, "x": x, "y": y, "w": w, "h": h}
                        for x, y, w, h in caixas],
             "logotipo": trat.ha_espaco_para_o_logotipo(
-                caixas, Image.new("RGBA", LOGOTIPO))}})
+                caixas, Image.new("RGBA", logotipo))}})
     (pasta / "slides.json").write_text(json.dumps(
         {"versao": "1", "spe": 600, "titulo": "Testes", "v": "1", "gerado_em": "1",
          "slides": slides}), encoding="utf-8")
@@ -240,6 +269,54 @@ def _logotipo_na_composicao():
     assert dele.any(), "o logótipo não aparece na composição do arquivo"
     ys, xs = np.nonzero(dele)
     return (float(xs.min()), float(ys.min()), float(xs.max() - xs.min() + 1))
+
+
+@pytest.mark.parametrize("largura,altura", [(3440, 1440), (3840, 2160), (1280, 1024)])
+def test_o_browser_encolhe_o_logotipo_alto_como_o_python_manda(
+        browser, expositor_de_logotipo_alto, largura, altura):
+    """O ramo do teto, medido no browser e não só em Python.
+
+    É o ramo que impede a folha de 0,7×1,0 píxeis, e era o único da transcrição
+    sem medição nenhuma: os outros testes servem um logótipo de rácio 3,89, com
+    o qual o teto nunca morde. O Python tinha 52 testes aqui e o JS — que é o
+    que corre no posto — tinha zero.
+
+    Verificado ao escrevê-lo: com o `lw *= encolher` retirado do JS, falha.
+
+    Há aqui DUAS regras a decidir sobre o mesmo logótipo, e convém não as
+    confundir. A primeira é antiga e corre no palco, à publicação: o
+    ha_espaco_para_o_logotipo() recusa um logótipo que taparia folhas, e com
+    um brasão alto é o que acontece no ecrã de três folhas — sai sem logótipo
+    nenhum, que é a regra de sempre («mais vale sem logótipo do que um
+    logótipo por cima do texto de um edital»). A segunda é o teto, que corre no
+    ecrã e encolhe o que passou pela primeira. Por isso o teste só exige
+    geometria onde a publicação decidiu que há logótipo, e exige o contrário
+    onde ela decidiu que não.
+    """
+    medidas = _medidas(browser, expositor_de_logotipo_alto, largura, altura)
+    encolhidos = 0
+    for medido, (nome, tamanhos) in zip(medidas, CASOS, strict=True):
+        caixas = trat.caixas_do_ecra([Image.new("RGB", t) for t in tamanhos])
+        tem_logotipo = trat.ha_espaco_para_o_logotipo(
+            caixas, Image.new("RGBA", LOGOTIPO_ALTO))
+        esperado = trat.desenho_no_ecra(
+            caixas, largura, altura, RACIO_ALTO if tem_logotipo else None)
+        if not tem_logotipo:
+            assert medido["marca"] is None, (
+                f"{nome}: a publicação recusou o logótipo e a televisão pô-lo")
+        else:
+            encolhidos += 1
+            for i, eixo in enumerate(("x", "y", "largura", "altura")):
+                assert abs(medido["marca"][i] - esperado["logotipo"][i]) <= 0.5, (
+                    f"{nome} em {largura}x{altura}: o logótipo saiu com {eixo}="
+                    f"{medido['marca'][i]:.1f} e o Python manda "
+                    f"{esperado['logotipo'][i]:.1f}")
+            # E o que o teto existe para garantir: sobra folha para ler.
+            assert medido["folhas"][0][3] >= 0.6 * altura
+        for obtida, esp in zip(medido["folhas"], esperado["caixas"], strict=True):
+            for a, b in zip(obtida, esp, strict=True):
+                assert abs(a - b) <= 0.5, f"{nome} em {largura}x{altura}"
+    assert encolhidos, "nenhum dos casos chegou a percorrer o ramo do teto"
 
 
 @pytest.mark.parametrize("largura,altura", ECRAS)
