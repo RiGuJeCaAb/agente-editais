@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.23.1"
+VERSAO = "0.24.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -837,21 +837,19 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   .slide{position:absolute;inset:0;opacity:0;transition:opacity 1s ease;
     display:flex;align-items:center;justify-content:center}
   .slide.ativo{opacity:1}
-  /* O palco de cada ecrã tem as medidas do canvas de sempre (3840x2160) e é
-     encolhido para caber, por JS. Assim as coordenadas que o agente já calcula
-     servem tal e qual, sem se converterem para percentagens — e as duas
-     composições, a desta página e a que vai para o arquivo, partem do mesmo
-     número. O JS existe em vez de min()/aspect-ratio porque não se sabe a idade
-     do browser do televisor, e o resto desta página não exige tanto. */
-  .palco-ecra{position:absolute;left:50%;top:50%;width:__PALCO_W__px;height:__PALCO_H__px;
-    transform-origin:center center}
-  .folha{position:absolute;display:block;
-    /* Os dois níveis de sombra que o numpy desenhava com dois desfoques
-       gaussianos sobre uma máscara de 3840x2160: a próxima, de contacto, e a
-       distante, que dá a altura. Aqui é o compositor do browser que as faz, e
-       custam zero — eram 0,34 s e 126 MB por ecrã do lado de Python. */
-    box-shadow: 10px 14px 36px rgba(0,0,0,.34), 42px 60px 110px rgba(0,0,0,.28)}
-  .marca{position:absolute;display:block;left:3.2%;top:1.76%;width:15%;height:auto}
+  /* O palco de cada ecrã É o ecrã. Era um retângulo de 3840x2160 encolhido por
+     um transform para caber — e com isso, em qualquer ecrã que não fosse 16:9,
+     a folha ficava no meio de uma faixa com o ecrã a sobrar de todos os lados.
+     Agora quem reaplica o desenho às medidas do ecrã é o arrumaPalcos(), e a
+     folha, o logótipo e a sombra recebem píxeis do ecrã. */
+  .palco-ecra{position:absolute;inset:0}
+  /* A posição, o tamanho e a sombra são escritos pelo arrumaPalcos(): a sombra
+     são os dois níveis que o numpy desenhava com desfoques gaussianos sobre uma
+     máscara de 3840x2160 — a próxima, de contacto, e a distante, que dá a
+     altura — e tem de encolher com a folha, senão num ecrã pequeno a folha
+     parece pousada num borrão. */
+  .folha{position:absolute;display:block}
+  .marca{position:absolute;display:block}
   #info{position:fixed;left:0;right:0;bottom:0;z-index:2;padding:2.2vh 3vw;
     background:linear-gradient(transparent,rgba(0,0,0,.55));
     display:flex;justify-content:space-between;align-items:flex-end;font-size:1.5vw}
@@ -1039,16 +1037,81 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 
   function fmt(d){ if(!d) return ''; var p=(''+d).split('-'); return p.length===3? p[2]+'/'+p[1]+'/'+p[0] : d; }
 
-  // Encolhe os palcos de 3840x2160 para caberem no ecrã, sem deformar. É o
-  // mesmo enquadramento que o object-fit:contain dava à imagem composta.
-  function dimensionaPalcos(){
-    var k = Math.min(window.innerWidth/__PALCO_W__, window.innerHeight/__PALCO_H__);
-    var ps = document.getElementsByClassName('palco-ecra');
-    for (var i=0;i<ps.length;i++){
-      ps[i].style.transform = 'translate(-50%,-50%) scale(' + k + ')';
+  // As frações que delimitam o espaço das folhas e as que assentam o logótipo.
+  // Vêm do tratamento.py e são injetadas: já estiveram escritas nos dois sítios
+  // e divergiram — o CSS tinha `top:1.76%`, que se resolve sobre a ALTURA, e o
+  // 0,0176 do Python nasceu de multiplicar a margem pela LARGURA. Trinta píxeis
+  // de diferença, medidos, entre onde o logótipo se via e onde ficava provado.
+  var FR_TOPO = __FR_TOPO__, FR_FUNDO = __FR_FUNDO__, FR_LADO = __FR_LADO__;
+  var LG_LARGURA = __LG_LARGURA__, LG_MARGEM = __LG_MARGEM__,
+      LG_MARGEM_Y = __LG_MARGEM_Y__, LG_FOLGA = __LG_FOLGA__;
+
+  // A sombra da folha, à escala a que a folha está desenhada. Era desenhada em
+  // coordenadas do palco e vinha encolhida pelo transform que já não existe.
+  function sombra(k){
+    return (10*k).toFixed(1)+'px '+(14*k).toFixed(1)+'px '+(36*k).toFixed(1)
+         + 'px rgba(0,0,0,.34), '
+         + (42*k).toFixed(1)+'px '+(60*k).toFixed(1)+'px '+(110*k).toFixed(1)
+         + 'px rgba(0,0,0,.28)';
+  }
+
+  // Dá às folhas de um palco os limites do ecrã. Transcrição fiel do
+  // trat.desenho_no_ecra(), que é onde a regra está escrita e testada.
+  //
+  // A caixa que ENVOLVE as folhas é ampliada até encostar ao espaço disponível
+  // com uma escala só — a mesma nos dois eixos, e por isso nenhuma folha se
+  // deforma, por construção. A disposição relativa sobrevive porque é toda
+  // medida a partir dessa caixa. Num ecrã 16:9 devolve exatamente o desenho do
+  // palco, que é a condição que isto tinha de cumprir: a televisão do átrio é
+  // 16:9 e não se mexe no que lá está certo.
+  function arruma(p, W, H){
+    var fs = p.getElementsByClassName('folha'), i, el;
+    if (!fs.length || W <= 0 || H <= 0) return;
+
+    // A faixa de cima tem de conter o logótipo. O rácio vem da imagem já
+    // carregada e não de um número à parte: é o rácio verdadeiro, e poupa uma
+    // chave no slides.json que podia ficar a dizer o contrário do ficheiro.
+    var topo = H*FR_TOPO, marca = p.getElementsByClassName('marca')[0];
+    if (marca && marca.naturalWidth > 0 && marca.naturalHeight > 0){
+      var lx = W*LG_MARGEM, ly = lx*LG_MARGEM_Y, lw = W*LG_LARGURA;
+      var lh = lw*marca.naturalHeight/marca.naturalWidth;
+      marca.style.left = lx+'px'; marca.style.top = ly+'px';
+      marca.style.width = lw+'px'; marca.style.height = lh+'px';
+      topo = Math.max(topo, ly + lh*(1 + LG_FOLGA));
+    }
+
+    var x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (i=0;i<fs.length;i++){
+      el = fs[i];
+      var cx = +el.getAttribute('data-x'), cy = +el.getAttribute('data-y');
+      x0 = Math.min(x0, cx); y0 = Math.min(y0, cy);
+      x1 = Math.max(x1, cx + +el.getAttribute('data-w'));
+      y1 = Math.max(y1, cy + +el.getAttribute('data-h'));
+    }
+    var envW = x1-x0, envH = y1-y0;
+    if (!(envW > 0 && envH > 0)) return;
+
+    var dispW = Math.max(1, W - 2*W*FR_LADO);
+    var dispH = Math.max(1, H - topo - H*FR_FUNDO);
+    var k = Math.min(dispW/envW, dispH/envH);
+    var ox = (W - envW*k)/2, oy = topo + (dispH - envH*k)/2;
+    var sh = sombra(k);
+    for (i=0;i<fs.length;i++){
+      el = fs[i];
+      el.style.left = (ox + (+el.getAttribute('data-x') - x0)*k)+'px';
+      el.style.top = (oy + (+el.getAttribute('data-y') - y0)*k)+'px';
+      el.style.width = (+el.getAttribute('data-w')*k)+'px';
+      el.style.height = (+el.getAttribute('data-h')*k)+'px';
+      el.style.boxShadow = sh;
     }
   }
-  window.addEventListener('resize', dimensionaPalcos);
+
+  function arrumaPalcos(){
+    var W = window.innerWidth, H = window.innerHeight;
+    var ps = document.getElementsByClassName('palco-ecra');
+    for (var i=0;i<ps.length;i++) arruma(ps[i], W, H);
+  }
+  window.addEventListener('resize', arrumaPalcos);
 
   // Cria o nó DOM de um slide: o palco com as folhas nas suas caixas. As
   // imagens só carregam uma vez.
@@ -1065,17 +1128,24 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       var f = e.folhas[i];
       var img = document.createElement('img'); img.className = 'folha';
       img.src = f.src; img.alt = (s.assunto||'') + ' — folha ' + (i+1);
-      img.style.left = f.x + 'px'; img.style.top = f.y + 'px';
-      img.style.width = f.w + 'px'; img.style.height = f.h + 'px';
+      // As coordenadas do palco ficam guardadas, e é o arrumaPalcos() que as
+      // converte em píxeis do ecrã. Aplicá-las aqui era o que prendia o
+      // desenho a um palco de 3840x2160.
+      img.setAttribute('data-x', f.x); img.setAttribute('data-y', f.y);
+      img.setAttribute('data-w', f.w); img.setAttribute('data-h', f.h);
       p.appendChild(img);
     }
     if (e.logotipo){
       var lg = document.createElement('img');
       lg.className = 'marca'; lg.src = 'logotipo.png'; lg.alt = '';
+      // A faixa de cima depende do rácio do logótipo, que só se sabe depois de
+      // a imagem carregar. Sem este arrumo a folha ficava colocada contra uma
+      // faixa que ainda não contava com ele.
+      lg.onload = arrumaPalcos;
       p.appendChild(lg);
     }
     d.appendChild(p); palco.appendChild(d);
-    dimensionaPalcos();
+    arrumaPalcos();
     return d;
   }
 
@@ -1292,13 +1362,21 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
 
     # index.html — escrito uma vez; já não leva os slides lá dentro. Só precisa de
     # saber o título inicial e o intervalo por defeito (o resto vem do JSON).
-    # As medidas do palco saem do tratamento e não são repetidas no HTML: é
-    # sobre elas que as coordenadas das folhas foram calculadas, e um palco com
-    # outras medidas punha as folhas no sítio errado sem nada se queixar.
+    # As frações do desenho saem do tratamento e não são repetidas no HTML.
+    # Antes era o TAMANHO do palco que ia por aqui, porque a página encolhia um
+    # retângulo de 3840x2160 para caber; agora vão as frações, porque a página
+    # reaplica o desenho ao ecrã que tem. Dois dos números que aqui passam já
+    # estiveram escritos à mão no CSS e divergiram deste lado — é por isso que
+    # passam por aqui e não por lá.
     html = (_HTML_TEMPLATE.replace("__TITULO__", cfg["titulo_tv"])
             .replace("__SPE__", str(int(cfg["segundos_por_ecra"])))
-            .replace("__PALCO_W__", str(trat.CANVAS_W))
-            .replace("__PALCO_H__", str(trat.CANVAS_H)))
+            .replace("__FR_TOPO__", f"{trat.FRACAO_TOPO:.6f}")
+            .replace("__FR_FUNDO__", f"{trat.FRACAO_FUNDO:.6f}")
+            .replace("__FR_LADO__", f"{trat.FRACAO_LADO:.6f}")
+            .replace("__LG_LARGURA__", f"{trat.LOGO_LARGURA_FRAC:.6f}")
+            .replace("__LG_MARGEM__", f"{trat.LOGO_MARGEM_FRAC:.6f}")
+            .replace("__LG_MARGEM_Y__", f"{trat.LOGO_MARGEM_Y_FATOR:.6f}")
+            .replace("__LG_FOLGA__", f"{trat.FOLGA_SOB_A_MARCA:.6f}"))
     _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"), html)
 
     # O logótipo passou a ser uma imagem servida à parte, porque quem o assenta

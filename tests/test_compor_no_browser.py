@@ -124,15 +124,46 @@ def test_a_televisao_recebe_o_desenho_no_slides_json(posto):
     assert "src" not in d["slides"][0], "o slide já não é uma imagem composta"
 
 
-def test_a_pagina_da_tv_leva_as_medidas_do_palco_do_tratamento(posto):
-    """As coordenadas das folhas foram calculadas sobre este palco. Um palco de
-    outras medidas punha-as no sítio errado sem nada se queixar."""
+def test_a_pagina_da_tv_leva_as_fracoes_do_desenho_e_nao_as_medidas_do_palco(posto):
+    """Levava o TAMANHO do palco, porque encolhia um retângulo de 3840×2160 até
+    ele caber. Num ecrã que não fosse 16:9 isso punha o desenho inteiro numa
+    faixa ao meio. Leva agora as frações, que a página reaplica ao ecrã que tem.
+
+    Dois destes números já estiveram escritos à mão no CSS e divergiram do
+    Python — trinta píxeis, medidos, entre onde o logótipo se via e onde ficava
+    provado. É por isso que passam por aqui e não por lá.
+    """
     publicar(posto)
     html = open(os.path.join(posto["cfg"]["saida"], "index.html"),
                 encoding="utf-8").read()
-    assert f"width:{trat.CANVAS_W}px" in html
-    assert f"height:{trat.CANVAS_H}px" in html
-    assert "__PALCO_W__" not in html, "ficou um marcador por substituir"
+    for valor in (trat.FRACAO_TOPO, trat.FRACAO_FUNDO, trat.FRACAO_LADO,
+                  trat.LOGO_LARGURA_FRAC, trat.LOGO_MARGEM_FRAC,
+                  trat.LOGO_MARGEM_Y_FATOR, trat.FOLGA_SOB_A_MARCA):
+        assert f"{valor:.6f}" in html, f"a fração {valor} não chegou à página"
+    assert "__" not in html.split("<style>")[1].split("</style>")[0], \
+        "ficou um marcador por substituir"
+    assert "__FR_TOPO__" not in html and "__LG_LARGURA__" not in html
+
+
+def test_a_pagina_da_tv_ja_nao_encolhe_um_palco_de_medidas_fixas(posto):
+    """O defeito que o posto reportou, visto do lado do HTML.
+
+    O palco era `width:3840px;height:2160px` com um `transform:scale()` do menor
+    dos dois rácios. Num monitor vertical a folha ficava a 7,7% do ecrã.
+    """
+    publicar(posto)
+    html = open(os.path.join(posto["cfg"]["saida"], "index.html"),
+                encoding="utf-8").read()
+    assert f"width:{trat.CANVAS_W}px" not in html
+    assert "dimensionaPalcos" not in html
+    assert "arrumaPalcos" in html
+    # A percentagem de `top` resolvia-se sobre a ALTURA do elemento, e o número
+    # tinha nascido de uma fração da LARGURA. Procura-se na folha de estilos e
+    # não na página inteira: o comentário que explica o defeito cita-o, e a
+    # primeira versão deste teste apanhou a explicação em vez do defeito.
+    estilos = html.split("<style>")[1].split("</style>")[0]
+    assert "top:1.76%" not in estilos
+    assert "transform" not in estilos.split(".palco-ecra{")[1].split("}")[0]
 
 
 def test_o_logotipo_e_servido_para_a_televisao_o_poder_assentar(posto):

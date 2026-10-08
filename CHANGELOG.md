@@ -1488,3 +1488,88 @@ o aviso da janela legal, que tem mesmo duas frases e chega mesmo ao papel.
 **A contagem de testes da entrada 0.23.0** tinha ficado com os números desta
 PR. Volta a dizer o que a 0.23.0 entregou — 542 no total, 52 novos — e os desta
 ficam na 0.23.1, que é onde pertencem.
+
+## 0.24.0 — A folha encontra os limites do ecrã
+
+Reportado do posto, com fotografias de dois monitores: num monitor vertical a
+folha ficava «quase a meio» do ecrã, e na televisão o fundo preenchia tudo mas o
+edital e o logótipo ficavam numa ilha no meio dele.
+
+### Corrigido
+
+**A televisão desenhava num palco de medidas fixas e encolhia-o para caber.** O
+palco era um retângulo de 3840×2160 — as medidas em que a imagem do arquivo se
+compõe — com um `transform:scale()` do menor dos dois rácios. Num ecrã 16:9 isso
+é exatamente certo; em qualquer outro punha o desenho inteiro numa faixa, com o
+ecrã a sobrar dos dois lados. Medido no browser, uma folha A4 vertical sozinha:
+
+| ecrã | antes | depois |
+|---|---|---|
+| TV 16:9, 4K e FullHD | 24,3 % da área | **24,3 %** — intocado |
+| Raspberry a 1280×1024 | 17,1 % | **34,6 %** |
+| monitor vertical 1080×1920 | 7,7 % | **72,1 %** |
+| monitor vertical 1200×1920 | 8,5 % | **69,1 %** |
+| monitor 4:3 1024×768 | 18,2 % | **32,4 %** |
+
+Sete por cento e sete décimas, com 37,8 % de verde vazio acima e 37,6 % abaixo.
+
+O palco passa a **ser** o ecrã: a caixa que envolve as folhas é ampliada até
+encostar ao espaço disponível, com **uma escala só** — a mesma nos dois eixos, e
+por isso nenhuma folha se deforma, por construção. A disposição relativa
+sobrevive porque é toda medida a partir dessa caixa.
+
+**Num ecrã 16:9 nada muda**, e não por sorte: as três faixas que delimitam o
+espaço disponível são as do próprio palco, ditas em frações, e por isso a
+ampliação dá exatamente 1. A televisão do átrio é 16:9 e o que lá está é certo.
+
+**O logótipo assentava trinta píxeis acima do sítio.** O CSS tinha `top:1.76%`,
+e uma percentagem de `top` resolve-se sobre a ALTURA do elemento que a contém; o
+0,0176 do Python nasceu de multiplicar a margem pela LARGURA. Num ecrã 4K dava
+y=38 na televisão e y=67,6 na imagem que ficava no arquivo — a prova e o que se
+viu não batiam certo. As sete frações do desenho passam a sair todas do
+`tratamento.py` e a ser injetadas na página, como já acontecia com as medidas.
+
+**Num ecrã muito largo o logótipo podia cair sobre a primeira folha**, porque
+ele é uma fração da largura e a faixa é uma fração da altura: num 21:9 de
+3440×1440 o logótipo acabava em y=193 e a faixa em y=165. A faixa passa a
+crescer o necessário para o conter. Custo medido: nesse ecrã a folha fica 9 %
+menor do que ficaria sem a guarda — e sem ela assentava-lhe um logótipo em cima.
+
+### A página da televisão passou a ser testada num browser
+
+Até aqui nenhum teste a abria: verificava-se o HTML por pesquisa de texto, e foi
+exatamente por isso que este defeito passou sem uma única linha vermelha. São 23
+testes novos que a abrem num Chromium, medem o que lá está DESENHADO e comparam
+com o `trat.desenho_no_ecra()` — o JS da página é uma transcrição dessa função, e
+isto é o que prova que a transcrição é fiel em vez de se confiar nela.
+
+Correm num trabalho próprio da integração contínua (`pytest -m navegador`) e
+ficam de fora do `pytest` normal: o playwright não é dependência de execução do
+agente e não se impõe a quem corre a suite à mão.
+
+**Os 23 falham contra o código anterior**, nos seis tamanhos de ecrã, medido:
+
+```
+3840x2160 (16:9 ): folhas  0.5 px fora, logotipo  29.6 px fora
+1920x1080 (16:9 ): folhas  0.2 px fora, logotipo  14.8 px fora
+1280x1024 (5:4  ): folhas  236 px fora, logotipo   142 px fora
+1080x1920 (9:16 ): folhas  973 px fora, logotipo   648 px fora
+1024x 768 (4:3  ): folhas  185 px fora, logotipo    88 px fora
+3440x1440 (21:9 ): folhas   97 px fora, logotipo   412 px fora
+```
+
+Repare-se na primeira linha: num ecrã 16:9 as folhas estavam certas e o logótipo
+estava a 29,6 px do sítio. É o defeito das percentagens, apanhado sozinho.
+
+### O que não mudou, e porquê
+
+O `caixas_do_ecra()` continua a ser a única regra de onde as folhas assentam, e a
+imagem que vai para o arquivo continua a compor-se a 3840×2160. O que esta peça
+acrescenta é a reaplicação desse desenho ao ecrã que a televisão tem à frente —
+que é coisa do browser, e só do browser.
+
+### Por resolver
+
+Três folhas lado a lado num ecrã vertical continuam a 23 % da área: três A4 em
+fila não cabem noutro sítio numa largura de 1080. Resolver isso é reorganizar o
+ecrã, não ampliá-lo, e é outra peça.
