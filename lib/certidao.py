@@ -53,9 +53,12 @@ try:
 except ImportError:  # PyMuPDF anterior a 1.24
     import fitz  # type: ignore[no-redef]
 
+import diario
 import extenso as ext
 import prazos as pr
 import registo as reg_mod
+
+_log = diario.obter("CERTIDAO")
 
 # Geometria da página A4 em pontos, e as margens do corpo.
 LARGURA, ALTURA = 595, 842
@@ -85,6 +88,14 @@ MARGEM_TOPO = 64
 # A faixa de baixo é do rodapé, e o texto não entra nela. Sem esta reserva, a
 # última linha de uma página escrevia-se por cima da morada do município.
 MARGEM_BAIXO = 76
+
+# As três medidas da faixa do rodapé, que estavam espalhadas pelo rodape() como
+# números soltos. Ficam aqui porque é delas que sai quantas linhas lá cabem, e
+# essa conta tinha-se feito de cabeça: estava escrito «duas» e duas é o que cabe
+# a 7 pt. A 5 pt cabem três, e a diferença era texto configurado a desaparecer.
+RODAPE_DESCIDA = 26        # quanto a última linha desce abaixo da margem do corpo
+RODAPE_ACIMA_DA_REGUA = 12  # distância da régua à primeira linha
+RODAPE_ENTRELINHA = 2       # acrescento à altura da letra
 
 # Tipos de letra base do PDF. São os embutidos no formato (não precisam de ser
 # incorporados no ficheiro) e cobrem os acentos e o cedilha por WinAnsi, que é
@@ -264,6 +275,22 @@ def dias_de_afixacao(factos_: dict) -> int | None:
     # negativo. A certidão diz zero dias, que é o que de facto durou, e o
     # problema aparece nas observações do ponto 4, onde faz sentido.
     return max(0, (fim - inicio).days)
+
+
+# Quantas linhas de rodapé cabem na faixa reservada, a este tamanho de letra.
+def _linhas_de_rodape(tamanho):
+    """Devolve o número de linhas que a faixa do rodapé comporta.
+
+    Sai da geometria e não de um número escolhido: a última linha assenta
+    RODAPE_DESCIDA abaixo da margem do corpo, a régua fica
+    RODAPE_ACIMA_DA_REGUA acima da primeira, e a régua não pode subir acima da
+    margem do corpo sob pena de a faixa invadir o texto. Daí
+    (n - 1) * (tamanho + entrelinha) <= descida - acima.
+
+    Dá duas linhas a 7 pt — que era o valor escrito à mão — e três a 5 pt.
+    """
+    folga = RODAPE_DESCIDA - RODAPE_ACIMA_DA_REGUA
+    return 1 + int(folga // (tamanho + RODAPE_ENTRELINHA))
 
 
 class _Folha:
@@ -484,16 +511,51 @@ class _Folha:
         Só aqui se sabe quantas páginas há, e é por isso que esta chamada é a
         última de gerar(): «fl. 2 de 3» não se pode escrever antes de se saber
         que são três.
+
+        O texto QUEBRA-SE à largura que sobra depois do folio. A primeira versão
+        escrevia-o de uma assentada na mesma linha de base: medido com uma morada
+        realista — «Largo do Tabolado e Praceta das Oliveiras, n.º 123, 3620-324
+        Moimenta da Beira, Viseu, Portugal» — dava 484,7 pt para 426,1 pt de
+        espaço, ou seja passava por cima do número de folha e saía da página.
+        Quem configura a morada não tem como adivinhar o limite, por isso o
+        limite trata de si próprio: o texto quebra, a letra encolhe até 5 pt, e
+        o número de linhas que cabem sai da geometria da faixa — duas a 7 pt,
+        três a 5 pt. Se nem assim couber, corta-se e DIZ-SE no registo, em vez
+        de desaparecer morada configurada sem ninguém dar por isso.
         """
         total = self.n_paginas
         base = ALTURA - MARGEM_BAIXO + 26
+        folio_largo = max(_largura(f"fl. {i} de {total}", SERIF, 7)
+                          for i in range(1, total + 1))
+        # 14 pt de intervalo entre o texto e o folio, para não se tocarem.
+        disponivel = LARGURA - 2 * MARGEM_X - folio_largo - 14
+        linhas = _quebrar(texto, disponivel, 7, SERIF) if texto else []
+        # Duas linhas é o que a faixa de baixo comporta sem invadir o corpo. Se
+        # nem assim couber, encolhe-se a letra: um rodapé pequeno lê-se, um
+        # rodapé cortado a meio da morada não.
+        tamanho = 7.0
+        while len(linhas) > _linhas_de_rodape(tamanho) and tamanho > 5.0:
+            tamanho -= 0.5
+            linhas = _quebrar(texto, disponivel, tamanho, SERIF)
+        cabem = _linhas_de_rodape(tamanho)
+        if len(linhas) > cabem:
+            # Chegados aqui, a letra já está no mínimo e o texto continua a não
+            # caber na faixa. Corta-se — mas DIZ-SE: a primeira versão cortava
+            # em silêncio, e o que se perdia era morada, telefone ou sítio de um
+            # município num documento que entra num processo.
+            _log.warning(
+                "rodapé da certidão cortado: %d linhas configuradas, %d cabem a "
+                "%.1f pt. Perde-se: %r", len(linhas), cabem, tamanho,
+                " ".join(linhas[cabem:]))
+            linhas = linhas[:cabem]
         for i in range(1, total + 1):
             pagina = self.doc[i - 1]
-            pagina.draw_line((MARGEM_X, base - 12), (LARGURA - MARGEM_X, base - 12),
+            topo = base - (len(linhas) - 1) * (tamanho + 2) if linhas else base
+            pagina.draw_line((MARGEM_X, topo - 12), (LARGURA - MARGEM_X, topo - 12),
                              color=(0.82, 0.80, 0.74), width=0.6)
-            if texto:
-                pagina.insert_text((MARGEM_X, base), texto, fontname=SERIF,
-                                   fontsize=7, color=CINZA)
+            for n, linha in enumerate(linhas):
+                pagina.insert_text((MARGEM_X, topo + n * (tamanho + 2)), linha,
+                                   fontname=SERIF, fontsize=tamanho, color=CINZA)
             folha = f"fl. {i} de {total}"
             pagina.insert_text(
                 (LARGURA - MARGEM_X - _largura(folha, SERIF, 7), base), folha,
@@ -503,6 +565,7 @@ class _Folha:
                     (LARGURA - MARGEM_X - _largura(direita_por_pagina, SERIF, 7),
                      base + 9), direita_por_pagina,
                     fontname=SERIF, fontsize=7, color=CINZA)
+
 
 
 # Larguras de cada carácter, por (tipo de letra, tamanho). O _largura() mede
@@ -586,9 +649,14 @@ def _quebrar_em_palavras(texto, largura_primeira, largura, tamanho, fonte):
     Returns:
         list[list[str]]: as palavras de cada linha, pela ordem do texto.
     """
+    # A primeira palavra parte-se pela largura da PRIMEIRA linha, não pela da
+    # caixa. Medido: uma palavra de 90 letras mede 439,6 pt — cabe na caixa de
+    # 451 e não cabe nos 423 que sobram depois do recuo do parágrafo, e ficava
+    # inteira a transbordar 16,6 pt para lá da margem. Apanhado em revisão.
     palavras = []
-    for palavra in str(texto).split():
-        palavras.extend(_partir_palavra(palavra, largura, tamanho, fonte))
+    for i, palavra in enumerate(str(texto).split()):
+        limite = largura_primeira if i == 0 else largura
+        palavras.extend(_partir_palavra(palavra, limite, tamanho, fonte))
     if not palavras:
         return [[]]
     linhas, atual = [], [palavras[0]]
@@ -678,14 +746,14 @@ def _frase_do_documento(f: dict, d: dict, referencia: str, local: str) -> str:
 def _frase_da_afixacao(f: dict, nomes: dict) -> str:
     """Compõe a frase do ato: quando foi afixado, por quem, e até quando."""
     quem = nomes.get(f["afixado_por"], f["afixado_por"]) or "quem então servia"
-    inicio = (f"Mais certifico que a afixação teve lugar aos "
-              f"{ext.data(f['afixado_em'])}, {ext.hora(f['afixado_em'])}, "
+    inicio = (f"Mais certifico que a afixação teve lugar "
+              f"{ext.aos(f['afixado_em'])}, {ext.hora(f['afixado_em'])}, "
               f"por {quem}")
     dias = dias_de_afixacao(f) or 0
     if f["desafixado_em"]:
         tirou = nomes.get(f["desafixado_por"], f["desafixado_por"]) or "quem então servia"
-        return (f"{inicio}, e que foi retirado aos "
-                f"{ext.data(f['desafixado_em'])}, {ext.hora(f['desafixado_em'])}, "
+        return (f"{inicio}, e que foi retirado "
+                f"{ext.aos(f['desafixado_em'])}, {ext.hora(f['desafixado_em'])}, "
                 f"por {tirou}, tendo permanecido afixado {ext.dias(dias)}.")
     fim = (f"{inicio}, e que à data de hoje se mantém afixado, decorridos "
            f"{ext.dias(dias)} sobre a afixação")
@@ -810,11 +878,18 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # Um incumprimento ou um palpite por confirmar não se omitem de uma
     # certidão. Uma certidão que escondesse o que a lei pede e o que de facto
     # aconteceu seria pior do que não haver certidão nenhuma.
-    ressalvas = []
+    #
+    # São DOIS tipos e não um. As minhas são meias-frases, feitas à medida de
+    # «Ressalva-se que ...». As do prazos.py são frases completas, às vezes
+    # DUAS — «Sem data de retirada: fica no ecrã indefinidamente. O mínimo legal
+    # é 5 dias de afixação.» — e metê-las no mesmo molde dava «Ressalva-se que
+    # sem data de retirada: fica no ecrã...», que não é português. Citam-se tal
+    # e qual, que é o que se faz a um texto de outra autoria.
+    minhas, legais = [], []
     if f["campos_por_confirmar"]:
         quais = ", ".join(ROTULOS_DOS_CAMPOS.get(c, c)
                           for c in f["campos_por_confirmar"])
-        ressalvas.append(
+        minhas.append(
             f"os seguintes elementos foram lidos automaticamente do documento e "
             f"não chegaram a ser confirmados por quem o afixou: {quais}")
     if d.get("base_legal") and f["afixado_em"]:
@@ -822,17 +897,27 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
                                   (f["desafixado_em"] or "")[:10] or None,
                                   f["data_publicacao"] or None):
             if aviso["grau"] == "aviso":
-                ressalvas.append(aviso["texto"][0].lower() + aviso["texto"][1:])
-    for i, ressalva in enumerate(ressalvas):
-        folha.paragrafo(("Ressalva-se que " if i == 0 else "Ressalva-se ainda que ")
-                        + ressalva + ".", fonte=SERIF_ITALICO)
+                legais.append(aviso["texto"].strip())
+    escritas = 0
+    for frase in minhas:
+        folha.paragrafo(("Ressalva-se que " if not escritas
+                         else "Ressalva-se ainda que ") + frase + ".",
+                        fonte=SERIF_ITALICO)
+        escritas += 1
+    for aviso in legais:
+        # Sem rstrip nem minusculização: o aviso já é uma frase (ou duas) e já
+        # acaba em ponto. Juntar outro imprimia «...deste tipo de documento..».
+        folha.paragrafo(("Ressalva-se o seguinte: " if not escritas
+                         else "Ressalva-se ainda: ") + aviso,
+                        fonte=SERIF_ITALICO)
+        escritas += 1
 
     # ---- fecho e assinatura ---------------------------------------------
     folha.paragrafo("Por ser verdade e me ter sido pedida, mandei passar a "
                     "presente certidão, que vai por mim assinada.",
                     espaco_antes=6)
     hoje = datetime.now()
-    folha.paragrafo(f"{municipio}, aos {ext.data(hoje)}.", recuo_primeira=0,
+    folha.paragrafo(f"{municipio}, {ext.aos(hoje)}.", recuo_primeira=0,
                     espaco_depois=2)
     folha.assinatura(emitente, cargo)
 

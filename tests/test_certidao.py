@@ -325,7 +325,7 @@ def test_um_documento_ainda_afixado_diz_ate_quando(ficha):
     """Dizer «mantém-se afixado» sem dizer até quando deixa por responder a
     pergunta mais útil da certidão — e é a data que a lei fixa."""
     t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
-    assert "retirada prevista para vinte dias do mês de outubro de 2026" in t
+    assert "retirada prevista para vinte de outubro de 2026" in t
 
 
 @pytest.mark.parametrize("dias,esperado", [
@@ -486,11 +486,16 @@ def test_nenhuma_palavra_se_desenha_por_cima_da_seguinte(afixado):
     pdf = cert.gerar(afixado, CFG, emitida_por="ana.abreu", nomes_completos=NOMES)
     with pymupdf.open(stream=pdf, filetype="pdf") as d:
         for pagina in d:
+            # Agrupa pela ALTURA e não pelo par (bloco, linha) que o PyMuPDF
+            # atribui. Apanhado em revisão: como cada palavra é inserida à parte,
+            # nada garante que duas palavras vizinhas caiam no mesmo bloco — e
+            # agrupar por bloco deixava passar precisamente a sobreposição entre
+            # blocos, que é o caso que este teste existe para apanhar.
             # (x0, y0, x1, y1, palavra, bloco, linha, n.º da palavra)
-            por_linha: dict = {}
+            por_altura: dict = {}
             for p in pagina.get_text("words"):
-                por_linha.setdefault((p[5], p[6]), []).append(p)
-            for palavras in por_linha.values():
+                por_altura.setdefault(round(p[1], 1), []).append(p)
+            for palavras in por_altura.values():
                 palavras.sort(key=lambda p: p[0])
                 for antes, depois in zip(palavras, palavras[1:], strict=False):
                     assert antes[2] <= depois[0] + 0.5, \
@@ -563,3 +568,132 @@ def test_o_local_nao_tem_de_concordar_com_artigo_nenhum(local):
                            emitida_por="ana.abreu"))
     assert f"«{local}»" in t, "o local tem de sair tal e qual foi configurado"
     assert f"no {local[0].lower()}{local[1:]}" not in t
+
+
+# --- a segunda ronda de revisão ----------------------------------------------
+
+def test_uma_palavra_enorme_nao_transborda_a_primeira_linha():
+    """A primeira linha de um parágrafo é mais estreita do que as outras.
+
+    Medido: uma palavra de 90 letras mede 439,6 pt — cabe na caixa de 451 e NÃO
+    cabe nos 423 que sobram depois do recuo. O _quebrar_em_palavras partia
+    sempre pela largura da CAIXA, deixava-a inteira, e ela transbordava 16,6 pt
+    para lá da margem. Apanhado em revisão.
+
+    Testa-se a função e não uma certidão inteira, e isso é uma afirmação sobre
+    o alcance do defeito: em `gerar()` nenhum parágrafo começa por uma palavra
+    longa — começam todos por «que,», «Mais», «Por», «Ressalva-se» — por isso
+    HOJE não há caminho até aqui. O primeiro parágrafo que venha a começar por
+    um resumo, uma referência ou um nome de ficheiro abre-o, e é por isso que
+    a correção fica feita e guardada em vez de se adiar.
+    """
+    caixa = cert.LARGURA - 2 * cert.MARGEM_X
+    recuo = 28
+    palavra = "a" * 90
+    assert cert._largura(palavra, cert.SERIF, 11) <= caixa
+    assert cert._largura(palavra, cert.SERIF, 11) > caixa - recuo
+    linhas = cert._quebrar_em_palavras(palavra + " resto", caixa - recuo, caixa,
+                                       11, cert.SERIF)
+    primeira = cert._largura(" ".join(linhas[0]), cert.SERIF, 11)
+    assert recuo + primeira <= caixa, \
+        f"a primeira linha transborda {recuo + primeira - caixa:.1f} pt"
+
+
+def test_um_rodape_comprido_nao_passa_por_cima_do_numero_de_folha(afixado):
+    """A morada vem da configuração e pode ser de qualquer comprimento.
+
+    Medido com uma morada realista: 484,7 pt de texto para 426,1 pt de espaço
+    antes do «fl. N de M». Escrevia-se de uma assentada na mesma linha de base,
+    e o insert_text não se queixa de nada.
+
+    Exige as duas coisas, e não só a largura: a primeira versão deste teste
+    media apenas o span mais à direita, e por isso teria passado igualmente se o
+    rodapé tivesse desaparecido por completo — que é a outra maneira de não
+    transbordar. Apanhado na revisão automática.
+    """
+    morada = ("Largo do Tabolado e Praceta das Oliveiras, n.º 123, "
+              "3620-324 Moimenta da Beira, Viseu, Portugal")
+    cfg = dict(CFG, morada=morada, sitio="www.cm-moimenta.pt",
+               telefone="+351 254 520 070")
+    pdf = cert.gerar(afixado, cfg, emitida_por="ana.abreu", nomes_completos=NOMES)
+    limite = cert.LARGURA - cert.MARGEM_X
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        pior = max(s["bbox"][2] for p in d for b in p.get_text("dict")["blocks"]
+                   for linha in b["lines"] for s in linha["spans"])
+    assert pior <= limite, f"o rodapé transborda {pior - limite:.1f} pt"
+    saiu = corrido(pdf)
+    for pedaco in (morada, "www.cm-moimenta.pt", "+351 254 520 070"):
+        assert " ".join(pedaco.split()) in saiu, f"o rodapé perdeu {pedaco!r}"
+
+
+def test_um_rodape_de_tres_linhas_sai_inteiro(afixado):
+    """O corte estava escrito como «duas linhas», e duas é o que cabe a 7 pt.
+
+    A 5 pt — que é onde a letra para de encolher — cabem três, e a terceira
+    estava a ser deitada fora em silêncio. Num município com morada, sítio,
+    correio eletrónico, telefone e horário no rodapé do edital, o que se perdia
+    era contacto institucional num documento que entra num processo.
+    """
+    cauda = ("geral@cm-moimenta.pt | Tel. +351 254 520 070 | Fax +351 254 520 071 | "
+             "NIF 506 663 171 | Horário de atendimento: dias úteis das 9h00 às "
+             "12h30 e das 14h00 às 17h30 | Atendimento por marcação prévia através "
+             "do formulário em www.cm-moimenta.pt/atendimento ou pelo telefone "
+             "acima | Serviços descentralizados: Loja do Munícipe de Leomil, Rua "
+             "Direita, 3620-200 Leomil, e Posto de Atendimento de Alvite, Largo "
+             "da Igreja, 3620-010 Alvite")
+    cfg = dict(CFG, morada="Largo do Tabolado, 3620-324 Moimenta da Beira, Viseu, "
+                           "Portugal", sitio="www.cm-moimenta.pt", telefone=cauda)
+    saiu = corrido(cert.gerar(afixado, cfg, emitida_por="ana.abreu",
+                              nomes_completos=NOMES))
+    # Medido: este rodapé dá três linhas a 5 pt, e a terceira começa aqui.
+    assert "Serviços descentralizados" in saiu, "a terceira linha do rodapé caiu"
+    assert "3620-010 Alvite" in saiu, "a terceira linha saiu cortada a meio"
+
+
+def test_um_rodape_que_nem_assim_cabe_e_cortado_mas_com_aviso(afixado, caplog):
+    """Cortar é inevitável quando a faixa acaba. Cortar em SILÊNCIO não é.
+
+    Quem configurou a morada não vê a certidão a ser gerada; o que lhe resta é o
+    registo técnico dizer-lhe o que ficou de fora.
+    """
+    enorme = " | ".join(f"Delegação n.º {i}, Rua das Oliveiras {i}, "
+                        f"3620-32{i % 10} Moimenta da Beira" for i in range(1, 12))
+    cfg = dict(CFG, morada=enorme, sitio="", telefone="")
+    with caplog.at_level("WARNING", logger="editais.CERTIDAO"):
+        cert.gerar(afixado, cfg, emitida_por="ana.abreu", nomes_completos=NOMES)
+    assert any("rodapé da certidão cortado" in r.message for r in caplog.records), \
+        f"cortou sem avisar: {[r.message for r in caplog.records]}"
+
+
+def test_a_ressalva_legal_cita_se_tal_e_qual(afixado):
+    """Os avisos do prazos.py são frases COMPLETAS, e às vezes duas.
+
+    Duas, por exemplo, no aviso da janela legal: «A afixação termina a ...,
+    depois do limite de ... Os dias fora da janela não contam para o mínimo.»
+    Metido no molde «Ressalva-se que » com a inicial minusculizada dava
+    «Ressalva-se que a afixação termina ... Os dias fora ...», com o ponto final
+    a dobrar. São dois tipos de ressalva: as minhas, meias-frases feitas à
+    medida do molde, e as de outra autoria, que se citam tal e qual.
+
+    Nota, porque é fácil enganar-se a escolher o exemplo: a certidão só cita os
+    avisos de grau «aviso». O «Sem data de retirada: ...», que também tem duas
+    frases, é de grau «informacao» e nunca chega aqui — um edital ainda afixado
+    não tem data de retirada, e isso é o seu estado normal e não uma falta.
+    """
+    reg = dict(afixado, desafixado_em="2026-07-01T10:00:00",
+               desafixado_por="ana.abreu", campos_duvidosos=[])
+    t = corrido(cert.gerar(reg, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "Ressalva-se o seguinte: A afixação dura dois dias" in t
+    assert "Ressalva-se que a afixação" not in t
+    assert ".." not in t
+
+
+def test_as_minhas_ressalvas_continuam_a_encaixar_no_molde(ficha):
+    """A dos campos por confirmar é meia-frase minha, e leva o «que».
+
+    PASSA DOS DOIS LADOS de propósito: separar as ressalvas em dois tipos não
+    podia mexer nas que já encaixavam. É o que prova que a correção do outro
+    tipo não levou esta à frente.
+    """
+    t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "Ressalva-se que os seguintes elementos" in t

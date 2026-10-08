@@ -1358,3 +1358,133 @@ lá estão.
 Cinco testes, todos a falhar contra o código desta PR antes da correção: um para
 o valor em branco, e quatro parametrizados com um local masculino, um feminino,
 um plural e outro feminino singular.
+
+## 0.23.1 — Sete erros que a revisão da certidão apanhou
+
+A certidão oitocentista entrou na 0.23.0 e a revisão automática leu-a com mais
+atenção do que eu. Sete defeitos, duas rondas, todos reproduzidos antes de se
+lhes tocar — e todos num documento que entra num processo, que é onde um erro
+de português custa mais do que um erro de código.
+
+### Cinco erros de português apanhados pela revisão automática
+
+Todos reproduzidos antes de se lhes tocar, e todos num documento que entra num
+processo — que é onde um erro de português custa mais do que um erro de código.
+
+**1. O feminino (o mais grave).** O módulo só tinha a forma masculina:
+
+```
+pelas dois horas            ->  pelas duas horas
+pelas vinte e dois horas    ->  pelas vinte e duas horas
+dois folhas                 ->  duas folhas
+vinte e um folhas           ->  vinte e uma folhas
+duzentos folhas             ->  duzentas folhas
+dois mil folhas             ->  duas mil folhas
+```
+
+«Hora» e «folha» são femininos. «Minuto» e «dia» são masculinos e ficam na forma
+de `numero()` — «duas horas e dois minutos» está certo assim. A conversão é por
+TERMOS completos e não por finais de palavra: «doze» acaba em «ze» e não se
+toca, mas «cento e dois» tem de dar «cento e duas».
+
+**2. «aos um dia do mês de março».** Em todos os dias 1 de todos os meses. A
+preposição passa para dentro do módulo, como já estava na hora:
+
+```
+ext.aos("2026-03-01")  ->  ao primeiro dia do mês de março de 2026
+ext.aos("2026-03-29")  ->  aos vinte e nove dias do mês de março de 2026
+```
+
+E o `ext.data()` fica com a forma de CITAR — «com data de vinte e nove de junho
+de 2026» — que é outra coisa e lê-se melhor.
+
+**3. O rodapé passava por cima do número de folha.** Medido com uma morada
+realista: 484,7 pt de texto para 426,1 pt de espaço. Quem configura a morada não
+tem como adivinhar o limite, por isso o limite passa a tratar de si: o texto
+quebra à largura disponível, até duas linhas, e encolhe a letra se nem assim
+couber.
+
+**4. «...deste tipo de documento..»** Os avisos do `prazos.py` já acabam em
+ponto final, e a ressalva juntava outro.
+
+**5. O meu próprio teste da sobreposição tinha um buraco.** Agrupava as palavras
+pelo par (bloco, linha) que o PyMuPDF atribui — e como cada palavra é inserida à
+parte, nada garante que duas vizinhas caiam no mesmo bloco. Deixava passar
+precisamente a sobreposição ENTRE blocos, que é o caso que ele existe para
+apanhar. Passa a agrupar pela altura. Verificado: neste documento nenhuma linha
+atravessa blocos, pelo que o buraco não chegou a morder — mas estava lá.
+
+Os casos destas cinco correções levam a suite a **561**. Dezanove novos nesta
+ronda, e vinte e dois dos existentes falhavam contra o código da PR antes dela —
+as formas femininas, a fórmula de datar e a hora, todos verificados com
+`git stash`.
+
+### Segunda ronda da revisão: mais dois
+
+**A primeira linha de um parágrafo é mais estreita do que as outras**, e o
+`_quebrar_em_palavras` partia sempre pela largura da caixa. Medido: uma palavra
+de 90 letras mede 439,6 pt — cabe na caixa de 451 e não cabe nos 423 que sobram
+depois do recuo, ficava inteira e transbordava 16,6 pt.
+
+Com uma ressalva honesta: **hoje não há caminho até lá a partir do `gerar()`.**
+Os parágrafos começam todos por «que,», «Mais», «Por», «Ressalva-se» — nenhum
+começa por uma palavra longa. O teste exercita a função e não uma certidão
+inteira, e diz isso no próprio ficheiro. Fica corrigido porque o primeiro
+parágrafo que venha a começar por um resumo ou um nome de ficheiro abre a porta.
+
+**As ressalvas eram de dois tipos tratados como um.** As do `prazos.py` são
+frases COMPLETAS, e às vezes duas:
+
+```
+A afixação termina a 2026-10-30, depois do limite de 2026-10-11 — 10 dias
+após a data do documento. Os dias fora da janela não contam para o mínimo.
+```
+
+Metidas no molde «Ressalva-se que » com a inicial em minúscula, davam
+«Ressalva-se que a afixação termina ... Os dias fora ...», com o ponto a dobrar
+pelo meio. Passam a citar-se **tal e qual**, que é o que se faz a um texto de
+outra autoria: «Ressalva-se o seguinte: A afixação dura dois dias, abaixo do
+mínimo...». As minhas, que são meias-frases feitas à medida, continuam com o
+«que».
+
+### Terceira ronda: o rodapé cortava em silêncio
+
+Três apontamentos da revisão automática da PR, os três verificados antes de se
+lhes tocar.
+
+**O rodapé deitava fora o que não coubesse em duas linhas.** Duas é o que cabe
+a 7 pt — e a letra encolhe até 5 pt, onde cabem três. A terceira linha
+desaparecia sem uma palavra. Medido com um rodapé de 547 caracteres (morada,
+sítio, correio, telefone, fax, NIF, horário e serviços descentralizados, que é
+o que um município põe no rodapé dos seus editais):
+
+```
+antes:  3 linhas a 5 pt, a terceira deitada fora -> «Serviços descentralizados:
+        Loja do Munícipe de Leomil...» nunca chegava ao papel
+agora:  as três saem inteiras
+```
+
+O número de linhas deixa de ser um valor escrito à mão e sai da **geometria da
+faixa**: a última linha assenta `RODAPE_DESCIDA` abaixo da margem do corpo, a
+régua fica `RODAPE_ACIMA_DA_REGUA` acima da primeira, e a régua não pode subir
+acima da margem sob pena de invadir o texto. Dá duas a 7 pt e três a 5 pt, que
+é o que lá cabe e não o que alguém contou de cabeça.
+
+E quando nem três chegam, **corta mas diz**: fica um aviso no registo técnico
+com o que ficou de fora. Quem configurou a morada não vê a certidão a ser
+gerada; o que lhe resta é o registo contar-lhe.
+
+**O meu teste do rodapé olhava só para o span mais à direita**, e por isso teria
+passado igualmente se o rodapé tivesse desaparecido por completo — que é a outra
+maneira de não transbordar. Passa a exigir também que a morada, o sítio e o
+telefone configurados apareçam no texto extraído do PDF.
+
+**A docstring citava um aviso que a certidão nunca imprime.** O «Sem data de
+retirada: ...» é de grau `informacao`, e a certidão só cita os de grau `aviso` —
+filtro que já lá estava e que está certo: um edital ainda afixado não tem data
+de retirada, e isso é o seu estado normal, não uma falta. O exemplo passa a ser
+o aviso da janela legal, que tem mesmo duas frases e chega mesmo ao papel.
+
+**A contagem de testes da entrada 0.23.0** tinha ficado com os números desta
+PR. Volta a dizer o que a 0.23.0 entregou — 542 no total, 52 novos — e os desta
+ficam na 0.23.1, que é onde pertencem.
