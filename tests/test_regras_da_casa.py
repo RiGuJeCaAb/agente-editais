@@ -33,9 +33,18 @@ BINARIOS = {".png", ".jpg", ".jpeg", ".gif", ".ico", ".pdf", ".ttf", ".otf", ".w
 
 
 def _versionados():
-    """Os ficheiros de texto que o git segue, lidos uma vez só."""
-    saida = subprocess.run(["git", "ls-files"], cwd=RAIZ, capture_output=True,
-                           text=True, check=True).stdout.split("\n")
+    """Os ficheiros de texto que o git segue, lidos uma vez só.
+
+    Com `-z`, e não com a saída de linhas. Sem ele o git devolve os nomes com
+    caracteres fora do ASCII entre aspas e com escapes octais — um
+    `notas-de-afixação.md` volta como `"notas-de-afixa\303\247\303\243o.md"`,
+    o `is_file()` dá falso e o ficheiro DESAPARECE das três verificações que
+    varrem o repositório. Num projeto escrito em português isso não é hipótese
+    remota. Apanhado na revisão da PR.
+    """
+    saida = subprocess.run(["git", "ls-files", "-z"], cwd=RAIZ,
+                           capture_output=True, text=True,
+                           check=True).stdout.split("\0")
     for nome in filter(None, saida):
         caminho = RAIZ / nome
         if caminho.suffix.lower() in BINARIOS or not caminho.is_file():
@@ -247,6 +256,23 @@ EMOJI = re.compile(
     f"|{_classe(_PICTOGRAFICOS)}"
     f"|{_classe(_APRESENTACAO_DE_EMOJI)}"
 )
+
+
+def test_a_varredura_ve_mesmo_os_ficheiros():
+    """As três regras que varrem o repositório dependem todas desta função.
+
+    Se um dia ela deixar de devolver nada — um `git` ausente, uma mudança de
+    formato na saída, uma pasta de trabalho noutro sítio —, as três passam a
+    verde sem olhar para coisa nenhuma, e ninguém dá por isso. É o mesmo feitio
+    que já mordeu esta casa quatro vezes nesta onda: a verificação que não
+    verifica.
+    """
+    nomes = [nome for nome, _ in _versionados()]
+    assert len(nomes) > 30, (
+        f"a varredura só viu {len(nomes)} ficheiros: as regras dos emojis e "
+        f"dos brasileirismos estariam a passar sem ler quase nada")
+    for obrigatorio in ("README.md", "AGENTS.md", "CHANGELOG.md", "agente.py"):
+        assert obrigatorio in nomes, f"a varredura não viu o {obrigatorio}"
 
 
 def test_nao_ha_emojis_no_que_esta_versionado():

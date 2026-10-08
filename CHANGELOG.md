@@ -1824,6 +1824,23 @@ E ao alargá-lo, apanhou-se a si próprio pela TERCEIRA vez: os exemplos estavam
 escritos em caracteres dentro do comentário que explica a regra. Agora
 nomeiam-se por ponto de código. Neste ficheiro nem a prosa pode conter um.
 
+### E uma varredura que saltava ficheiros em silêncio
+
+O `git ls-files` devolve os nomes com caracteres fora do ASCII **entre aspas e
+com escapes octais**. Um `notas-de-afixação.md` volta como
+`"notas-de-afixa\303\247\303\243o.md"`, o `is_file()` dá falso, e o ficheiro
+desaparece das três verificações que varrem o repositório — sem uma palavra.
+Num projeto escrito em português isso não é hipótese remota.
+
+Passa a usar-se `git ls-files -z`. Achado do revisor da casa, e confirmado a
+correr: o ficheiro de teste era mesmo invisível.
+
+Entra com ele uma guarda que faltava: se um dia a varredura deixar de devolver
+ficheiros, as três regras passam a verde sem olhar para nada. Agora exige-se
+que veja mais de trinta ficheiros e que o README, o AGENTS, o CHANGELOG e o
+agente estejam entre eles. É a quinta vez nesta onda que a mesma armadilha
+aparece, e a primeira em que a tapei antes de alguém ma apontar.
+
 ### Um buraco que esta varredura não tapa, e fica nomeado
 
 O teste dos emojis lê os **ficheiros versionados**. As mensagens de commit não
@@ -1847,6 +1864,10 @@ máquina, que apanhou as cinco da onda anterior.
 
 ### Testes
 
-**738 no total, 7 novos**, mais um de browser (39, eram 38). Os sete novos são
-as regras acima; o de browser confere a contagem que só se pode medir onde há
-Chromium.
+**739 no total, 8 novos**, mais um de browser (39, eram 38). Os oito novos são
+as regras acima e a guarda da varredura; o de browser confere a contagem que só
+se pode medir onde há Chromium.
+
+A contagem apanhou a deriva da sua própria PR **duas vezes**: à primeira corrida
+(731 para 738) e outra vez ao entrar a guarda da varredura (738 para 739). É o
+que ela existe para fazer.
