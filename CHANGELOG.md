@@ -1629,3 +1629,63 @@ só vai buscar os slides, e por isso uma correção na página só chega à tele
 quando alguém a recarrega. Fazer a página recarregar-se sozinha é peça à parte,
 e com cuidado: num expositor municipal, uma condição errada põe o ecrã a piscar
 para sempre à frente do átrio da câmara.
+
+## 0.24.1 — O logótipo que não chega
+
+Nota do revisor na PR da 0.24.0, deixada por confirmar: a partir desta versão
+quem assenta o logótipo é o `onload` do JS, e o `onload` não dispara quando a
+imagem não carrega. Até à 0.23 a `.marca` levava posição e tamanho do CSS, por
+isso uma imagem partida ficava onde o CSS a punha. Mudou o caminho e ninguém
+tinha medido o que isso faz.
+
+### Medido
+
+O `logotipo.png` vive na pasta de saída e pode faltar — um disco cheio a meio
+da escrita, uma sincronização interrompida, alguém a arrumar a pasta. Com o
+ficheiro a dar 404:
+
+```
+3840x2160: folha desenhada     [1319.5, 248.0, 1201.0, 1678.0]
+           Python sem logótipo [1319.5, 248.0, 1201.0, 1678.0]
+1080x1920: folha desenhada     [  22.8, 243.6, 1034.4, 1445.3]
+           Python sem logótipo [  22.8, 243.6, 1034.4, 1445.3]
+```
+
+**Está certo**, e era o que se esperava: sem o ficheiro o `naturalWidth` fica a
+zero, a guarda nunca entra, a faixa de cima fica na do palco e as folhas
+assentam onde assentariam se nunca tivesse havido logótipo. A imagem partida
+fica com uma caixa de 0×0 — sem medidas, um `<img>` morto colapsa e não pinta
+o ícone de imagem partida do browser.
+
+### O que isto acrescenta
+
+Nada ao comportamento. Doze testes de browser, em seis ecrãs, para o
+comportamento certo deixar de depender de ninguém se lembrar. Verificado contra
+a regressão que isto apanha — tirar a guarda do `naturalWidth` e confiar que a
+imagem carregou sempre:
+
+```
+a folha saiu em [0, 0, 1785, 2526] e sem logótipo o Python manda
+                [1319.5, 248.0, 1201.0, 1678.0]
+```
+
+Canto superior esquerdo, em tamanho de palco, por compor: com a altura natural
+a zero o `lh` dá `NaN` e envenena a aritmética toda. Um ecrã inteiro perdido
+por um ficheiro em falta.
+
+### Uma espera que estava a medir a coisa errada
+
+O auxiliar dos testes de browser esperava sempre por `complete && naturalWidth
+> 0`. Numa imagem que deu 404 isso nunca se satisfaz, e o primeiro teste novo
+estourava por ESPERA e não por medida — que é uma maneira enganadora de falhar.
+Passa a haver `logotipo_carrega=False`, que espera só pelo fim da tentativa. O
+caso bom continua com a espera estrita, que é o que garante que a faixa já foi
+recalculada com o tamanho real.
+
+### Testes
+
+**731 no total, sem mudança** — os novos são de browser e ficam fora do pytest
+normal. Os de browser passam de 26 a 38.
+
+E o README dizia 23: a contagem não tinha sido atualizada quando a 0.24.0
+acrescentou os três do teto do logótipo. Corrigida.

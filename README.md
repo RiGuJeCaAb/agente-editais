@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 731 testes (mais 23 de browser: pytest -m navegador)
+pytest          # 731 testes (mais 38 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1138,6 +1138,12 @@ ele é uma fração da largura e a faixa é uma fração da altura. A faixa pass
 crescer o necessário para o conter. Custo medido num 21:9 de 3440×1440: a folha
 fica 9 % menor do que ficaria sem a guarda — e sem ela o logótipo assentava em
 cima do texto de um edital.
+
+**E se o `logotipo.png` faltar**, a televisão desenha o ecrã sem ele e as
+folhas assentam exatamente onde assentariam se nunca tivesse havido logótipo. O
+ficheiro vive na pasta de saída e pode desaparecer — um disco cheio a meio da
+escrita, uma sincronização interrompida, alguém a arrumar a pasta —, e o edital
+não pode sair do sítio por causa disso. Medido no browser, em seis ecrãs.
 
 **Mas a faixa não cresce sem travão.** Com um logótipo mais alto do que largo
 num ecrã muito largo, ela comia o ecrã: medido com um rácio de 0,5 num 21:9,

@@ -102,15 +102,39 @@ def expositor_de_logotipo_alto(tmp_path_factory):
     yield from _servir(tmp_path_factory.mktemp("expositor_alto"), LOGOTIPO_ALTO)
 
 
-def _servir(pasta, logotipo):
+@pytest.fixture(scope="module")
+def expositor_sem_o_ficheiro_do_logotipo(tmp_path_factory):
+    """O slides.json diz que há logótipo; o PNG não está lá.
+
+    O posto não copia o logotipo.png à mão a cada publicação — ele vive na
+    pasta de saída e pode faltar: um disco que encheu a meio da escrita, uma
+    sincronização interrompida, alguém que arrumou a pasta. A televisão não
+    pode ficar com o edital fora do sítio por causa disso.
+
+    Importa porque esta peça MUDOU o caminho: até à 0.23 a `.marca` levava
+    posição e tamanho do CSS, e portanto um logótipo partido ficava onde o CSS
+    o punha. A partir da 0.24 quem a assenta é o `onload` do JS — que, se a
+    imagem não carregar, nunca dispara.
+    """
+    yield from _servir(tmp_path_factory.mktemp("expositor_sem_logo"), LOGOTIPO,
+                       escrever_o_ficheiro=False)
+
+
+def _servir(pasta, logotipo, escrever_o_ficheiro=True):
     """Monta uma pasta de saída com este logótipo e serve-a por HTTP.
 
     Servida e não aberta em file://: a página busca o slides.json por fetch, e
     um fetch a partir de file:// é recusado pelo browser — o que daria uma
     televisão vazia e um teste a falhar por razão errada.
+
+    Com `escrever_o_ficheiro=False` o slides.json continua a dizer que há
+    logótipo mas o PNG não vai para a pasta. É o que acontece no posto quando o
+    ficheiro desaparece ou se corrompe depois de a publicação já ter decidido
+    que ele cabia: a página pede-o, o servidor responde 404.
     """
     (pasta / "index.html").write_text(_html(), encoding="utf-8")
-    Image.new("RGBA", logotipo, (200, 168, 75, 255)).save(pasta / "logotipo.png")
+    if escrever_o_ficheiro:
+        Image.new("RGBA", logotipo, (200, 168, 75, 255)).save(pasta / "logotipo.png")
     for nome, tam in (("a4.png", A4), ("dt.png", DEITADA)):
         Image.new("RGB", tam, "white").save(pasta / nome)
 
@@ -152,8 +176,17 @@ def browser():
         b.close()
 
 
-def _medidas(browser, url, largura, altura):
-    """Abre a televisão num ecrã destas medidas e devolve o que está desenhado."""
+def _medidas(browser, url, largura, altura, logotipo_carrega=True):
+    """Abre a televisão num ecrã destas medidas e devolve o que está desenhado.
+
+    Com `logotipo_carrega=False` espera-se só que a TENTATIVA de carregamento
+    acabe, e não que ela tenha corrido bem. A diferença importa: numa imagem
+    que deu 404 o `complete` fica a true e o `naturalWidth` a zero, para
+    sempre, e a espera estrita nunca se satisfaz — o teste estourava por
+    espera e não por medida. O caso bom continua a esperar pelo
+    `naturalWidth > 0`, que é o que garante que a faixa de cima já foi
+    recalculada com o tamanho real do logótipo.
+    """
     pagina = browser.new_page(viewport={"width": largura, "height": altura})
     try:
         pagina.goto(url)
@@ -161,9 +194,11 @@ def _medidas(browser, url, largura, altura):
         pagina.click("#arranque", timeout=5000)
         pagina.wait_for_selector(".slide.ativo .folha", timeout=5000)
         # O logótipo muda a faixa de cima, e só depois de carregar.
+        acabou = ("m.complete && m.naturalWidth > 0" if logotipo_carrega
+                  else "m.complete")
         pagina.wait_for_function(
             "() => [...document.getElementsByClassName('marca')]"
-            ".every(m => m.complete && m.naturalWidth > 0)", timeout=5000)
+            f".every(m => {acabou})", timeout=5000)
         return [pagina.evaluate(MEDIR, n) for n in range(len(CASOS))]
     finally:
         pagina.close()
@@ -269,6 +304,48 @@ def _logotipo_na_composicao():
     assert dele.any(), "o logótipo não aparece na composição do arquivo"
     ys, xs = np.nonzero(dele)
     return (float(xs.min()), float(ys.min()), float(xs.max() - xs.min() + 1))
+
+
+@pytest.mark.parametrize("largura,altura", ECRAS)
+def test_sem_o_ficheiro_do_logotipo_a_folha_fica_na_mesma_no_sitio(
+        browser, expositor_sem_o_ficheiro_do_logotipo, largura, altura):
+    """Falta o logótipo: a televisão desenha o ecrã SEM ele, e certo.
+
+    A faixa de cima é a do palco e as folhas assentam exatamente onde o
+    `desenho_no_ecra()` as põe quando não há logótipo nenhum. O que não pode
+    acontecer é a folha ficar à espera de uma faixa que o `onload` nunca chegou
+    a medir.
+    """
+    medidas = _medidas(browser, expositor_sem_o_ficheiro_do_logotipo,
+                       largura, altura, logotipo_carrega=False)
+    for medido, (nome, tamanhos) in zip(medidas, CASOS, strict=True):
+        caixas = trat.caixas_do_ecra([Image.new("RGB", t) for t in tamanhos])
+        esperado = trat.desenho_no_ecra(caixas, largura, altura, None)
+        for obtida, esp in zip(medido["folhas"], esperado["caixas"], strict=True):
+            for valor, deve_ser in zip(obtida, esp, strict=True):
+                assert abs(valor - deve_ser) <= 0.5, (
+                    f"{nome} em {largura}x{altura}: a folha saiu em "
+                    f"{[round(v, 1) for v in obtida]} e sem logótipo o Python "
+                    f"manda {[round(v, 1) for v in esp]}")
+
+
+@pytest.mark.parametrize("largura,altura", ECRAS)
+def test_um_logotipo_que_nao_carrega_nao_ocupa_nem_pinta(
+        browser, expositor_sem_o_ficheiro_do_logotipo, largura, altura):
+    """E o que resta da imagem partida não se vê nem rouba espaço.
+
+    Um `<img>` com origem morta pode desenhar o ícone de imagem partida do
+    browser e empurrar o que está à volta. Aqui não: sem o `onload`, nunca lhe
+    são postas medidas, e uma imagem partida sem largura nem altura colapsa
+    para nada. Mede-se, em vez de se confiar.
+    """
+    for medido in _medidas(browser, expositor_sem_o_ficheiro_do_logotipo,
+                           largura, altura, logotipo_carrega=False):
+        marca = medido["marca"]
+        if marca is None:
+            continue
+        assert marca[2] <= 1 and marca[3] <= 1, (
+            f"a imagem partida ficou com {marca[2]:.1f}x{marca[3]:.1f} px")
 
 
 @pytest.mark.parametrize("largura,altura", [(3440, 1440), (3840, 2160), (1280, 1024)])
