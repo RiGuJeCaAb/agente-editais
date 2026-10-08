@@ -1688,7 +1688,11 @@ recalculada com o tamanho real.
 normal. Os de browser passam de 26 a 38.
 
 E o README dizia 23: a contagem não tinha sido atualizada quando a 0.24.0
-acrescentou os três do teto do logótipo. Corrigida.
+acrescentou os três do teto do logótipo. Corrigida — nos **dois** sítios onde
+aparece, que é outra coisa que esta onda ensinou: a primeira correção arranjou
+só a linha do arranque rápido e deixou a da secção dos testes de browser a
+dizer 23. Dois revisores apanharam-no ao mesmo tempo. Ambos conferidos contra
+a saída real: `38/769 tests collected (731 deselected)`.
 
 ### E um teste que podia passar em seco
 
