@@ -85,9 +85,13 @@ def _quantos_testes(marcador=None):
            "-p", "no:cacheprovider"]
     if marcador:
         cmd += ["-m", marcador]
-    saida = subprocess.run(cmd, cwd=RAIZ, capture_output=True, text=True).stdout
-    achado = re.search(r"^(\d+)(?:/\d+)? tests? collected", saida, re.M)
-    assert achado, f"o pytest não disse quantos colheu:\n{saida[-500:]}"
+    corrido = subprocess.run(cmd, cwd=RAIZ, capture_output=True, text=True)
+    achado = re.search(r"^(\d+)(?:/\d+)? tests? collected", corrido.stdout, re.M)
+    # Com o código de saída e o stderr: sem eles, uma colheita que rebentasse
+    # dava uma mensagem a dizer só que o número não apareceu, sem dizer porquê.
+    assert achado, (f"o pytest saiu com {corrido.returncode} e não disse "
+                    f"quantos colheu:\n{corrido.stdout[-400:]}\n"
+                    f"{corrido.stderr[-400:]}")
     return int(achado.group(1))
 
 
@@ -194,17 +198,55 @@ def test_o_readme_cita_a_contagem_certa_dos_testes_de_browser():
 # converteu os escapes em caracteres: o ficheiro foi para o repositório com
 # sete emojis dentro da própria regra que os proíbe. Quem o apanhou foi a
 # regra, ao correr contra si mesma.
-_BLOCOS = [(0x1F000, 0x1FAFF),   # pictogramas, emoticons, símbolos, transportes
-           (0x1F1E6, 0x1F1FF)]   # indicadores regionais (bandeiras)
-_SOLTOS = [0x2705, 0x274C, 0x2728, 0x2B50, 0x2B55, 0x2757, 0x2753]
-_SIMBOLOS = (0x2600, 0x27BF)     # mistos: só contam com o seletor a seguir
+#
+# A segunda versão só conhecia sete símbolos soltos, e deixava passar o
+# relógio U+231A, a bola U+26BD, o sinal de direitos de autor com seletor e as
+# teclinhas. Passa a usar a lista do Unicode: tudo o que tem APRESENTAÇÃO DE
+# EMOJI por omissão, mais tudo o que a pede com o seletor U+FE0F a seguir —
+# que é o que apanha esses dois últimos sem os enumerar.
+#
+# Repare-se que esta explicação NÃO escreve nenhum deles: a terceira vez que
+# este ficheiro foi apanhado por si mesmo foi por ter os exemplos em caracteres
+# dentro do comentário que explica a regra. Aqui nomeiam-se por ponto de
+# código, e acabou.
+#
+# As setas e as aspas angulares continuam de fora: não pedem
+# apresentação de emoji, e o README desenha com elas o percurso de um edital.
+_PICTOGRAFICOS = [
+    (0x1F000, 0x1FAFF),   # emoticons, símbolos, transportes, suplementos
+    (0x1F1E6, 0x1F1FF),   # indicadores regionais (bandeiras)
+]
+
+# Unicode emoji-data, Emoji_Presentation=Yes no plano básico: os que já se
+# desenham como emoji sem ninguém pedir.
+_APRESENTACAO_DE_EMOJI = [
+    (0x231A, 0x231B), (0x23E9, 0x23EC), (0x23F0, 0x23F0), (0x23F3, 0x23F3),
+    (0x25FD, 0x25FE), (0x2614, 0x2615), (0x2648, 0x2653), (0x267F, 0x267F),
+    (0x2693, 0x2693), (0x26A1, 0x26A1), (0x26AA, 0x26AB), (0x26BD, 0x26BE),
+    (0x26C4, 0x26C5), (0x26CE, 0x26CE), (0x26D4, 0x26D4), (0x26EA, 0x26EA),
+    (0x26F2, 0x26F3), (0x26F5, 0x26F5), (0x26FA, 0x26FA), (0x26FD, 0x26FD),
+    (0x2705, 0x2705), (0x270A, 0x270B), (0x2728, 0x2728), (0x274C, 0x274C),
+    (0x274E, 0x274E), (0x2753, 0x2755), (0x2757, 0x2757), (0x2795, 0x2797),
+    (0x27B0, 0x27B0), (0x27BF, 0x27BF), (0x2B1B, 0x2B1C), (0x2B50, 0x2B50),
+    (0x2B55, 0x2B55),
+]
+
 _SELETOR_DE_EMOJI = 0xFE0F
 
-EMOJI = re.compile("|".join(
-    [f"[{chr(a)}-{chr(b)}]" for a, b in _BLOCOS]
-    + [f"[{chr(_SIMBOLOS[0])}-{chr(_SIMBOLOS[1])}]{chr(_SELETOR_DE_EMOJI)}"]
-    + [chr(c) for c in _SOLTOS]
-))
+
+def _classe(intervalos):
+    """Uma classe de caracteres da expressão regular, a partir dos limites."""
+    return "[" + "".join(f"{chr(a)}-{chr(b)}" for a, b in intervalos) + "]"
+
+
+EMOJI = re.compile(
+    # Qualquer caracter que PEÇA apresentação de emoji com o seletor a seguir.
+    # Apanha o U+00A9 e o U+2122 com seletor, e as teclinhas, sem os enumerar.
+    f".{chr(_SELETOR_DE_EMOJI)}"
+    # Os que já a têm por omissão.
+    f"|{_classe(_PICTOGRAFICOS)}"
+    f"|{_classe(_APRESENTACAO_DE_EMOJI)}"
+)
 
 
 def test_nao_ha_emojis_no_que_esta_versionado():
@@ -268,12 +310,17 @@ SABIDOS = {
 
 def test_nao_ha_portugues_do_brasil():
     """«Registo técnico-operacional, nunca português do Brasil» (AGENTS.md)."""
+    # Compiladas uma vez e não uma por ficheiro, e com re.escape: as palavras
+    # de hoje são todas letras, mas uma que trouxesse um metacaracter mudava a
+    # expressão em silêncio.
+    expressoes = {palavra: re.compile(r"\b" + re.escape(palavra) + r"\b", re.I)
+                  for palavra in BRASILEIRISMOS}
     achados = []
     for nome, texto in _versionados():
         for palavra, europeu in BRASILEIRISMOS.items():
             if (nome, palavra) in SABIDOS:
                 continue
-            rx = re.compile(r"\b" + palavra + r"\b", re.I)
+            rx = expressoes[palavra]
             for n, linha in enumerate(texto.splitlines(), 1):
                 if rx.search(linha):
                     achados.append(f"{nome}:{n}: «{palavra}» — em português "

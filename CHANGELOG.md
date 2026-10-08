@@ -1708,7 +1708,7 @@ exige que tenha medido alguma coisa. Verificado a pôr a fixture a não pedir
 logótipo em caso nenhum — os seis ecrãs falham com «nenhum caso tinha
 logótipo: o teste não mediu nada».
 
-## 0.24.2 — Metade das regras da casa deixa de depender de quem se lembra
+## 0.24.3 — Metade das regras da casa deixa de depender de quem se lembra
 
 Veio de uma conversa sobre revisores automáticos. A observação de quem usa isto,
 a 08/10/2026: as plataformas ganham fama, criam dependência e depois querem
@@ -1793,6 +1793,49 @@ ficheiro não poder conter um emoji nem por acidente.
 
 Quem apanhou as duas foi a regra, ao correr contra si mesma. É a melhor prova
 que se podia pedir — e também a razão por que a matriz tem duas pernas.
+
+### Terceira ronda: o que a revisão ainda apanhou
+
+**O testemunho da integração contínua estava ao alcance do código da PR.** O
+`actions/checkout` guarda o `GITHUB_TOKEN` na configuração do git da pasta de
+trabalho, e todos estes trabalhos correm código que vem da PR — o pytest, e
+agora a ferramenta dos assuntos. Com permissões de escrita por omissão, esse
+código podia levá-lo consigo. O fluxo passa a declarar `contents: read` e o
+trabalho das regras da PR a não persistir credenciais. Achado do Sourcery, e
+dos bons: não era sobre o que o código faz, era sobre o que podia fazer.
+
+**A regra «cada peça leva uma versão» não estava verificada.** O teste do
+pytest confere que o `VERSAO` e o `version` são o MESMO; não tem como saber se
+SUBIRAM, porque isso só se vê contra a revisão anterior. Uma PR que deixasse os
+dois intactos passava. Entra o `ferramentas/versao_subiu.py`, ao lado do dos
+assuntos e pela mesma razão — precisa do intervalo de commits.
+
+O que ele não faz, e fica dito: decidir se devia ser o segundo número ou o
+terceiro. Saber se uma alteração muda o que a aplicação faz não é coisa que uma
+máquina conclua de um diff.
+
+**O detetor de emojis deixava passar quatro famílias:** o relógio U+231A, a
+bola U+26BD, os que pedem apresentação de emoji com o seletor U+FE0F a seguir, e
+as teclinhas. Passa a usar a lista do Unicode dos que têm apresentação de emoji
+por omissão, mais a regra do seletor — que apanha as duas últimas famílias sem
+as enumerar.
+
+E ao alargá-lo, apanhou-se a si próprio pela TERCEIRA vez: os exemplos estavam
+escritos em caracteres dentro do comentário que explica a regra. Agora
+nomeiam-se por ponto de código. Neste ficheiro nem a prosa pode conter um.
+
+### Um buraco que esta varredura não tapa, e fica nomeado
+
+O teste dos emojis lê os **ficheiros versionados**. As mensagens de commit não
+são ficheiros, e a regra do `AGENTS.md` proíbe emojis «no código, na
+documentação ou nas mensagens de commit» — a terceira superfície continua por
+verificar. Deu para ver ao vivo: a mensagem desta própria ronda levava um
+emoji, e fui eu que o apanhei a relê-la, não uma máquina.
+
+Tapa-se onde já está o intervalo de commits, ao lado das outras duas regras da
+PR. Não entra aqui porque obriga a partilhar a definição de emoji entre o teste
+e a ferramenta, e duplicá-la seria repetir o defeito das contagens do README:
+dois sítios a dizer a mesma coisa, até ao dia em que deixam de dizer.
 
 ### O que NÃO está aqui, e de propósito
 
