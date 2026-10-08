@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 731 testes (mais 23 de browser: pytest -m navegador)
+pytest          # 731 testes (mais 38 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1139,6 +1139,12 @@ crescer o necessário para o conter. Custo medido num 21:9 de 3440×1440: a folh
 fica 9 % menor do que ficaria sem a guarda — e sem ela o logótipo assentava em
 cima do texto de um edital.
 
+**E se o `logotipo.png` faltar**, a televisão desenha o ecrã sem ele e as
+folhas assentam exatamente onde assentariam se nunca tivesse havido logótipo. O
+ficheiro vive na pasta de saída e pode desaparecer — um disco cheio a meio da
+escrita, uma sincronização interrompida, alguém a arrumar a pasta —, e o edital
+não pode sair do sítio por causa disso. Medido no browser, em seis ecrãs.
+
 **Mas a faixa não cresce sem travão.** Com um logótipo mais alto do que largo
 num ecrã muito largo, ela comia o ecrã: medido com um rácio de 0,5 num 21:9,
 ficava com 1092 dos 1440 píxeis e a folha saía com **0,7×1,0 píxeis**. O
@@ -1149,9 +1155,10 @@ faixa fica nos 11,5 % e este teto nunca chega a morder.
 ### A página da televisão passou a ser testada num browser
 
 Até aqui nenhum teste a abria: verificava-se o HTML por pesquisa de texto, e foi
-assim que este defeito passou sem uma única linha vermelha. Há agora 23 testes
+assim que este defeito passou sem uma única linha vermelha. Há agora 38 testes
 que a abrem num Chromium, medem o que lá está desenhado e comparam com o
-`trat.desenho_no_ecra()`. Correm num trabalho próprio da integração contínua:
+`trat.desenho_no_ecra()` — incluindo o ecrã largo com um logótipo alto e o caso
+do `logotipo.png` em falta. Correm num trabalho próprio da integração contínua:
 
 ```bash
 pip install playwright && playwright install chromium
