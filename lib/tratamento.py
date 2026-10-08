@@ -111,6 +111,21 @@ FRACAO_LADO = MARGEM_LATERAL / CANVAS_W                         # 0,0211
 # Ar entre o logótipo e a primeira folha, em frações da altura do logótipo.
 FOLGA_SOB_A_MARCA = 0.2
 
+# Quanto da ALTURA do ecrã a faixa do logótipo pode ocupar, no máximo.
+#
+# O logótipo é uma fração da LARGURA e a faixa é uma fração da ALTURA, por isso
+# num ecrã largo, ou com um logótipo mais alto do que largo, a faixa cresce sem
+# travão. Medido antes deste teto, com um logótipo de rácio 0,5 num 21:9 de
+# 3440×1440: a faixa ficava com 1092 px dos 1440 e sobrava uma folha de 0,7×1,0
+# PÍXEIS. O teste da sobreposição passava — um píxel não tapa nada —, que é o
+# defeito dele e não da regra.
+#
+# 0,25 e não um valor mais apertado: com o logótipo que o município usa a faixa
+# fica em 11,5% da altura, e este teto só começaria a morder num ecrã com mais
+# de 3,9 para 1. Nenhum ecrã real chega lá, pelo que isto nunca muda nada ao
+# posto — é a rede para o dia em que o logótipo mude de forma.
+TETO_DA_MARCA = 0.25
+
 # Acima deste rácio largura/altura o documento vai sozinho para a caixa larga.
 # 1.0 — isto é, mais largo do que alto — e não um valor mais exigente: mesmo um
 # documento quase quadrado ganha o dobro da área na caixa larga, porque na
@@ -820,6 +835,14 @@ def desenho_no_ecra(caixas, largura, altura, logo_racio=None):
         ly = lx * LOGO_MARGEM_Y_FATOR
         lw = largura * LOGO_LARGURA_FRAC
         lh = lw / logo_racio
+        # O logótipo encolhe antes de comer o ecrã. Sem este teto, um logótipo
+        # alto num ecrã largo deixava a folha com um píxel de altura — e o
+        # logótipo existe para identificar o município, não para tapar o edital
+        # que o município está a afixar.
+        cabe = altura * TETO_DA_MARCA - ly
+        if cabe > 0 and lh * (1 + FOLGA_SOB_A_MARCA) > cabe:
+            encolher = cabe / (lh * (1 + FOLGA_SOB_A_MARCA))
+            lw, lh = lw * encolher, lh * encolher
         marca = (lx, ly, lw, lh)
         # A faixa de cima tem de conter o logótipo, e a folga por baixo dele é
         # uma fração da sua própria altura — não uma medida nova a inventar.

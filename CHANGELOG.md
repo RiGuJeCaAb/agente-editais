@@ -1568,8 +1568,40 @@ imagem que vai para o arquivo continua a compor-se a 3840×2160. O que esta peç
 acrescenta é a reaplicação desse desenho ao ecrã que a televisão tem à frente —
 que é coisa do browser, e só do browser.
 
+### Quatro apontamentos da revisão da PR
+
+**Um logótipo alto comia o ecrã.** Ele é uma fração da LARGURA e a faixa é uma
+fração da ALTURA; sem travão, um logótipo de rácio 0,5 num 21:9 de 3440×1440
+deixava a faixa com 1092 dos 1440 píxeis e a folha saía com **0,7×1,0 píxeis**.
+O meu teste da sobreposição dava verde — um píxel não tapa nada. O logótipo
+passa a encolher, com o rácio intacto, antes de a faixa passar de 25 % da
+altura; a folha nunca desce dos 64 %. Com o logótipo que o município usa a
+faixa fica nos 11,5 % e o teto nunca morde.
+
+**Os testes de browser mediam uma página que ninguém publica**, por terem a sua
+própria cópia das sete substituições de marcadores. Há agora uma
+`pagina_da_tv()` que o agente usa para publicar e que os testes abrem.
+
+**O teste das frações procurava cada número «algures no HTML»**, logo passava
+com dois marcadores trocados entre si. A primeira correção era pior — lia o par
+esperado do próprio dicionário que o defeito corromperia, e passou com a troca
+feita de propósito. Os sete pares estão agora escritos à mão no teste.
+
+**O teste do logótipo nunca abria o arquivo**, apesar do nome: recalculava a
+posição das constantes. Passa a compor um ecrã com um logótipo de uma cor que o
+fundo não tem e a medir os píxeis.
+
+Um quinto apontamento não se confirmou: o arranque do painel **regenera** a
+página da TV (`agente.py:1531`), e isso foi verificado a correr.
+
 ### Por resolver
 
 Três folhas lado a lado num ecrã vertical continuam a 23 % da área: três A4 em
 fila não cabem noutro sítio numa largura de 1080. Resolver isso é reorganizar o
 ecrã, não ampliá-lo, e é outra peça.
+
+**Um separador já aberto fica com o JavaScript que carregou.** O `sincroniza()`
+só vai buscar os slides, e por isso uma correção na página só chega à televisão
+quando alguém a recarrega. Fazer a página recarregar-se sozinha é peça à parte,
+e com cuidado: num expositor municipal, uma condição errada põe o ecrã a piscar
+para sempre à frente do átrio da câmara.

@@ -1044,7 +1044,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   // de diferença, medidos, entre onde o logótipo se via e onde ficava provado.
   var FR_TOPO = __FR_TOPO__, FR_FUNDO = __FR_FUNDO__, FR_LADO = __FR_LADO__;
   var LG_LARGURA = __LG_LARGURA__, LG_MARGEM = __LG_MARGEM__,
-      LG_MARGEM_Y = __LG_MARGEM_Y__, LG_FOLGA = __LG_FOLGA__;
+      LG_MARGEM_Y = __LG_MARGEM_Y__, LG_FOLGA = __LG_FOLGA__,
+      LG_TETO = __LG_TETO__;
 
   // A sombra da folha, à escala a que a folha está desenhada. Era desenhada em
   // coordenadas do palco e vinha encolhida pelo transform que já não existe.
@@ -1075,6 +1076,15 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     if (marca && marca.naturalWidth > 0 && marca.naturalHeight > 0){
       var lx = W*LG_MARGEM, ly = lx*LG_MARGEM_Y, lw = W*LG_LARGURA;
       var lh = lw*marca.naturalHeight/marca.naturalWidth;
+      // O logótipo encolhe antes de comer o ecrã: ele é uma fração da LARGURA
+      // e a faixa é uma fração da ALTURA, e sem travão um logótipo alto num
+      // ecrã largo deixava a folha com um píxel. Medido, num 21:9 com um
+      // logótipo de rácio 0,5: folha de 0,7 x 1,0 píxeis.
+      var cabe = H*LG_TETO - ly;
+      if (cabe > 0 && lh*(1 + LG_FOLGA) > cabe){
+        var encolher = cabe/(lh*(1 + LG_FOLGA));
+        lw *= encolher; lh *= encolher;
+      }
       marca.style.left = lx+'px'; marca.style.top = ly+'px';
       marca.style.width = lw+'px'; marca.style.height = lh+'px';
       topo = Math.max(topo, ly + lh*(1 + LG_FOLGA));
@@ -1343,6 +1353,7 @@ _FRACOES_DA_PAGINA = {
     "__LG_MARGEM__": "LOGO_MARGEM_FRAC",
     "__LG_MARGEM_Y__": "LOGO_MARGEM_Y_FATOR",
     "__LG_FOLGA__": "FOLGA_SOB_A_MARCA",
+    "__LG_TETO__": "TETO_DA_MARCA",
 }
 
 

@@ -142,6 +142,33 @@ def test_o_logotipo_nunca_assenta_sobre_a_folha(racio, largura, altura):
         assert y >= ly + lh - 1e-9, f"racio {racio} em {largura}x{altura}"
 
 
+@pytest.mark.parametrize("racio", [6.0, RACIO_DO_LOGOTIPO, 3.0, 2.0, 1.0, 0.5])
+@pytest.mark.parametrize("largura,altura", ECRAS)
+def test_o_logotipo_encolhe_antes_de_comer_o_ecra(racio, largura, altura):
+    """Não basta não TAPAR a folha: tem de sobrar folha para ler.
+
+    É o buraco do teste da sobreposição, e vale a pena escrevê-lo aqui porque
+    foi assim que passou: com um logótipo de rácio 0,5 num 21:9 de 3440×1440, a
+    faixa ficava com 1092 dos 1440 píxeis e a folha saía com 0,7×1,0 PÍXEIS. O
+    teste da sobreposição dava verde — um píxel não tapa nada.
+
+    Apanhado na revisão automática da PR.
+    """
+    _, d = desenho("uma folha vertical", largura, altura, racio)
+    _, _, _, h = d["caixas"][0]
+    assert h >= 0.6 * altura, (
+        f"a folha ficou com {100 * h / altura:.1f}% da altura, com um logótipo "
+        f"de rácio {racio} num ecrã {largura}x{altura}")
+
+
+@pytest.mark.parametrize("racio", [6.0, RACIO_DO_LOGOTIPO, 1.0, 0.5])
+def test_o_logotipo_nao_se_deforma_ao_encolher(racio):
+    """Encolher é escalar os dois lados pelo mesmo fator, nunca esmagar um."""
+    _, d = desenho("uma folha vertical", 3440, 1440, racio)
+    lw, lh = d["logotipo"][2], d["logotipo"][3]
+    assert abs(lw / lh - racio) < 1e-6
+
+
 def test_um_logotipo_tao_largo_como_o_do_municipio_nao_mexe_no_16_9():
     """A faixa só cresce quando precisa, e com este logótipo não precisa."""
     _, com = desenho("uma folha vertical", 3840, 2160, RACIO_DO_LOGOTIPO)

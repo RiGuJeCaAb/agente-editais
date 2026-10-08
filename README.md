@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 679 testes (mais 23 de browser: pytest -m navegador)
+pytest          # 731 testes (mais 23 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1138,6 +1138,13 @@ ele é uma fração da largura e a faixa é uma fração da altura. A faixa pass
 crescer o necessário para o conter. Custo medido num 21:9 de 3440×1440: a folha
 fica 9 % menor do que ficaria sem a guarda — e sem ela o logótipo assentava em
 cima do texto de um edital.
+
+**Mas a faixa não cresce sem travão.** Com um logótipo mais alto do que largo
+num ecrã muito largo, ela comia o ecrã: medido com um rácio de 0,5 num 21:9,
+ficava com 1092 dos 1440 píxeis e a folha saía com **0,7×1,0 píxeis**. O
+logótipo encolhe, com o rácio intacto, antes de a faixa passar de 25 % da
+altura, e a folha nunca desce dos 64 %. Com o logótipo que o município usa a
+faixa fica nos 11,5 % e este teto nunca chega a morder.
 
 ### A página da televisão passou a ser testada num browser
 
