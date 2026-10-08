@@ -1707,3 +1707,82 @@ Leva agora a mesma guarda que o teste do teto já tinha: conta o que mediu e
 exige que tenha medido alguma coisa. Verificado a pôr a fixture a não pedir
 logótipo em caso nenhum — os seis ecrãs falham com «nenhum caso tinha
 logótipo: o teste não mediu nada».
+
+## 0.24.2 — Metade das regras da casa deixa de depender de quem se lembra
+
+Veio de uma conversa sobre revisores automáticos. A observação de quem usa isto,
+a 08/10/2026: as plataformas ganham fama, criam dependência e depois querem
+cobrar — convém não ficar refém de nenhuma.
+
+Verdade, mas a resposta mais útil não era trocar de fornecedor. Olhando para o
+que escapou na onda da 0.24.0, os defeitos dividem-se em dois:
+
+```
+semânticos  teste em seco, folha de 1 píxel, pares trocados  -> precisa de juízo
+mecânicos   a contagem do README, três vezes na mesma onda   -> precisa de um assert
+```
+
+Alugar um revisor para reparar que um número está desatualizado é pagar a alguém
+para fazer o trabalho de um `assert`.
+
+### O que passa a ser verificado por máquina
+
+Em `tests/test_regras_da_casa.py`, contra o que o `AGENTS.md` manda:
+
+- **A versão sobe nos dois ficheiros ao mesmo tempo** — `VERSAO` e `version`.
+- **O CHANGELOG cresce para baixo**, e acaba na versão que o agente declara.
+  Uma secção posta a meio passa despercebida a quem lê o diff, porque o diff
+  mostra-a certa; é o ficheiro inteiro que fica errado.
+- **As contagens do README** conferem-se contra o que o pytest colhe mesmo. Nos
+  **dois** sítios onde aparecem, que foi precisamente a armadilha da última vez.
+- **Não há emojis** no que está versionado.
+- **Não há brasileirismos**, com as excepções declaradas e justificadas uma a
+  uma em `SABIDOS`, à maneira da casa.
+
+E na integração contínua, trabalho `assuntos`: **os assuntos dos commits sem
+acentos**. Não é teste do pytest de propósito — precisaria do `origin/main`, que
+quem corre a suite à mão nem sempre tem, e passaria em silêncio por não ter o
+que ver.
+
+### As sete regras foram vistas a falhar
+
+Partiu-se cada uma e confirmou-se que a sua verificação fica vermelha:
+
+```
+APANHA  versao desencontrada
+APANHA  seccao do CHANGELOG fora de ordem
+APANHA  versao sem entrada no CHANGELOG
+APANHA  contagem do README desatualizada
+APANHA  um emoji no README
+APANHA  brasileirismo no README
+APANHA  SABIDOS com palavra que a lista nao conhece
+```
+
+O da contagem nem precisou de ser partido: este ficheiro levou a suite de 731 a
+738 testes, e o teste apanhou a deriva da sua própria PR à primeira corrida.
+
+### Duas coisas que ficam escritas porque custaram
+
+**«time» esteve na lista dos brasileirismos durante uma corrida.** É o módulo do
+Python, e a verificação rebentou com quarenta falsos positivos — três linhas
+abaixo do comentário onde eu próprio avisava que um falso positivo é pior do que
+a verificação não existir. Fica escrito no ficheiro: a lista curta não é
+timidez, é o que a torna utilizável.
+
+**As setas não são emojis.** O primeiro detetor apanhava «→», «↑» e «←», com que
+o README desenha o percurso de um edital. Proibi-las seria empobrecer o texto em
+nome de uma regra que nunca foi sobre isso.
+
+### O que NÃO está aqui, e de propósito
+
+«O teste tem de falhar contra o código anterior», «medir com a mesma régua», «os
+comentários explicam o porquê». Nenhuma se reduz a uma expressão regular, e
+fingir que sim daria a tranquilidade falsa de uma verificação que não verifica.
+Essas continuam a precisar de alguém que leia — e foi um revisor, não uma
+máquina, que apanhou as cinco da onda anterior.
+
+### Testes
+
+**738 no total, 7 novos**, mais um de browser (39, eram 38). Os sete novos são
+as regras acima; o de browser confere a contagem que só se pode medir onde há
+Chromium.

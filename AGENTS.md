@@ -95,6 +95,25 @@ o terceiro número; tudo o resto leva o segundo.
 E os números que o README cita — o total de testes, sobretudo — conferem-se contra
 a realidade antes de entregar, em vez de se arrastarem desatualizados.
 
+## Metade destas regras já não depende de ninguém se lembrar
+
+O `tests/test_regras_da_casa.py` confere por máquina as que são mecânicas: a
+versão a subir nos dois ficheiros ao mesmo tempo, o CHANGELOG a crescer para
+baixo e a acabar na versão em curso, as contagens do README contra o que o
+pytest colhe mesmo, a ausência de emojis e a de brasileirismos. Os assuntos de
+commit sem acentos ficam na integração contínua, onde o intervalo de commits
+existe.
+
+Nasceu de uma contagem que se arrastou desatualizada três vezes numa onda, as
+três apanhadas por revisores — uma delas depois de a correção anterior ter
+arranjado um dos dois sítios onde o número aparece. Pagar revisão para reparar
+que um número está velho é pagar o trabalho de um `assert`.
+
+O que fica para quem revê é o que precisa de juízo: se o teste prova alguma
+coisa, se a régua é a mesma dos dois lados, se o comentário diz o porquê. Essas
+não se reduzem a uma expressão regular, e fingir que sim daria a tranquilidade
+falsa de uma verificação que não verifica.
+
 ## O que interessa numa revisão
 
 Por ordem de gravidade, neste projeto:

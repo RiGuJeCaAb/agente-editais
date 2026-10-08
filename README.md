@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 731 testes (mais 38 de browser: pytest -m navegador)
+pytest          # 738 testes (mais 39 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1155,7 +1155,7 @@ faixa fica nos 11,5 % e este teto nunca chega a morder.
 ### A página da televisão passou a ser testada num browser
 
 Até aqui nenhum teste a abria: verificava-se o HTML por pesquisa de texto, e foi
-assim que este defeito passou sem uma única linha vermelha. Há agora 38 testes
+assim que este defeito passou sem uma única linha vermelha. Há agora 39 testes
 que a abrem num Chromium, medem o que lá está desenhado e comparam com o
 `trat.desenho_no_ecra()` — incluindo o ecrã largo com um logótipo alto e o caso
 do `logotipo.png` em falta. Correm num trabalho próprio da integração contínua:

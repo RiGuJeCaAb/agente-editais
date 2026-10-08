@@ -33,6 +33,28 @@ jobs:
       - name: Testes
         run: pytest
 
+  # Os assuntos dos commits escrevem-se sem acentos, por hábito de consola. Não
+  # é um teste do pytest de propósito: um teste precisaria do `origin/main` para
+  # saber que commits são desta PR, e quem corre o pytest à mão nem sempre o tem
+  # — passaria em silêncio por não ter o que ver. Aqui o intervalo é explícito, e
+  # sem ele a verificação falha.
+  assuntos:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sem isto o checkout traz só a cabeça e o intervalo não se resolve.
+          fetch-depth: 0
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Assuntos de commit sem acentos
+        run: |
+          python ferramentas/assuntos_sem_acentos.py \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}"
+
   # A página da televisão é o produto, e até à 0.24.0 nenhum teste a abria:
   # verificava-se o HTML por pesquisa de texto. Foi assim que passou o defeito
   # que punha a folha a ocupar 7,7% de um monitor vertical sem uma única linha
