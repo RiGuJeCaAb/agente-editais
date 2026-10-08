@@ -1689,3 +1689,17 @@ normal. Os de browser passam de 26 a 38.
 
 E o README dizia 23: a contagem não tinha sido atualizada quando a 0.24.0
 acrescentou os três do teto do logótipo. Corrigida.
+
+### E um teste que podia passar em seco
+
+Apanhado na revisão desta PR, e é a quinta vez nesta onda que o mesmo feitio
+aparece — desta vez num teste escrito para tapar um buraco igual. O teste da
+imagem partida saltava os casos sem logótipo com um `continue`, logo, num dia
+em que nenhum dos três o tivesse, o ciclo corria em seco e o teste passava sem
+medir nada. Quem decide se o slide leva logótipo é o
+`ha_espaco_para_o_logotipo()`, caso a caso, e a fixture não o garante.
+
+Leva agora a mesma guarda que o teste do teto já tinha: conta o que mediu e
+exige que tenha medido alguma coisa. Verificado a pôr a fixture a não pedir
+logótipo em caso nenhum — os seis ecrãs falham com «nenhum caso tinha
+logótipo: o teste não mediu nada».

@@ -339,13 +339,21 @@ def test_um_logotipo_que_nao_carrega_nao_ocupa_nem_pinta(
     são postas medidas, e uma imagem partida sem largura nem altura colapsa
     para nada. Mede-se, em vez de se confiar.
     """
+    medidos = 0
     for medido in _medidas(browser, expositor_sem_o_ficheiro_do_logotipo,
                            largura, altura, logotipo_carrega=False):
         marca = medido["marca"]
         if marca is None:
             continue
+        medidos += 1
         assert marca[2] <= 1 and marca[3] <= 1, (
             f"a imagem partida ficou com {marca[2]:.1f}x{marca[3]:.1f} px")
+    # Sem isto, um dia em que nenhum caso levasse logótipo o `continue` deixava
+    # o ciclo correr em seco e o teste passava sem medir coisa nenhuma. Quem
+    # decide se o slide leva logótipo é o ha_espaco_para_o_logotipo(), caso a
+    # caso, e a fixture não o garante. Apanhado na revisão da PR — e é a mesma
+    # armadilha do teste do teto, que já leva a sua guarda.
+    assert medidos, "nenhum caso tinha logótipo: o teste não mediu nada"
 
 
 @pytest.mark.parametrize("largura,altura", [(3440, 1440), (3840, 2160), (1280, 1024)])
