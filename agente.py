@@ -1329,6 +1329,52 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
 """
 
 
+# As frações que a página da televisão precisa de saber, com o nome do marcador.
+#
+# Em cima e não dentro da pagina_da_tv() para os testes poderem conferir os PARES
+# marcador/valor. O teste que só procurava cada valor «algures no HTML» passava
+# com dois deles trocados entre si — apanhado na revisão da PR, e é o mesmo tipo
+# de buraco que já tinha aparecido no teste do rodapé da certidão.
+_FRACOES_DA_PAGINA = {
+    "__FR_TOPO__": "FRACAO_TOPO",
+    "__FR_FUNDO__": "FRACAO_FUNDO",
+    "__FR_LADO__": "FRACAO_LADO",
+    "__LG_LARGURA__": "LOGO_LARGURA_FRAC",
+    "__LG_MARGEM__": "LOGO_MARGEM_FRAC",
+    "__LG_MARGEM_Y__": "LOGO_MARGEM_Y_FATOR",
+    "__LG_FOLGA__": "FOLGA_SOB_A_MARCA",
+}
+
+
+# O index.html da televisão, com os marcadores já substituídos.
+def pagina_da_tv(cfg):
+    """Devolve o HTML da página da televisão, pronto a escrever.
+
+    Separado de quem o escreve para haver UM sítio onde os marcadores se
+    substituem. Os testes de browser tinham a sua própria cópia desta
+    substituição e, por isso, mediam uma página que ninguém publica: um erro
+    aqui passava-lhes ao lado. Agora medem esta.
+
+    As frações do desenho saem do tratamento e não são repetidas no HTML. Antes
+    era o TAMANHO do palco que ia por aqui, porque a página encolhia um retângulo
+    de 3840x2160 para caber; agora vão as frações, porque a página reaplica o
+    desenho ao ecrã que tem. Dois destes números já estiveram escritos à mão no
+    CSS e divergiram deste lado — trinta píxeis, medidos, entre onde o logótipo
+    se via e onde ficava provado. É por isso que passam por aqui e não por lá.
+
+    Args:
+        cfg (dict): configuração (usa o título e os segundos por ecrã).
+
+    Returns:
+        str: o HTML completo, sem marcadores por substituir.
+    """
+    html = (_HTML_TEMPLATE.replace("__TITULO__", cfg["titulo_tv"])
+            .replace("__SPE__", str(int(cfg["segundos_por_ecra"]))))
+    for marcador, constante in _FRACOES_DA_PAGINA.items():
+        html = html.replace(marcador, f"{getattr(trat, constante):.6f}")
+    return html
+
+
 def _escrever_pagina_tv(cfg, slides, logo_im=None):
     """Escreve o index.html e o slides.json da TV.
 
@@ -1361,23 +1407,9 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
     arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0)
 
     # index.html — escrito uma vez; já não leva os slides lá dentro. Só precisa de
-    # saber o título inicial e o intervalo por defeito (o resto vem do JSON).
-    # As frações do desenho saem do tratamento e não são repetidas no HTML.
-    # Antes era o TAMANHO do palco que ia por aqui, porque a página encolhia um
-    # retângulo de 3840x2160 para caber; agora vão as frações, porque a página
-    # reaplica o desenho ao ecrã que tem. Dois dos números que aqui passam já
-    # estiveram escritos à mão no CSS e divergiram deste lado — é por isso que
-    # passam por aqui e não por lá.
-    html = (_HTML_TEMPLATE.replace("__TITULO__", cfg["titulo_tv"])
-            .replace("__SPE__", str(int(cfg["segundos_por_ecra"])))
-            .replace("__FR_TOPO__", f"{trat.FRACAO_TOPO:.6f}")
-            .replace("__FR_FUNDO__", f"{trat.FRACAO_FUNDO:.6f}")
-            .replace("__FR_LADO__", f"{trat.FRACAO_LADO:.6f}")
-            .replace("__LG_LARGURA__", f"{trat.LOGO_LARGURA_FRAC:.6f}")
-            .replace("__LG_MARGEM__", f"{trat.LOGO_MARGEM_FRAC:.6f}")
-            .replace("__LG_MARGEM_Y__", f"{trat.LOGO_MARGEM_Y_FATOR:.6f}")
-            .replace("__LG_FOLGA__", f"{trat.FOLGA_SOB_A_MARCA:.6f}"))
-    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"), html)
+    # saber o título inicial, o intervalo por defeito e as frações do desenho.
+    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"),
+                            pagina_da_tv(cfg))
 
     # O logótipo passou a ser uma imagem servida à parte, porque quem o assenta
     # agora é a televisão. Antes vinha gravado dentro de cada PNG composto.

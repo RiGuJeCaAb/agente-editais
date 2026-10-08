@@ -61,16 +61,14 @@ MEDIR = """(n) => {
 
 
 def _html():
-    """O index.html tal como a publicação o escreve, com os marcadores trocados."""
-    return (agente._HTML_TEMPLATE.replace("__TITULO__", "Testes")
-            .replace("__SPE__", "600")
-            .replace("__FR_TOPO__", f"{trat.FRACAO_TOPO:.6f}")
-            .replace("__FR_FUNDO__", f"{trat.FRACAO_FUNDO:.6f}")
-            .replace("__FR_LADO__", f"{trat.FRACAO_LADO:.6f}")
-            .replace("__LG_LARGURA__", f"{trat.LOGO_LARGURA_FRAC:.6f}")
-            .replace("__LG_MARGEM__", f"{trat.LOGO_MARGEM_FRAC:.6f}")
-            .replace("__LG_MARGEM_Y__", f"{trat.LOGO_MARGEM_Y_FATOR:.6f}")
-            .replace("__LG_FOLGA__", f"{trat.FOLGA_SOB_A_MARCA:.6f}"))
+    """O index.html que o agente publica — o mesmo, e não uma cópia da receita.
+
+    A primeira versão repetia aqui as sete substituições. Media, portanto, uma
+    página que ninguém publica: trocar dois marcadores entre si no agente
+    passava-lhe ao lado, porque este lado estava certo. Apanhado na revisão da
+    PR, e corrigido pela raiz — há agora uma só função que monta a página.
+    """
+    return agente.pagina_da_tv({"titulo_tv": "Testes", "segundos_por_ecra": 600})
 
 
 @pytest.fixture(scope="module")
@@ -211,12 +209,37 @@ def test_o_logotipo_assenta_onde_o_arquivo_o_poe(browser, expositor):
     ALTURA do elemento que a contém; o 0,0176 do Python nasceu de multiplicar a
     margem pela LARGURA. Num ecrã 4K dava y=38 na televisão e y=67,6 na imagem
     que ficava no arquivo.
+
+    E o arquivo mede-se MESMO, em píxeis da imagem composta, em vez de se
+    recalcular das constantes. A primeira versão comparava o browser com uma
+    conta feita aqui a partir do tratamento: uma regressão que mexesse no
+    _paste_logo e deixasse o browser quieto passava-lhe ao lado, apesar de o
+    teste se chamar «onde o arquivo o põe». Apanhado na revisão da PR.
     """
     marca = _medidas(browser, expositor, 3840, 2160)[0]["marca"]
-    esperado_y = trat.CANVAS_W * trat.LOGO_MARGEM_FRAC * trat.LOGO_MARGEM_Y_FATOR
-    assert abs(marca[0] - trat.CANVAS_W * trat.LOGO_MARGEM_FRAC) <= 0.5
-    assert abs(marca[1] - esperado_y) <= 0.5, f"y={marca[1]}, devia ser {esperado_y}"
-    assert abs(marca[2] - trat.CANVAS_W * trat.LOGO_LARGURA_FRAC) <= 0.5
+    arquivo = _logotipo_na_composicao()
+    for i, eixo in enumerate(("x", "y", "largura")):
+        assert abs(marca[i] - arquivo[i]) <= 1.5, (
+            f"{eixo}: a televisão põe o logótipo em {marca[i]:.1f} e o arquivo "
+            f"em {arquivo[i]:.1f}")
+
+
+def _logotipo_na_composicao():
+    """Onde é que a composição do arquivo assenta o logótipo, medido em píxeis.
+
+    Compõe um ecrã com um logótipo de uma cor que o fundo verde não tem e
+    procura essa cor na imagem. É a posição real, não a que as constantes dizem.
+    """
+    import numpy as np
+    ROXO = (170, 40, 200)
+    logo = Image.new("RGBA", LOGOTIPO, ROXO + (255,))
+    composto = trat.compose_sheets([Image.new("RGB", A4, "white")], logo_im=logo)
+    a = np.array(composto.convert("RGB")).astype(int)
+    dele = ((abs(a[:, :, 0] - ROXO[0]) < 12) & (abs(a[:, :, 1] - ROXO[1]) < 12)
+            & (abs(a[:, :, 2] - ROXO[2]) < 12))
+    assert dele.any(), "o logótipo não aparece na composição do arquivo"
+    ys, xs = np.nonzero(dele)
+    return (float(xs.min()), float(ys.min()), float(xs.max() - xs.min() + 1))
 
 
 @pytest.mark.parametrize("largura,altura", ECRAS)

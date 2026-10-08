@@ -136,13 +136,28 @@ def test_a_pagina_da_tv_leva_as_fracoes_do_desenho_e_nao_as_medidas_do_palco(pos
     publicar(posto)
     html = open(os.path.join(posto["cfg"]["saida"], "index.html"),
                 encoding="utf-8").read()
-    for valor in (trat.FRACAO_TOPO, trat.FRACAO_FUNDO, trat.FRACAO_LADO,
-                  trat.LOGO_LARGURA_FRAC, trat.LOGO_MARGEM_FRAC,
-                  trat.LOGO_MARGEM_Y_FATOR, trat.FOLGA_SOB_A_MARCA):
-        assert f"{valor:.6f}" in html, f"a fração {valor} não chegou à página"
+    # Confere os PARES variável/valor, e não só que cada valor está «algures».
+    # Houve duas versões erradas deste teste, as duas apanhadas a medir:
+    #   1.ª procurava cada número no HTML inteiro, e passava com dois marcadores
+    #      trocados entre si — a página a desenhar com a faixa de cima no lugar
+    #      da do lado;
+    #   2.ª lia o par esperado do próprio `agente._FRACOES_DA_PAGINA`, o
+    #      dicionário que o defeito estaria a corromper. Era circular, e passou
+    #      com a troca feita de propósito.
+    # Por isso os pares estão escritos AQUI, à mão, e não derivados de nada.
+    for variavel, valor in (("FR_TOPO", trat.FRACAO_TOPO),
+                            ("FR_FUNDO", trat.FRACAO_FUNDO),
+                            ("FR_LADO", trat.FRACAO_LADO),
+                            ("LG_LARGURA", trat.LOGO_LARGURA_FRAC),
+                            ("LG_MARGEM", trat.LOGO_MARGEM_FRAC),
+                            ("LG_MARGEM_Y", trat.LOGO_MARGEM_Y_FATOR),
+                            ("LG_FOLGA", trat.FOLGA_SOB_A_MARCA)):
+        assert f"{variavel} = {valor:.6f}" in html, (
+            f"a página não declara {variavel} = {valor:.6f}")
     assert "__" not in html.split("<style>")[1].split("</style>")[0], \
         "ficou um marcador por substituir"
-    assert "__FR_TOPO__" not in html and "__LG_LARGURA__" not in html
+    for marcador in agente._FRACOES_DA_PAGINA:
+        assert marcador not in html, f"{marcador} ficou por substituir"
 
 
 def test_a_pagina_da_tv_ja_nao_encolhe_um_palco_de_medidas_fixas(posto):
