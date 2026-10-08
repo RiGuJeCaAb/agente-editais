@@ -1708,7 +1708,7 @@ exige que tenha medido alguma coisa. Verificado a pôr a fixture a não pedir
 logótipo em caso nenhum — os seis ecrãs falham com «nenhum caso tinha
 logótipo: o teste não mediu nada».
 
-## 0.24.3 — Metade das regras da casa deixa de depender de quem se lembra
+## 0.24.2 — Metade das regras da casa deixa de depender de quem se lembra
 
 Veio de uma conversa sobre revisores automáticos. A observação de quem usa isto,
 a 08/10/2026: as plataformas ganham fama, criam dependência e depois querem
@@ -1739,10 +1739,10 @@ Em `tests/test_regras_da_casa.py`, contra o que o `AGENTS.md` manda:
 - **Não há brasileirismos**, com as excepções declaradas e justificadas uma a
   uma em `SABIDOS`, à maneira da casa.
 
-E na integração contínua, trabalho `assuntos`: **os assuntos dos commits sem
-acentos**. Não é teste do pytest de propósito — precisaria do `origin/main`, que
-quem corre a suite à mão nem sempre tem, e passaria em silêncio por não ter o
-que ver.
+E na integração contínua, trabalho `regras_da_pr`: **os assuntos dos commits
+sem acentos**, e a versão a subir. Não são testes do pytest de propósito —
+precisariam do `origin/main`, que quem corre a suite à mão nem sempre tem, e
+passariam em silêncio por não ter o que ver.
 
 ### As sete regras foram vistas a falhar
 
@@ -1807,8 +1807,8 @@ dos bons: não era sobre o que o código faz, era sobre o que podia fazer.
 **A regra «cada peça leva uma versão» não estava verificada.** O teste do
 pytest confere que o `VERSAO` e o `version` são o MESMO; não tem como saber se
 SUBIRAM, porque isso só se vê contra a revisão anterior. Uma PR que deixasse os
-dois intactos passava. Entra o `ferramentas/versao_subiu.py`, ao lado do dos
-assuntos e pela mesma razão — precisa do intervalo de commits.
+dois intactos passava. Entra o `ferramentas/versao_subiu.py`, no mesmo trabalho
+`regras_da_pr` e pela mesma razão — precisa do intervalo de commits.
 
 O que ele não faz, e fica dito: decidir se devia ser o segundo número ou o
 terceiro. Saber se uma alteração muda o que a aplicação faz não é coisa que uma
@@ -1840,6 +1840,26 @@ ficheiros, as três regras passam a verde sem olhar para nada. Agora exige-se
 que veja mais de trinta ficheiros e que o README, o AGENTS, o CHANGELOG e o
 agente estejam entre eles. É a quinta vez nesta onda que a mesma armadilha
 aparece, e a primeira em que a tapei antes de alguém ma apontar.
+
+### E duas que nenhuma destas regras apanha
+
+Da quarta ronda de revisão, as duas de documentação e as duas minhas.
+
+**O nome do trabalho da CI mudou a meio da peça e a prosa ficou para trás.**
+Chamava-se `assuntos`; passou a `regras_da_pr` quando ganhou a segunda
+ferramenta, e o CHANGELOG continuou a citar o nome velho. É exatamente o feitio
+da contagem do README — texto a nomear uma coisa que já não se chama assim — e
+nenhum dos oito testes o apanha, porque cruzar nomes de trabalhos da CI com a
+prosa pede uma heurística frágil para render pouco.
+
+**A versão tinha saltado o 0.24.2.** Chamei-lhe 0.24.3 ao subi-la uma segunda
+vez dentro da mesma peça, e ficou um número por usar entre a 0.24.1 e esta. Os
+três ficheiros concordavam entre si, por isso o teste da versão passava — ele
+confere que são o MESMO, não que a série é contígua. Reposto em 0.24.2, que é o
+número que esta peça merece.
+
+As duas vieram de quem lê, e é o argumento desta peça ao contrário: há sempre
+uma camada que só se vê com olhos.
 
 ### Um buraco que esta varredura não tapa, e fica nomeado
 

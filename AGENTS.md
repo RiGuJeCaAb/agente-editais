@@ -101,8 +101,8 @@ O `tests/test_regras_da_casa.py` confere por máquina as que são mecânicas: a
 versão a subir nos dois ficheiros ao mesmo tempo, o CHANGELOG a crescer para
 baixo e a acabar na versão em curso, as contagens do README contra o que o
 pytest colhe mesmo, a ausência de emojis e a de brasileirismos. Os assuntos de
-commit sem acentos ficam na integração contínua, onde o intervalo de commits
-existe.
+commit sem acentos e a versão a subir ficam na integração contínua, no trabalho
+`regras_da_pr`, que é onde o intervalo de commits existe.
 
 Nasceu de uma contagem que se arrastou desatualizada três vezes numa onda, as
 três apanhadas por revisores — uma delas depois de a correção anterior ter
