@@ -1359,6 +1359,13 @@ Cinco testes, todos a falhar contra o código desta PR antes da correção: um p
 o valor em branco, e quatro parametrizados com um local masculino, um feminino,
 um plural e outro feminino singular.
 
+## 0.23.1 — Sete erros que a revisão da certidão apanhou
+
+A certidão oitocentista entrou na 0.23.0 e a revisão automática leu-a com mais
+atenção do que eu. Sete defeitos, duas rondas, todos reproduzidos antes de se
+lhes tocar — e todos num documento que entra num processo, que é onde um erro
+de português custa mais do que um erro de código.
+
 ### Cinco erros de português apanhados pela revisão automática
 
 Todos reproduzidos antes de se lhes tocar, e todos num documento que entra num
