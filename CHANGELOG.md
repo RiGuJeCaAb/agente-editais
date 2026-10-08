@@ -1591,6 +1591,12 @@ feita de propósito. Os sete pares estão agora escritos à mão no teste.
 posição das constantes. Passa a compor um ecrã com um logótipo de uma cor que o
 fundo não tem e a medir os píxeis.
 
+**E a correção do logótipo trouxe uma oitava fração que ficou sem par no
+teste** — o `TETO_DA_MARCA` entrou na página e não entrou na lista escrita à
+mão, portanto ninguém o conferia. É a terceira versão errada do mesmo teste. O
+teste passa a comparar o número de pares com o número de frações que a página
+leva, para a próxima fração nova falhar em vez de passar em silêncio.
+
 Um quinto apontamento não se confirmou: o arranque do painel **regenera** a
 página da TV (`agente.py:1531`), e isso foi verificado a correr.
 

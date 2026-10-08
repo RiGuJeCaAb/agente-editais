@@ -144,14 +144,24 @@ def test_a_pagina_da_tv_leva_as_fracoes_do_desenho_e_nao_as_medidas_do_palco(pos
     #   2.ª lia o par esperado do próprio `agente._FRACOES_DA_PAGINA`, o
     #      dicionário que o defeito estaria a corromper. Era circular, e passou
     #      com a troca feita de propósito.
-    # Por isso os pares estão escritos AQUI, à mão, e não derivados de nada.
-    for variavel, valor in (("FR_TOPO", trat.FRACAO_TOPO),
-                            ("FR_FUNDO", trat.FRACAO_FUNDO),
-                            ("FR_LADO", trat.FRACAO_LADO),
-                            ("LG_LARGURA", trat.LOGO_LARGURA_FRAC),
-                            ("LG_MARGEM", trat.LOGO_MARGEM_FRAC),
-                            ("LG_MARGEM_Y", trat.LOGO_MARGEM_Y_FATOR),
-                            ("LG_FOLGA", trat.FOLGA_SOB_A_MARCA)):
+    #   3.ª tinha sete pares quando a página passou a levar oito: o
+    #      TETO_DA_MARCA entrou com a correção do logótipo e ficou de fora
+    #      desta lista, portanto sem ninguém a conferi-lo. Daí o `len()` logo
+    #      a seguir: uma fração nova sem o seu par aqui faz o teste falhar em
+    #      vez de a deixar passar em silêncio.
+    # Os pares estão escritos AQUI, à mão, e não derivados de nada.
+    pares = (("FR_TOPO", trat.FRACAO_TOPO),
+             ("FR_FUNDO", trat.FRACAO_FUNDO),
+             ("FR_LADO", trat.FRACAO_LADO),
+             ("LG_LARGURA", trat.LOGO_LARGURA_FRAC),
+             ("LG_MARGEM", trat.LOGO_MARGEM_FRAC),
+             ("LG_MARGEM_Y", trat.LOGO_MARGEM_Y_FATOR),
+             ("LG_FOLGA", trat.FOLGA_SOB_A_MARCA),
+             ("LG_TETO", trat.TETO_DA_MARCA))
+    assert len(pares) == len(agente._FRACOES_DA_PAGINA), (
+        f"a página leva {len(agente._FRACOES_DA_PAGINA)} frações e este teste "
+        f"confere {len(pares)} — a que falta não é verificada por ninguém")
+    for variavel, valor in pares:
         assert f"{variavel} = {valor:.6f}" in html, (
             f"a página não declara {variavel} = {valor:.6f}")
     assert "__" not in html.split("<style>")[1].split("</style>")[0], \
