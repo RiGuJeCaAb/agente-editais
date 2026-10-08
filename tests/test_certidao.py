@@ -568,3 +568,79 @@ def test_o_local_nao_tem_de_concordar_com_artigo_nenhum(local):
                            emitida_por="ana.abreu"))
     assert f"«{local}»" in t, "o local tem de sair tal e qual foi configurado"
     assert f"no {local[0].lower()}{local[1:]}" not in t
+
+
+# --- a segunda ronda de revisão ----------------------------------------------
+
+def test_uma_palavra_enorme_nao_transborda_a_primeira_linha():
+    """A primeira linha de um parágrafo é mais estreita do que as outras.
+
+    Medido: uma palavra de 90 letras mede 439,6 pt — cabe na caixa de 451 e NÃO
+    cabe nos 423 que sobram depois do recuo. O _quebrar_em_palavras partia
+    sempre pela largura da CAIXA, deixava-a inteira, e ela transbordava 16,6 pt
+    para lá da margem. Apanhado em revisão.
+
+    Testa-se a função e não uma certidão inteira, e isso é uma afirmação sobre
+    o alcance do defeito: em `gerar()` nenhum parágrafo começa por uma palavra
+    longa — começam todos por «que,», «Mais», «Por», «Ressalva-se» — por isso
+    HOJE não há caminho até aqui. O primeiro parágrafo que venha a começar por
+    um resumo, uma referência ou um nome de ficheiro abre-o, e é por isso que
+    a correção fica feita e guardada em vez de se adiar.
+    """
+    caixa = cert.LARGURA - 2 * cert.MARGEM_X
+    recuo = 28
+    palavra = "a" * 90
+    assert cert._largura(palavra, cert.SERIF, 11) <= caixa
+    assert cert._largura(palavra, cert.SERIF, 11) > caixa - recuo
+    linhas = cert._quebrar_em_palavras(palavra + " resto", caixa - recuo, caixa,
+                                       11, cert.SERIF)
+    primeira = cert._largura(" ".join(linhas[0]), cert.SERIF, 11)
+    assert recuo + primeira <= caixa, \
+        f"a primeira linha transborda {recuo + primeira - caixa:.1f} pt"
+
+
+def test_um_rodape_comprido_nao_passa_por_cima_do_numero_de_folha(afixado):
+    """A morada vem da configuração e pode ser de qualquer comprimento.
+
+    Medido com uma morada realista: 484,7 pt de texto para 426,1 pt de espaço
+    antes do «fl. N de M». Escrevia-se de uma assentada na mesma linha de base,
+    e o insert_text não se queixa de nada.
+    """
+    cfg = dict(CFG, morada="Largo do Tabolado e Praceta das Oliveiras, n.º 123, "
+                           "3620-324 Moimenta da Beira, Viseu, Portugal",
+               sitio="www.cm-moimenta.pt", telefone="+351 254 520 070")
+    pdf = cert.gerar(afixado, cfg, emitida_por="ana.abreu", nomes_completos=NOMES)
+    limite = cert.LARGURA - cert.MARGEM_X
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        pior = max(s["bbox"][2] for p in d for b in p.get_text("dict")["blocks"]
+                   for linha in b["lines"] for s in linha["spans"])
+    assert pior <= limite, f"o rodapé transborda {pior - limite:.1f} pt"
+
+
+def test_a_ressalva_legal_cita_se_tal_e_qual(afixado):
+    """Os avisos do prazos.py são frases COMPLETAS, e às vezes duas.
+
+    «Sem data de retirada: fica no ecrã indefinidamente. O mínimo legal é 5 dias
+    de afixação.» metido no molde «Ressalva-se que » + minúscula dava
+    «Ressalva-se que sem data de retirada: fica no ecrã...», que não é
+    português — e o ponto final a dobrar vinha por cima. São dois tipos de
+    ressalva: as minhas, meias-frases feitas à medida do molde, e as de outra
+    autoria, que se citam tal e qual.
+    """
+    reg = dict(afixado, desafixado_em="2026-07-01T10:00:00",
+               desafixado_por="ana.abreu", campos_duvidosos=[])
+    t = corrido(cert.gerar(reg, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "Ressalva-se o seguinte: A afixação dura dois dias" in t
+    assert "Ressalva-se que a afixação" not in t
+    assert ".." not in t
+
+
+def test_as_minhas_ressalvas_continuam_a_encaixar_no_molde(ficha):
+    """A dos campos por confirmar é meia-frase minha, e leva o «que».
+
+    PASSA DOS DOIS LADOS de propósito: separar as ressalvas em dois tipos não
+    podia mexer nas que já encaixavam. É o que prova que a correção do outro
+    tipo não levou esta à frente.
+    """
+    t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
+    assert "Ressalva-se que os seguintes elementos" in t

@@ -1411,3 +1411,31 @@ Os casos destas cinco correções levam a suite a **561**. Dezanove novos nesta
 ronda, e vinte e dois dos existentes falhavam contra o código da PR antes dela —
 as formas femininas, a fórmula de datar e a hora, todos verificados com
 `git stash`.
+
+### Segunda ronda da revisão: mais dois
+
+**A primeira linha de um parágrafo é mais estreita do que as outras**, e o
+`_quebrar_em_palavras` partia sempre pela largura da caixa. Medido: uma palavra
+de 90 letras mede 439,6 pt — cabe na caixa de 451 e não cabe nos 423 que sobram
+depois do recuo, ficava inteira e transbordava 16,6 pt.
+
+Com uma ressalva honesta: **hoje não há caminho até lá a partir do `gerar()`.**
+Os parágrafos começam todos por «que,», «Mais», «Por», «Ressalva-se» — nenhum
+começa por uma palavra longa. O teste exercita a função e não uma certidão
+inteira, e diz isso no próprio ficheiro. Fica corrigido porque o primeiro
+parágrafo que venha a começar por um resumo ou um nome de ficheiro abre a porta.
+
+**As ressalvas eram de dois tipos tratados como um.** As do `prazos.py` são
+frases COMPLETAS, e às vezes duas:
+
+```
+Sem data de retirada: fica no ecrã indefinidamente. O mínimo legal é 5 dias
+de afixação.
+```
+
+Metidas no molde «Ressalva-se que » com a inicial em minúscula, davam
+«Ressalva-se que sem data de retirada: fica no ecrã...», que não é português —
+e o ponto a dobrar vinha por cima. Passam a citar-se **tal e qual**, que é o que
+se faz a um texto de outra autoria: «Ressalva-se o seguinte: A afixação dura
+dois dias, abaixo do mínimo...». As minhas, que são meias-frases feitas à
+medida, continuam com o «que».
