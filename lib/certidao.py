@@ -609,9 +609,14 @@ def _quebrar_em_palavras(texto, largura_primeira, largura, tamanho, fonte):
     Returns:
         list[list[str]]: as palavras de cada linha, pela ordem do texto.
     """
+    # A primeira palavra parte-se pela largura da PRIMEIRA linha, não pela da
+    # caixa. Medido: uma palavra de 90 letras mede 439,6 pt — cabe na caixa de
+    # 451 e não cabe nos 423 que sobram depois do recuo do parágrafo, e ficava
+    # inteira a transbordar 16,6 pt para lá da margem. Apanhado em revisão.
     palavras = []
-    for palavra in str(texto).split():
-        palavras.extend(_partir_palavra(palavra, largura, tamanho, fonte))
+    for i, palavra in enumerate(str(texto).split()):
+        limite = largura_primeira if i == 0 else largura
+        palavras.extend(_partir_palavra(palavra, limite, tamanho, fonte))
     if not palavras:
         return [[]]
     linhas, atual = [], [palavras[0]]
@@ -833,11 +838,18 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # Um incumprimento ou um palpite por confirmar não se omitem de uma
     # certidão. Uma certidão que escondesse o que a lei pede e o que de facto
     # aconteceu seria pior do que não haver certidão nenhuma.
-    ressalvas = []
+    #
+    # São DOIS tipos e não um. As minhas são meias-frases, feitas à medida de
+    # «Ressalva-se que ...». As do prazos.py são frases completas, às vezes
+    # DUAS — «Sem data de retirada: fica no ecrã indefinidamente. O mínimo legal
+    # é 5 dias de afixação.» — e metê-las no mesmo molde dava «Ressalva-se que
+    # sem data de retirada: fica no ecrã...», que não é português. Citam-se tal
+    # e qual, que é o que se faz a um texto de outra autoria.
+    minhas, legais = [], []
     if f["campos_por_confirmar"]:
         quais = ", ".join(ROTULOS_DOS_CAMPOS.get(c, c)
                           for c in f["campos_por_confirmar"])
-        ressalvas.append(
+        minhas.append(
             f"os seguintes elementos foram lidos automaticamente do documento e "
             f"não chegaram a ser confirmados por quem o afixou: {quais}")
     if d.get("base_legal") and f["afixado_em"]:
@@ -845,13 +857,20 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
                                   (f["desafixado_em"] or "")[:10] or None,
                                   f["data_publicacao"] or None):
             if aviso["grau"] == "aviso":
-                ressalvas.append(aviso["texto"][0].lower() + aviso["texto"][1:])
-    for i, ressalva in enumerate(ressalvas):
-        # rstrip do ponto: os avisos do prazos.py já acabam em ponto final, e
-        # juntar outro imprimia «...deste tipo de documento..» em toda a
-        # certidão que relatasse um incumprimento.
-        folha.paragrafo(("Ressalva-se que " if i == 0 else "Ressalva-se ainda que ")
-                        + ressalva.rstrip(". ") + ".", fonte=SERIF_ITALICO)
+                legais.append(aviso["texto"].strip())
+    escritas = 0
+    for frase in minhas:
+        folha.paragrafo(("Ressalva-se que " if not escritas
+                         else "Ressalva-se ainda que ") + frase + ".",
+                        fonte=SERIF_ITALICO)
+        escritas += 1
+    for aviso in legais:
+        # Sem rstrip nem minusculização: o aviso já é uma frase (ou duas) e já
+        # acaba em ponto. Juntar outro imprimia «...deste tipo de documento..».
+        folha.paragrafo(("Ressalva-se o seguinte: " if not escritas
+                         else "Ressalva-se ainda: ") + aviso,
+                        fonte=SERIF_ITALICO)
+        escritas += 1
 
     # ---- fecho e assinatura ---------------------------------------------
     folha.paragrafo("Por ser verdade e me ter sido pedida, mandei passar a "
