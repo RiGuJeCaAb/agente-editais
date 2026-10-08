@@ -53,6 +53,7 @@ try:
 except ImportError:  # PyMuPDF anterior a 1.24
     import fitz  # type: ignore[no-redef]
 
+import extenso as ext
 import prazos as pr
 import registo as reg_mod
 
@@ -76,8 +77,14 @@ ROTULOS_DOS_CAMPOS = {
     "entidade": "a entidade emissora",
     "tipo": "o tipo de documento",
 }
-MARGEM_X = 62
-MARGEM_TOPO = 68
+# Margens generosas, que é o que distingue um documento de um impresso. A caixa
+# de texto fica com 451 pt, cerca de setenta e cinco caracteres em Times a 11 —
+# a medida a que um parágrafo se lê sem o olho se perder ao mudar de linha.
+MARGEM_X = 72
+MARGEM_TOPO = 64
+# A faixa de baixo é do rodapé, e o texto não entra nela. Sem esta reserva, a
+# última linha de uma página escrevia-se por cima da morada do município.
+MARGEM_BAIXO = 76
 
 # Tipos de letra base do PDF. São os embutidos no formato (não precisam de ser
 # incorporados no ficheiro) e cobrem os acentos e o cedilha por WinAnsi, que é
@@ -233,25 +240,6 @@ def agrupar(resumo_: str, por: int = 8) -> str:
 
 
 # Escreve um número de dias em português, com a concordância certa.
-def dias_por_extenso(n: int) -> str:
-    """Põe um número de dias em palavras de gente.
-
-    A certidão dizia «0 dia(s)», que é duas coisas más ao mesmo tempo: o
-    parêntesis do plural, que não se escreve num documento que vai para um
-    processo, e o zero, que em português não é uma duração — um documento
-    afixado esta manhã não esteve afixado zero dias, esteve afixado hoje.
-
-    Args:
-        n (int): número de dias decorridos.
-
-    Returns:
-        str: «Menos de um dia», «1 dia» ou «N dias».
-    """
-    if n <= 0:
-        return "Menos de um dia"
-    return "1 dia" if n == 1 else f"{n} dias"
-
-
 def dias_de_afixacao(factos_: dict) -> int | None:
     """Conta os dias entre a afixação e a desafixação (ou até hoje).
 
@@ -285,17 +273,30 @@ class _Folha:
     à mão. Esta classe existe só para isso não contaminar a lógica da certidão
     com aritmética de coordenadas — quem lê gerar() vê a estrutura do documento,
     não contas de pontos.
+
+    CONTA as páginas em vez de as guardar. O rodapé só se pode desenhar no fim
+    — leva «fl. 1 de 3», e o total não se sabe enquanto o texto não acabar — mas
+    um objeto Page do PyMuPDF deixa de servir assim que se acrescenta outra
+    página ao documento: guardá-los numa lista rebentava com AttributeError na
+    primeira certidão que passasse de uma folha, e rebentou.
     """
 
     def __init__(self, doc):
-        self.pagina = doc.new_page(width=LARGURA, height=ALTURA)
-        self.y = MARGEM_TOPO
         self.doc = doc
+        self.pagina = doc.new_page(width=LARGURA, height=ALTURA)
+        self.n_paginas = 1
+        self.y = MARGEM_TOPO
 
     def _nova_pagina_se_preciso(self, altura):
-        """Muda de página quando o que vem a seguir já não cabe."""
-        if self.y + altura > ALTURA - MARGEM_TOPO:
+        """Muda de página quando o que vem a seguir já não cabe.
+
+        O limite é MARGEM_BAIXO e não MARGEM_TOPO: a faixa de baixo está
+        reservada ao rodapé, e escrever lá por cima dele seria sobrepor a morada
+        do município ao texto da certidão.
+        """
+        if self.y + altura > ALTURA - MARGEM_BAIXO:
             self.pagina = self.doc.new_page(width=LARGURA, height=ALTURA)
+            self.n_paginas += 1
             self.y = MARGEM_TOPO
 
     def linha(self, texto, *, tamanho=10.5, fonte=SERIF, cor=PRETO,
@@ -310,57 +311,241 @@ class _Folha:
             self.y += tamanho + 2
         self.y += espaco_depois
 
-    def campo(self, rotulo, valor, *, tamanho=10.5):
-        """Escreve um par rótulo/valor alinhado, como num formulário oficial."""
-        self._nova_pagina_se_preciso(tamanho + 6)
-        self.pagina.insert_text((MARGEM_X, self.y), rotulo, fontname=SERIF,
-                                fontsize=tamanho, color=CINZA)
-        largura_rotulo = 142
-        for i, pedaco in enumerate(_quebrar(str(valor), LARGURA - 2 * MARGEM_X - largura_rotulo,
-                                            tamanho, SERIF_NEGRITO)):
-            if i:
-                self.y += tamanho + 2
-                self._nova_pagina_se_preciso(tamanho + 6)
-            self.pagina.insert_text((MARGEM_X + largura_rotulo, self.y), pedaco,
-                                    fontname=SERIF_NEGRITO, fontsize=tamanho, color=PRETO)
-        self.y += tamanho + 6
+    def centrado(self, texto, *, tamanho=10.5, fonte=SERIF, cor=PRETO,
+                 espaco_antes=0, espaco_depois=4):
+        """Escreve uma linha centrada na caixa de texto."""
+        self.y += espaco_antes
+        largura_util = LARGURA - 2 * MARGEM_X
+        for pedaco in _quebrar(texto, largura_util, tamanho, fonte):
+            self._nova_pagina_se_preciso(tamanho + espaco_depois)
+            x = (LARGURA - _largura(pedaco, fonte, tamanho)) / 2
+            self.pagina.insert_text((x, self.y), pedaco, fontname=fonte,
+                                    fontsize=tamanho, color=cor)
+            self.y += tamanho + 2
+        self.y += espaco_depois
 
-    def risco(self, *, espaco_antes=6, espaco_depois=12, cor=(0.85, 0.83, 0.77)):
+    def espacado(self, texto, *, tamanho=16, fonte=SERIF_NEGRITO, cor=PRETO,
+                 espaco_antes=0, espaco_depois=6):
+        """Escreve uma linha centrada com as letras afastadas.
+
+        É o tratamento que os títulos das certidões antigas levavam — C E R T I
+        D Ã O — e faz-se com espaços e não com uma propriedade do tipo de letra
+        porque os tipos base do PDF não têm uma. Fica também melhor na extração
+        de texto: quem procurar «CERTIDÃO» num PDF destes não a encontraria, por
+        isso o título por extenso aparece igualmente no título do documento.
+
+        Entre PALAVRAS vai quatro vezes o espaço que vai entre letras. Com o
+        espaço simples que o join dá, «MUNICÍPIO DE MOIMENTA» lia-se como uma
+        palavra só de vinte letras: afastar as letras só resulta se o
+        afastamento entre palavras continuar a ser maior do que esse.
+        """
+        aberto = "    ".join(" ".join(palavra) for palavra in texto.split())
+        # NÃO passa pelo centrado(): esse quebra o texto com _quebrar(), que faz
+        # split() e normaliza os espaços múltiplos — apagava exatamente a folga
+        # que esta linha acabou de pôr entre as palavras.
+        self.y += espaco_antes
+        while tamanho > 6 and _largura(aberto, fonte, tamanho) > LARGURA - 2 * MARGEM_X:
+            tamanho -= 0.5
+        self._nova_pagina_se_preciso(tamanho + espaco_depois)
+        x = (LARGURA - _largura(aberto, fonte, tamanho)) / 2
+        self.pagina.insert_text((x, self.y), aberto, fontname=fonte,
+                                fontsize=tamanho, color=cor)
+        self.y += tamanho + 2 + espaco_depois
+
+    def paragrafo(self, texto, *, tamanho=11, fonte=SERIF, cor=PRETO,
+                  recuo_primeira=28, espaco_antes=0, espaco_depois=10,
+                  entrelinha=5.5):
+        """Escreve um parágrafo de prosa, justificado às duas margens.
+
+        A justificação é o que separa visualmente um documento de um formulário,
+        e é por isso que está aqui: a certidão deixou de ser uma lista de pares
+        rótulo/valor e passou a ser texto corrido, como as que se passavam nos
+        livros de notas.
+
+        A última linha de cada parágrafo NÃO se justifica — espalhar quatro
+        palavras por toda a largura é o erro clássico de quem justifica à mão. E
+        uma linha cujos intervalos tivessem de crescer mais do que ESTICAO_MAXIMO
+        também não: mais do que isso lê-se como buraco e não como alinhamento.
+        """
+        self.y += espaco_antes
+        largura_util = LARGURA - 2 * MARGEM_X
+        # Menos um ponto do que a caixa: a última palavra de uma linha
+        # justificada acaba exatamente no limite, e o teste das margens compara
+        # com a medição do próprio PyMuPDF, que arredonda de outra maneira.
+        alvo = largura_util - 1
+        linhas = _quebrar_em_palavras(texto, largura_util - recuo_primeira,
+                                      largura_util, tamanho, fonte)
+        for i, palavras in enumerate(linhas):
+            self._nova_pagina_se_preciso(tamanho + entrelinha)
+            x = MARGEM_X + (recuo_primeira if i == 0 else 0)
+            limite = alvo - (recuo_primeira if i == 0 else 0)
+            ultima = i == len(linhas) - 1
+            self._escrever_palavras(palavras, x, limite, tamanho, fonte, cor,
+                                    justificar=not ultima)
+            self.y += tamanho + entrelinha
+        self.y += espaco_depois
+
+    # Quanto pode um intervalo entre palavras crescer, em pontos, antes de a
+    # linha ficar pior justificada do que alinhada à esquerda.
+    ESTICAO_MAXIMO = 7.0
+
+    def _escrever_palavras(self, palavras, x, limite, tamanho, fonte, cor, *,
+                           justificar):
+        """Escreve as palavras de uma linha, esticando os intervalos ou não."""
+        if not palavras:
+            return
+        larguras = [_largura(p, fonte, tamanho) for p in palavras]
+        espaco_normal = _largura(" ", fonte, tamanho)
+        intervalos = len(palavras) - 1
+        espaco = espaco_normal
+        if justificar and intervalos:
+            folga = limite - sum(larguras) - intervalos * espaco_normal
+            esticao = folga / intervalos
+            if 0 < esticao <= self.ESTICAO_MAXIMO:
+                espaco = espaco_normal + esticao
+        cursor = x
+        for palavra, larg in zip(palavras, larguras, strict=True):
+            self.pagina.insert_text((cursor, self.y), palavra, fontname=fonte,
+                                    fontsize=tamanho, color=cor)
+            cursor += larg + espaco
+
+    def altura_de(self, texto, *, tamanho=11, fonte=SERIF, recuo_primeira=28,
+                  entrelinha=5.5, espaco_antes=0, espaco_depois=10):
+        """Diz quanto espaço um parágrafo vai ocupar, sem o escrever.
+
+        Serve para reservar um bloco inteiro antes de o começar. A nota de
+        conferência saía partida entre duas páginas e deixava a segunda com uma
+        linha só — pior do que duas páginas cheias, porque parece defeito.
+        """
+        largura_util = LARGURA - 2 * MARGEM_X
+        linhas = _quebrar_em_palavras(texto, largura_util - recuo_primeira,
+                                      largura_util, tamanho, fonte)
+        return espaco_antes + len(linhas) * (tamanho + entrelinha) + espaco_depois
+
+    def reservar(self, altura):
+        """Muda de página se o bloco seguinte não couber inteiro nesta."""
+        self._nova_pagina_se_preciso(altura)
+
+    def assinatura(self, nome, cargo=""):
+        """Deixa o traço por onde a certidão se assina, com o nome por baixo.
+
+        Uma certidão passa a valer quando alguém a assina, e era assim que as
+        antigas acabavam. O traço não é decoração: é o sítio onde isso acontece,
+        e a sua ausência é que faria deste PDF um documento que afirma ser uma
+        certidão sem o ser.
+        """
+        largura_traco = 230
+        self._nova_pagina_se_preciso(78)
+        self.y += 26
+        x0 = (LARGURA - largura_traco) / 2
+        self.pagina.draw_line((x0, self.y), (x0 + largura_traco, self.y),
+                              color=PRETO, width=0.8)
+        self.y += 15
+        self.centrado(nome, tamanho=10.5, espaco_depois=2)
+        if cargo:
+            self.centrado(cargo, tamanho=9.5, fonte=SERIF_ITALICO, cor=CINZA,
+                          espaco_depois=2)
+
+    def imagem(self, caminho, *, largura_desejada=120, espaco_depois=10):
+        """Assenta uma imagem centrada no topo, se o ficheiro existir.
+
+        Falhar a abrir o logótipo não pode impedir a emissão de uma certidão: o
+        documento vale pelo que afirma, não pelo brasão. Sem o ficheiro, a
+        certidão sai sem ele e o resto fica igual.
+        """
+        if not caminho:
+            return
+        try:
+            with fitz.open(caminho) as img:
+                prop = img[0].rect.height / img[0].rect.width
+        except Exception:
+            return
+        alt = largura_desejada * prop
+        self._nova_pagina_se_preciso(alt + espaco_depois)
+        x0 = (LARGURA - largura_desejada) / 2
+        self.pagina.insert_image(
+            fitz.Rect(x0, self.y, x0 + largura_desejada, self.y + alt),
+            filename=caminho, keep_proportion=True)
+        self.y += alt + espaco_depois
+
+    def risco(self, *, espaco_antes=6, espaco_depois=12, cor=(0.85, 0.83, 0.77),
+              largura_traco=0.7, encolher=0):
         """Traça uma linha horizontal separadora."""
         self.y += espaco_antes
         self._nova_pagina_se_preciso(espaco_depois)
-        self.pagina.draw_line((MARGEM_X, self.y), (LARGURA - MARGEM_X, self.y),
-                              color=cor, width=0.7)
+        self.pagina.draw_line((MARGEM_X + encolher, self.y),
+                              (LARGURA - MARGEM_X - encolher, self.y),
+                              color=cor, width=largura_traco)
         self.y += espaco_depois
 
+    def rodape(self, texto, direita_por_pagina=None):
+        """Escreve o rodapé em TODAS as páginas, no fim de tudo.
 
-# Equivalências para a MEDIÇÃO de largura, não para o texto que se escreve.
-# Ver _largura() para a razão de isto existir.
-_SEM_ACENTO = str.maketrans(
-    "áàâãäéèêëíìîïóòôõöúùûüçñÁÀÂÃÄÉÈÊËÍÌÎÏÓÒÔÕÖÚÙÛÜÇÑ",
-    "aaaaaeeeeiiiiooooouuuucnAAAAAEEEEIIIIOOOOOUUUUCN")
+        Só aqui se sabe quantas páginas há, e é por isso que esta chamada é a
+        última de gerar(): «fl. 2 de 3» não se pode escrever antes de se saber
+        que são três.
+        """
+        total = self.n_paginas
+        base = ALTURA - MARGEM_BAIXO + 26
+        for i in range(1, total + 1):
+            pagina = self.doc[i - 1]
+            pagina.draw_line((MARGEM_X, base - 12), (LARGURA - MARGEM_X, base - 12),
+                             color=(0.82, 0.80, 0.74), width=0.6)
+            if texto:
+                pagina.insert_text((MARGEM_X, base), texto, fontname=SERIF,
+                                   fontsize=7, color=CINZA)
+            folha = f"fl. {i} de {total}"
+            pagina.insert_text(
+                (LARGURA - MARGEM_X - _largura(folha, SERIF, 7), base), folha,
+                fontname=SERIF, fontsize=7, color=CINZA)
+            if direita_por_pagina:
+                pagina.insert_text(
+                    (LARGURA - MARGEM_X - _largura(direita_por_pagina, SERIF, 7),
+                     base + 9), direita_por_pagina,
+                    fontname=SERIF, fontsize=7, color=CINZA)
+
+
+# Larguras de cada carácter, por (tipo de letra, tamanho). O _largura() mede
+# carácter a carácter e é chamado muitas vezes por linha ao justificar; sem esta
+# cache, uma certidão de duas folhas fazia dezenas de milhar de chamadas ao
+# PyMuPDF para medir as mesmas trinta letras.
+_LARGURA_DE_CARACTER: dict = {}
 
 
 def _largura(texto, fonte, tamanho):
-    """Mede a largura de um texto, contornando um defeito do PyMuPDF com acentos.
+    """Mede a largura de um texto, contornando um defeito do PyMuPDF.
 
-    O fitz.get_text_length() mede os caracteres acentuados dos tipos de letra
-    base do PDF como se não ocupassem largura nenhuma. Medido: 'AÇÃO' devolve
-    23,3 pt e desenha 30,9 pt; uma linha de 56 caracteres com acentos devolve
-    325,5 pt e desenha 348,8 pt. O erro é sistemático e cresce com o número de
-    acentos — ou seja, numa certidão em português, cresce em quase todas as
-    linhas. A primeira versão desta certidão transbordava a margem direita em
-    19,8 pt, e é dessa forma que se percebeu.
+    O fitz.get_text_length() erra a conta de qualquer texto que leve um
+    carácter fora do ASCII. Mediu-se assim, e é reprodutível:
 
-    A correção mede uma versão do texto com os acentos retirados. Não é um
-    truque: nos tipos de letra proporcionais, o glifo acentuado tem o mesmo
-    avanço horizontal que a letra de base — o acento cresce para cima, não para
-    o lado. Confirmado na medição: 'ACAO' dá 30,9 pt, exatamente a largura real
-    de 'AÇÃO'. O texto ESCRITO continua a ser o original, com acentos; só a
-    régua é que muda.
+        'DELIBERACOES'    devolve 82,50 e desenha 82,50
+        '«DELIBERACOES'   devolve 80,06 e desenha 88,00
+        '«a'              devolve  5,50 e desenha 10,38
+
+    Repare-se na última: acrescentar uma letra ao texto não aumentou a medida
+    nenhuma. A função deixa de contar a partir do carácter que não sabe ler.
+
+    A versão anterior media o texto com os ACENTOS retirados, e acertava — mas
+    só nos acentos. Nas aspas angulares «» não acertava, e a certidão passou a
+    citar o assunto entre angulares: o resultado foi a primeira palavra do
+    assunto desenhada por cima da segunda, à vista de quem lesse.
+
+    A correção é somar a largura de cada carácter, um a um. Nos tipos base do
+    PDF o avanço de uma cadeia é a soma dos avanços dos seus caracteres — não há
+    ligaduras nem kerning — e a medição confirma-o nos três casos acima, ao
+    centésimo. Deixa de haver tabela de equivalências a manter, e deixa de haver
+    uma classe inteira de caracteres por onde a régua possa voltar a falhar.
     """
-    return fitz.get_text_length(str(texto).translate(_SEM_ACENTO),
-                                fontname=fonte, fontsize=tamanho)
+    cache = _LARGURA_DE_CARACTER.setdefault((fonte, tamanho), {})
+    total = 0.0
+    for caracter in str(texto):
+        largura = cache.get(caracter)
+        if largura is None:
+            largura = fitz.get_text_length(caracter, fontname=fonte,
+                                           fontsize=tamanho)
+            cache[caracter] = largura
+        total += largura
+    return total
 
 
 def _quebrar(texto, largura, tamanho, fonte):
@@ -383,6 +568,38 @@ def _quebrar(texto, largura, tamanho, fonte):
         else:
             linhas.append(atual)
             atual = palavra
+    linhas.append(atual)
+    return linhas
+
+
+def _quebrar_em_palavras(texto, largura_primeira, largura, tamanho, fonte):
+    """Parte um texto em linhas, devolvendo as PALAVRAS de cada uma.
+
+    O _quebrar() devolve as linhas já juntas com espaços, o que serve para quem
+    só as vai escrever. Para justificar é preciso o contrário: ter as palavras
+    separadas, porque é entre elas que o espaço se estica.
+
+    A primeira linha leva uma largura própria por causa do recuo do parágrafo —
+    tem menos espaço que as outras, e medi-la com a largura das outras punha-lhe
+    uma palavra a mais, que ia parar à margem.
+
+    Returns:
+        list[list[str]]: as palavras de cada linha, pela ordem do texto.
+    """
+    palavras = []
+    for palavra in str(texto).split():
+        palavras.extend(_partir_palavra(palavra, largura, tamanho, fonte))
+    if not palavras:
+        return [[]]
+    linhas, atual = [], [palavras[0]]
+    for palavra in palavras[1:]:
+        disponivel = largura_primeira if not linhas else largura
+        tentativa = " ".join(atual + [palavra])
+        if _largura(tentativa, fonte, tamanho) <= disponivel:
+            atual.append(palavra)
+        else:
+            linhas.append(atual)
+            atual = [palavra]
     linhas.append(atual)
     return linhas
 
@@ -417,15 +634,105 @@ def _partir_palavra(palavra, largura, tamanho, fonte):
     return pedacos
 
 
+def _identificacao(f: dict, d: dict, referencia: str) -> str:
+    """Lista os elementos que identificam o documento, sem introdução nenhuma.
+
+    Separada das frases que a usam porque o documento é o mesmo esteja ele
+    afixado ou não — e porque a primeira versão disto montava a frase do caso
+    «nunca afixado» com um replace() sobre a frase do caso normal, o que deu
+    «O documento é o que se destinava a ser afixado (...) o seguinte documento».
+
+    Montar por concatenação condicional, e não por um molde fixo com buracos, é
+    o que evita a certidão dizer «da autoria de» seguido de nada: um edital pode
+    não ter número, pode não ter entidade conhecida e pode ter uma folha ou sete.
+    """
+    partes = [d["rotulo"].lower()]
+    partes.append(f"com o n.º {f['numero']}" if f["numero"]
+                  else "a que não foi atribuído número")
+    if f["entidade"]:
+        partes.append(f"da autoria de {f['entidade']}")
+    if f["data_publicacao"]:
+        partes.append(f"com data de {ext.data(f['data_publicacao'])}")
+    if f["assunto"]:
+        partes.append(f"cujo assunto é «{f['assunto']}»")
+    if f["num_paginas"]:
+        partes.append(f"composto de {ext.folhas(f['num_paginas'])}")
+    partes.append("a que corresponde nesta aplicação a referência interna "
+                  f"{referencia}")
+    return ", ".join(partes)
+
+
+def _frase_do_documento(f: dict, d: dict, referencia: str, local: str) -> str:
+    """A frase que certifica a afixação e identifica o que foi afixado."""
+    # «no local designado por «X»» e não «no X»: o artigo tinha de concordar com
+    # um valor que vem da configuração e pode ser de qualquer género e número.
+    # Com «no» fixo e a inicial minusculizada, um município que escrevesse
+    # «Receção» ou «Paços do Concelho» obtinha «no receção» e «no Paços». Assim
+    # o valor sai tal e qual foi escrito, entre angulares, e não concorda com
+    # nada — que é o que o torna correto para todos os casos de uma vez.
+    return (f"que, para os devidos efeitos, foi afixado por este Município, no "
+            f"local designado por «{local}», o seguinte documento: "
+            f"{_identificacao(f, d, referencia)}.")
+
+
+def _frase_da_afixacao(f: dict, nomes: dict) -> str:
+    """Compõe a frase do ato: quando foi afixado, por quem, e até quando."""
+    quem = nomes.get(f["afixado_por"], f["afixado_por"]) or "quem então servia"
+    inicio = (f"Mais certifico que a afixação teve lugar aos "
+              f"{ext.data(f['afixado_em'])}, {ext.hora(f['afixado_em'])}, "
+              f"por {quem}")
+    dias = dias_de_afixacao(f) or 0
+    if f["desafixado_em"]:
+        tirou = nomes.get(f["desafixado_por"], f["desafixado_por"]) or "quem então servia"
+        return (f"{inicio}, e que foi retirado aos "
+                f"{ext.data(f['desafixado_em'])}, {ext.hora(f['desafixado_em'])}, "
+                f"por {tirou}, tendo permanecido afixado {ext.dias(dias)}.")
+    fim = (f"{inicio}, e que à data de hoje se mantém afixado, decorridos "
+           f"{ext.dias(dias)} sobre a afixação")
+    if f["data_retirada"]:
+        fim += f", estando a sua retirada prevista para {ext.data(f['data_retirada'])}"
+    return fim + "."
+
+
+def _linha_do_rodape(cfg: dict) -> str:
+    """Junta a morada, o sítio e o telefone, saltando o que não estiver posto.
+
+    O desenho vem do rodapé dos próprios editais do Município — rótulos
+    separados por barras. Os VALORES não vêm daí: ficam na configuração, porque
+    ler um código postal de uma fotografia de um ecrã e escrevê-lo no código
+    seria inventar a morada de uma câmara municipal.
+    """
+    partes = []
+    for rotulo, chave in (("Morada", "morada"), ("Sítio", "sitio"),
+                          ("Telefone", "telefone")):
+        if cfg.get(chave):
+            partes.append(f"{rotulo}: {cfg[chave]}")
+    return "   |   ".join(partes)
+
+
 def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "",
           nomes_completos: dict | None = None) -> bytes:
     """Produz a certidão de afixação e desafixação de um edital, em PDF.
 
+    A certidão é PROSA e não um formulário, e a mudança foi pedida a 07/10/2026
+    com as certidões de oitocentos como modelo. Não é gosto: um documento que
+    afirma factos sobre um ato administrativo lê-se melhor em frases, e as
+    datas por extenso existem porque um algarismo se altera com um traço de
+    caneta e «vinte e nove» não. Era por isso que os livros de notas se
+    escreviam assim.
+
+    O que NÃO mudou: os factos que o selo cobre. O factos() está igual e o
+    FORMATO continua em 2, pelo que as certidões já emitidas continuam a
+    conferir — esta é uma alteração de aspeto, e a regra do FORMATO diz
+    expressamente que ele sobe pelos factos e nunca pelo aspeto.
+
     Args:
         reg (dict): o registo do edital.
-        cfg (dict): configuração (município, serviço, local do expositor).
+        cfg (dict): configuração (município, serviço, local do expositor, e as
+            chaves opcionais do timbre: cargo_de_quem_certifica, logo_certidao,
+            morada, sitio, telefone).
         emitida_por (str): conta que pediu a certidão.
-        nome_de_quem_emite (str): nome completo dessa pessoa, para o rodapé.
+        nome_de_quem_emite (str): nome completo dessa pessoa, para a assinatura.
         nomes_completos (dict|None): mapa conta→nome completo, para a certidão
             citar "Ana Abreu" e não "ana.abreu" ao nomear quem afixou.
 
@@ -437,143 +744,147 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     d = pr.tipo(f["tipo"])
     doc = fitz.open()
     folha = _Folha(doc)
+    # A configuração de campo tem «Moimenta da Beira», sem o «Município de» —
+    # e a prosa diria «do Moimenta da Beira». O formulário antigo nunca esbarrou
+    # nisto porque punha o nome sozinho num cabeçalho, onde não concorda com nada.
+    municipio = cfg.get("municipio", "Moimenta da Beira")
+    if not municipio.lower().startswith(("município", "municipio")):
+        municipio = f"Município de {municipio}"
+    emitente = nome_de_quem_emite or nomes.get(emitida_por, emitida_por)
+    cargo = cfg.get("cargo_de_quem_certifica", "")
+    # O `or` e não um `.get(chave, omissao)`: o load_config faz
+    # cfg.update(json.loads(...)), portanto um "local_do_expositor": "" escrito
+    # no config.json SOBREPÕE-SE ao valor por omissão e chega aqui vazio. A
+    # versão anterior fazia local[0] a seguir e rebentava com IndexError — no
+    # caminho de emissão de uma certidão, que é o pior sítio para rebentar.
+    local = (cfg.get("local_do_expositor") or "").strip() or \
+        "Expositor eletrónico do Município"
 
-    # ---- cabeçalho ----
-    folha.linha(cfg.get("municipio", "MUNICÍPIO DE MOIMENTA DA BEIRA").upper(),
-                tamanho=11, fonte=SERIF_NEGRITO, cor=VERDE, espaco_depois=1)
+    # ---- timbre ----------------------------------------------------------
+    folha.imagem(cfg.get("logo_certidao") or cfg.get("logo_txt") or "",
+                 largura_desejada=96, espaco_depois=12)
+    folha.espacado(municipio.upper(), tamanho=11, espaco_depois=3)
     if cfg.get("servico"):
-        folha.linha(cfg["servico"], tamanho=9.5, cor=CINZA, espaco_depois=2)
-    folha.risco(espaco_antes=8, espaco_depois=22)
+        folha.centrado(cfg["servico"], tamanho=9.5, fonte=SERIF_ITALICO,
+                       cor=CINZA, espaco_depois=2)
+    folha.risco(espaco_antes=9, espaco_depois=30, cor=VERDE, largura_traco=1.1)
 
-    folha.linha("CERTIDÃO DE AFIXAÇÃO E DESAFIXAÇÃO", tamanho=15,
-                fonte=SERIF_NEGRITO, espaco_depois=4)
-    folha.linha(f"Registo n.º {f['id']} · Selo de conferência {selo(f)}",
-                tamanho=9, cor=CINZA, espaco_depois=20)
+    # ---- título ----------------------------------------------------------
+    folha.espacado("CERTIDÃO", tamanho=20, espaco_depois=8)
+    folha.centrado("de afixação e desafixação de edital", tamanho=11,
+                   fonte=SERIF_ITALICO, cor=CINZA, espaco_depois=6)
+    # Regra curta e centrada, como as que fechavam os títulos das certidões
+    # antigas: separa o título do corpo sem cortar a página ao meio.
+    folha.risco(espaco_antes=2, espaco_depois=20, encolher=165, cor=VERDE,
+                largura_traco=0.9)
 
-    # ---- identificação do documento ----
-    folha.linha("1. DOCUMENTO AFIXADO", tamanho=10, fonte=SERIF_NEGRITO,
-                cor=VERDE, espaco_depois=9)
-    folha.campo("Tipo", d["rotulo"])
-    # O número imprime-se SEMPRE, mesmo em falta. Só aparecia quando existia, e
-    # um campo que desaparece em silêncio não se distingue de um campo perdido:
-    # quem lê a certidão não sabia se o documento não tinha número ou se o
-    # sistema o tinha deixado cair.
-    folha.campo("Número", f["numero"] or "(não atribuído)")
-    # A seguir ao número e nunca no lugar dele. O número é do Gestiona e é
-    # oficial; isto é a etiqueta da nossa aplicação, e o rótulo tem de dizer
-    # qual é qual a quem leia a certidão daqui a cinco anos.
-    #
-    # Vem do registo e não de `factos()` de propósito: ali entraria no selo, e
-    # a razão está escrita onde ela sairia. Imprime-se, não se atesta.
-    folha.campo("Referência interna", reg_mod.referencia(reg))
-    folha.campo("Assunto", f["assunto"] or "(sem assunto registado)")
-    if f["entidade"]:
-        folha.campo("Entidade emissora", f["entidade"])
-    folha.campo("Data do documento", _pt_data(f["data_publicacao"]))
-    folha.campo("Ficheiro de origem", f["ficheiro_origem"])
-    if f["num_paginas"]:
-        folha.campo("Páginas", "1 página" if f["num_paginas"] == 1
-                    else f"{f['num_paginas']} páginas")
-    if f["hash_original"]:
-        folha.campo("Resumo do original", agrupar(f["hash_original"]))
-    # O que a máquina propôs e ninguém confirmou diz-se aqui, ao lado dos campos
-    # a que respeita, e não numa observação no fim que já ninguém liga ao sítio.
+    # ---- quem certifica --------------------------------------------------
+    apresentacao = emitente.upper()
+    if cargo:
+        apresentacao += f", {cargo}"
+    folha.paragrafo(f"{apresentacao}, do {municipio}:", recuo_primeira=0,
+                    espaco_depois=14)
+    folha.espacado("CERTIFICA", tamanho=13, espaco_depois=13)
+
+    # ---- o que certifica -------------------------------------------------
+    if f["afixado_em"]:
+        folha.paragrafo(_frase_do_documento(f, d, reg_mod.referencia(reg), local))
+        folha.paragrafo(_frase_da_afixacao(f, nomes))
+    else:
+        # Uma certidão de um edital que nunca foi afixado continua a ser uma
+        # certidão: certifica que o documento existe no registo e que a
+        # afixação não chegou a acontecer. Calar-se seria pior.
+        folha.paragrafo(
+            "que o documento adiante identificado consta do registo de editais "
+            "deste Município e NÃO chegou a ser afixado.")
+        folha.paragrafo("O documento é o seguinte: "
+                        + _identificacao(f, d, reg_mod.referencia(reg)) + ".")
+
+    if d.get("base_legal"):
+        texto = f"O prazo de afixação é o fixado no {d['base_legal']}."
+        if d.get("nota"):
+            texto += f" {d['nota']}"
+        folha.paragrafo(texto)
+
+    # ---- ressalvas -------------------------------------------------------
+    # Um incumprimento ou um palpite por confirmar não se omitem de uma
+    # certidão. Uma certidão que escondesse o que a lei pede e o que de facto
+    # aconteceu seria pior do que não haver certidão nenhuma.
+    ressalvas = []
     if f["campos_por_confirmar"]:
         quais = ", ".join(ROTULOS_DOS_CAMPOS.get(c, c)
                           for c in f["campos_por_confirmar"])
-        folha.linha(
-            f"Os seguintes elementos foram lidos automaticamente do documento e "
-            f"não chegaram a ser confirmados por quem o afixou: {quais}.",
-            tamanho=9.5, fonte=SERIF_ITALICO, cor=CINZA, espaco_depois=4)
-    folha.risco()
-
-    # ---- afixação ----
-    folha.linha("2. AFIXAÇÃO", tamanho=10, fonte=SERIF_NEGRITO, cor=VERDE,
-                espaco_depois=9)
-    if f["afixado_em"]:
-        quem = nomes.get(f["afixado_por"], f["afixado_por"])
-        folha.campo("Afixado em", _pt(f["afixado_em"]))
-        folha.campo("Por", f"{quem} ({f['afixado_por']})")
-        folha.campo("Local", cfg.get("local_do_expositor",
-                                     "Expositor eletrónico do Município"))
-    else:
-        folha.linha("Este documento não chegou a ser afixado.", tamanho=10.5,
-                    fonte=SERIF_ITALICO, espaco_depois=8)
-    folha.risco()
-
-    # ---- desafixação ----
-    folha.linha("3. DESAFIXAÇÃO", tamanho=10, fonte=SERIF_NEGRITO, cor=VERDE,
-                espaco_depois=9)
-    dias = dias_de_afixacao(f)
-    if f["desafixado_em"]:
-        quem = nomes.get(f["desafixado_por"], f["desafixado_por"])
-        folha.campo("Desafixado em", _pt(f["desafixado_em"]))
-        folha.campo("Por", f"{quem} ({f['desafixado_por']})")
-        folha.campo("Duração da afixação", dias_por_extenso(dias or 0))
-    elif f["afixado_em"]:
-        folha.campo("Situação", "Mantém-se afixado nesta data")
-        folha.campo("Decorridos", f"{dias_por_extenso(dias or 0)} desde a afixação")
-        # Dizer «mantém-se afixado» sem dizer até quando deixa a pergunta mais
-        # útil da certidão por responder, e é a data que a lei fixa.
-        if f["data_retirada"]:
-            folha.campo("Retirada prevista", _pt_data(f["data_retirada"]))
-    else:
-        folha.linha("Não aplicável.", tamanho=10.5, fonte=SERIF_ITALICO,
-                    espaco_depois=8)
-    folha.risco()
-
-    # ---- base legal ----
-    if d.get("base_legal"):
-        folha.linha("4. BASE LEGAL", tamanho=10, fonte=SERIF_NEGRITO, cor=VERDE,
-                    espaco_depois=9)
-        folha.linha(d["base_legal"], tamanho=10.5, fonte=SERIF_NEGRITO, espaco_depois=5)
-        if d.get("nota"):
-            folha.linha(d["nota"], tamanho=10, cor=CINZA, espaco_depois=4)
-        avisos = pr.verificar(f["tipo"], f["afixado_em"][:10] or None,
-                              (f["desafixado_em"] or "")[:10] or None,
-                              f["data_publicacao"] or None)
-        for aviso in avisos:
+        ressalvas.append(
+            f"os seguintes elementos foram lidos automaticamente do documento e "
+            f"não chegaram a ser confirmados por quem o afixou: {quais}")
+    if d.get("base_legal") and f["afixado_em"]:
+        for aviso in pr.verificar(f["tipo"], f["afixado_em"][:10] or None,
+                                  (f["desafixado_em"] or "")[:10] or None,
+                                  f["data_publicacao"] or None):
             if aviso["grau"] == "aviso":
-                # Um incumprimento não se omite da certidão. Uma certidão que
-                # escondesse o que a lei pede e o que de facto aconteceu seria
-                # pior do que não haver certidão nenhuma.
-                folha.linha(f"Observação: {aviso['texto']}", tamanho=10,
-                            fonte=SERIF_ITALICO, espaco_depois=4)
-        folha.risco()
+                ressalvas.append(aviso["texto"][0].lower() + aviso["texto"][1:])
+    for i, ressalva in enumerate(ressalvas):
+        folha.paragrafo(("Ressalva-se que " if i == 0 else "Ressalva-se ainda que ")
+                        + ressalva + ".", fonte=SERIF_ITALICO)
 
-    # ---- anexo: disponibilidade material ----
-    folha.linha("ANEXO · REGISTO DE DISPONIBILIDADE NO EXPOSITOR", tamanho=9.5,
-                fonte=SERIF_NEGRITO, cor=CINZA, espaco_depois=8)
+    # ---- fecho e assinatura ---------------------------------------------
+    folha.paragrafo("Por ser verdade e me ter sido pedida, mandei passar a "
+                    "presente certidão, que vai por mim assinada.",
+                    espaco_antes=6)
+    hoje = datetime.now()
+    folha.paragrafo(f"{municipio}, aos {ext.data(hoje)}.", recuo_primeira=0,
+                    espaco_depois=2)
+    folha.assinatura(emitente, cargo)
+
+    # ---- nota de conferência --------------------------------------------
+    # O aparato técnico vive aqui, depois da assinatura e em corpo pequeno, e
+    # não misturado com o que a certidão afirma. É a divisão que as certidões
+    # antigas já faziam entre o texto e as anotações de registo: em cima o que
+    # se certifica, em baixo como se confere.
+    conferencia = [f"Registo n.º {f['id']}",
+                   f"referência interna {reg_mod.referencia(reg)}"]
+    if f["hash_original"]:
+        conferencia.append(f"resumo do original {agrupar(f['hash_original'])}")
+    conferencia.append(f"ficheiro de origem {f['ficheiro_origem']}")
+    conferencia.append(f"selo de conferência {selo(f)} (formato {FORMATO})")
     if f["disponivel_em"]:
-        folha.linha(
-            f"O documento entrou na rotação do expositor em {_pt(f['disponivel_em'])}. "
-            f"Este registo confirma a disponibilização material e não substitui o "
-            f"instante de afixação certificado no ponto 2, que é o do ato "
-            f"administrativo de afixação.",
-            tamanho=9.5, cor=CINZA, espaco_depois=6)
+        anexo = (f"O documento entrou na rotação do expositor em "
+                 f"{_pt(f['disponivel_em'])}. Este registo confirma a "
+                 f"disponibilização material e não substitui o instante de "
+                 f"afixação certificado acima, que é o do ato administrativo.")
     else:
-        folha.linha(
-            "Sem registo de entrada na rotação do expositor. A ausência deste "
-            "registo não afeta a afixação certificada no ponto 2: respeita "
-            "apenas à confirmação material do funcionamento do equipamento.",
-            tamanho=9.5, cor=CINZA, espaco_depois=6)
+        anexo = ("Sem registo de entrada na rotação do expositor. A ausência "
+                 "deste registo não afeta a afixação certificada acima: "
+                 "respeita apenas à confirmação material do funcionamento do "
+                 "equipamento.")
+    emissao = (f"Certidão emitida em {_pt(hoje.isoformat(timespec='seconds'))} "
+               f"por {emitente} ({emitida_por}), a partir do registo de editais. "
+               f"O selo de conferência permite confirmar, junto do serviço "
+               f"emissor, que esta certidão corresponde ao registo. Não "
+               f"constitui assinatura eletrónica.")
 
-    # ---- rodapé ----
-    folha.risco(espaco_antes=14, espaco_depois=12)
-    emitente = nome_de_quem_emite or nomes.get(emitida_por, emitida_por)
-    folha.linha(f"Certidão emitida em {_pt(datetime.now().isoformat(timespec='seconds'))} "
-                f"por {emitente} ({emitida_por}).", tamanho=9.5, cor=CINZA,
-                espaco_depois=4)
-    folha.linha(
-        "Documento gerado automaticamente a partir do registo de editais. O selo "
-        "de conferência permite confirmar, junto do serviço emissor, que esta "
-        f"certidão corresponde ao registo (formato {FORMATO}). Não constitui "
-        "assinatura eletrónica.",
-        tamanho=8.5, cor=CINZA, espaco_depois=0)
+    # A nota vai inteira ou não vai: partida entre duas páginas, deixava a
+    # segunda com uma linha solta, que se lê como defeito de impressão e não
+    # como documento. O miudinho de uma certidão fica junto do seu título.
+    pequeno = dict(tamanho=8, recuo_primeira=0, entrelinha=3)
+    bloco = 18 + 10 + 18 + sum(
+        folha.altura_de(t, espaco_depois=e, **pequeno)
+        for t, e in ((" · ".join(conferencia) + ".", 6), (anexo, 6), (emissao, 0)))
+    folha.reservar(bloco)
+
+    folha.risco(espaco_antes=18, espaco_depois=10, encolher=0)
+    folha.centrado("NOTA DE CONFERÊNCIA", tamanho=8, fonte=SERIF_NEGRITO,
+                   cor=CINZA, espaco_depois=8)
+    folha.paragrafo(" · ".join(conferencia) + ".", cor=CINZA, espaco_depois=6,
+                    **pequeno)
+    folha.paragrafo(anexo, cor=CINZA, espaco_depois=6, **pequeno)
+    folha.paragrafo(emissao, cor=CINZA, espaco_depois=0, **pequeno)
+
+    folha.rodape(_linha_do_rodape(cfg))
 
     doc.set_metadata({
-        "title": f"Certidão de afixação — registo {f['id']}",
-        "author": cfg.get("municipio", "Município de Moimenta da Beira"),
+        "title": f"Certidão de afixação e desafixação — registo {f['id']}",
+        "author": municipio,
         "subject": f["assunto"][:120],
         "creator": "Agente de Editais",
     })

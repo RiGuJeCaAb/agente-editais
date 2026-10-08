@@ -37,6 +37,8 @@ from __future__ import annotations
 from datetime import date, timedelta
 from typing import Any
 
+import extenso as ext
+
 # Uma definição de tipo é configuração heterogénea: rótulos e normas em texto,
 # prazos em número, e campos que só alguns tipos têm. Declarar o valor como
 # Any é dizer isso à letra, em vez de inventar um tipo rígido que a primeira
@@ -207,7 +209,7 @@ def verificar(ident: str | None, afixacao: date | str | None,
     # legal, e diz-se antes de tudo o resto: enquanto isto estiver assim, os
     # outros avisos sairiam com contas negativas, que confundem em vez de
     # avisarem. Foi assim que este caso se descobriu — um teste mostrou "a
-    # afixação dura -79 dia(s)".
+    # afixação dura menos de um dia".
     if inicio and fim and fim < inicio:
         return [{
             "grau": "aviso",
@@ -241,7 +243,7 @@ def verificar(ident: str | None, afixacao: date | str | None,
             if dias < minimos:
                 avisos.append({
                     "grau": "aviso",
-                    "texto": (f"A afixação dura {dias} dia(s), abaixo do mínimo "
+                    "texto": (f"A afixação dura {ext.dias(dias)}, abaixo do mínimo "
                               f"de {minimos} exigido para este tipo de documento."),
                     "base_legal": d.get("base_legal", ""),
                 })
@@ -270,9 +272,9 @@ def verificar(ident: str | None, afixacao: date | str | None,
             avisos.append({
                 "grau": "aviso",
                 "texto": (f"Da afixação até ao fim da janela legal "
-                          f"({limite.isoformat()}) vão {(limite - inicio).days} "
-                          f"dia(s), menos do que os {minimos} exigidos: mesmo "
-                          f"deixando o edital mais tempo, o prazo não se cumpre."),
+                          f"({limite.isoformat()}) vão {ext.dias((limite - inicio).days)}, "
+                          f"menos do que os {minimos} exigidos: mesmo deixando o "
+                          f"edital mais tempo, o prazo não se cumpre."),
                 "base_legal": d.get("base_legal", ""),
             })
     return avisos

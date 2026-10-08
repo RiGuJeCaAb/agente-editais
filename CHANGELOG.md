@@ -1195,3 +1195,166 @@ o número do edital.
 O teste do selo é deliberadamente mais largo do que o defeito: não diz «a
 referência não pode entrar nos factos», diz que **nenhum campo derivado do
 `criado_em` pode mexer no selo**. Vale para o que lá quiserem pôr a seguir.
+
+---
+
+## 0.23.0 — A certidão, escrita como se escreviam as certidões
+
+Pedido de quem usa isto, a 07/10/2026: tomar as certidões de oitocentos e do
+princípio de novecentos como modelo, e ir buscar ao cabeçalho e ao rodapé dos
+próprios editais do município o que falta.
+
+### De formulário a documento
+
+A certidão era uma lista de pares rótulo/valor em quatro secções numeradas.
+Funcionava, e lia-se como um ecrã impresso. Passa a ser **prosa**:
+
+```
+                M U N I C Í P I O   D E   M O I M E N T A   D A   B E I R A
+                        Divisão Administrativa e Financeira
+    ───────────────────────────────────────────────────────────────────────
+
+                                C E R T I D Ã O
+                      de afixação e desafixação de edital
+                              ──────────────────
+
+    ANA ABREU, Chefe da Divisão Administrativa e Financeira, do Município
+    de Moimenta da Beira:
+
+                                C E R T I F I C A
+
+        que, para os devidos efeitos, foi afixado no átrio do edifício dos
+    Paços do Concelho, por este Município, o seguinte documento: deliberação
+    de órgão autárquico, com o n.º 2026-0017, da autoria de ASSEMBLEIA
+    MUNICIPAL, com data de vinte e nove dias do mês de junho de 2026 (...)
+```
+
+Texto justificado às duas margens, título com as letras afastadas, uma regra
+curta a fechá-lo, o traço da assinatura e, por baixo, a **nota de conferência**
+em corpo pequeno — a divisão que as certidões antigas já faziam entre o que se
+certifica e as anotações de registo.
+
+### As datas por extenso, e porquê
+
+Não é enfeite. **Um algarismo altera-se com um traço de caneta e «vinte e nove»
+não** — era por isso que os livros de notas se escreviam assim. Entra um módulo
+novo, `lib/extenso.py`, em português **europeu**: «catorze» e não «quatorze»,
+«dezasseis», «dezassete» e «dezanove» e não as formas com 'e'. Uma certidão de
+um município português com «quatorze» lá dentro tem um erro à vista de quem a
+receber.
+
+O ano fica em algarismos de propósito: experimentou-se com ele por extenso e,
+numa certidão que cita leis com ano, prazos com ano e um edital com ano, a
+frase deixava de se ler.
+
+Meses em minúscula, que é o que a norma em vigor manda. **A certidão vai buscar
+o seu ar antigo à estrutura e às fórmulas, não a erros de ortografia.**
+
+### O que o selo cobre não mudou — e está medido
+
+Esta é a condição que a peça tinha de respeitar, e a regra do `FORMATO` di-lo
+expressamente: ele sobe quando muda o **conjunto de factos** e nunca quando muda
+o aspeto. Medido no mesmo registo, antes e depois da reescrita:
+
+```
+antes:  FORMATO 2 | selo 0129 7FA6 7E5E B66C | 17 chaves
+depois: FORMATO 2 | selo 0129 7FA6 7E5E B66C | 17 chaves
+```
+
+Idêntico. As certidões já emitidas continuam a conferir. Há agora um teste que
+fixa esse valor dígito a dígito: se mudar, alguém mexeu num facto sem subir o
+formato.
+
+### Três defeitos que a mudança destapou
+
+**1. A régua media mal as aspas angulares.** O `get_text_length` do PyMuPDF para
+de contar no primeiro carácter que não sabe ler. Medido:
+
+```
+'DELIBERACOES'    devolve 82,50 e desenha 82,50
+'«DELIBERACOES'   devolve 80,06 e desenha 88,00
+'«a'              devolve  5,50 e desenha 10,38
+```
+
+Repare-se na última: acrescentar uma letra não aumentou a medida nenhuma. A
+correção anterior media o texto com os **acentos** retirados e acertava só neles.
+A certidão passou a citar o assunto entre «angulares» e a primeira palavra do
+assunto saiu desenhada **por cima** da segunda. Agora soma-se a largura de cada
+carácter, um a um — bate ao centésimo nos três casos, e deixa de haver uma
+classe inteira de caracteres por onde a régua possa voltar a falhar.
+
+**2. O parêntesis do plural voltou pela porta das traseiras.** O `prazos.py`
+escrevia «a afixação dura 2 dia(s)», e esse texto vai impresso na certidão. O
+teste que proibia `dia(s)` passava por sorte: a sua fixture não gerava
+incumprimento nenhum, e por isso nunca lá chegava.
+
+**3. «do Moimenta da Beira».** A configuração de campo tem o nome sem o
+«Município de». O formulário antigo nunca esbarrou nisto porque punha o nome
+sozinho num cabeçalho, onde não concorda com nada.
+
+### O cabeçalho e o rodapé dos editais
+
+O desenho vem de lá: rótulos a negrito separados por barras, com o número de
+folha à direita. Os **valores** não: a morada e os telefones ficam na
+configuração, em `servico`, `cargo_de_quem_certifica`, `morada`, `sitio` e
+`telefone`. Dão-se a ler na fotografia de um ecrã mas não se leem ao dígito, e
+**ler um código postal de uma fotografia e escrevê-lo no código seria inventar a
+morada de uma câmara municipal**. Em branco, a certidão sai sem eles.
+
+### A nota de conferência vai inteira
+
+Partida entre duas páginas, deixava a segunda com **uma linha solta** — mediu-se:
+página 2 com uma linha de texto e o rodapé. Lê-se como defeito de impressão, não
+como documento. O bloco passa a reservar o seu espaço antes de começar, e o
+caso comum voltou a caber numa folha.
+
+### Testes
+
+**542 no total, 52 novos.** Quarenta e três vêm do `extenso.py`, que é módulo
+novo e portanto não tinha como passar contra código onde ele não existe: as
+formas do português europeu uma a uma, a regra do «e» depois dos milhares, a
+concordância da preposição das horas e o plural das folhas e dos dias.
+
+Dos quatro restantes, **dois falham contra o código anterior** — a régua a medir
+as aspas angulares, e o nome do município a concordar na frase — e **dois passam
+dos dois lados de propósito**, com a razão escrita no ficheiro:
+
+- o **do selo** fixa um valor que tem de ser o mesmo antes e depois. É a prova
+  de que a reescrita não tocou num facto, e falhar ali é uma certidão antiga
+  deixar de conferir.
+- o **da sobreposição de palavras** olha para as palavras realmente desenhadas e
+  exige que cada uma acabe antes de a seguinte começar. Passava antes porque não
+  havia justificação nenhuma; falhou contra a versão intermédia desta peça, com
+  a régua ainda errada — e foi assim que o defeito das angulares se apanhou.
+
+No `test_prazos.py`, o teste do aviso curto passa a exigir «dois dias» e a
+proibir `dia(s)` no próprio aviso, que é onde o parêntesis nascia.
+
+### Apanhado em revisão: a certidão não se emitia com o local em branco
+
+Um `"local_do_expositor": ""` no `config.json` rebentava com `IndexError`.
+Reproduzido antes de se lhe tocar, e o mecanismo confirmado no código: o
+`load_config()` faz `cfg.update(json.loads(...))`, portanto a chave presente com
+valor vazio **sobrepõe-se** ao valor por omissão. O `.get(chave, omissao)` só
+cobre a chave em falta, e a seguir fazia-se `local[0]`.
+
+Antes desta peça isso imprimia um campo vazio. Depois dela deixava de emitir a
+certidão — no caminho do pedido de certidão.
+
+A revisão sugeria documentar que a chave tem de ser um nome masculino singular.
+**Fui mais longe**, porque isso resolvia o sintoma e deixava a armadilha montada:
+«Paços do Concelho» é um valor plausível para muita câmara, e é plural.
+
+```
+antes:  foi afixado no {local}              ->  «no receção», «no Paços»
+agora:  no local designado por «{local}»    ->  certo para qualquer género e número
+```
+
+O valor sai tal e qual foi configurado, entre angulares, sem minusculizar a
+inicial. **Deixa de concordar com o que quer que seja** — que é o que o torna
+certo para todos os casos de uma vez, em vez de certo para os que hoje por acaso
+lá estão.
+
+Cinco testes, todos a falhar contra o código desta PR antes da correção: um para
+o valor em branco, e quatro parametrizados com um local masculino, um feminino,
+um plural e outro feminino singular.

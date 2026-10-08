@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 490 testes
+pytest          # 542 testes
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1021,3 +1021,65 @@ São onze em vez de vinte e seis, e mais fracos: a área de cada um cresceu umas
 quarenta vezes, e vinte e seis lençóis a esta escala não é um fundo, é sopa.
 
 Se ficar pesado na televisão, o número está numa linha só — `var N = 11`.
+
+---
+
+## 22. A certidão, escrita como se escreviam as certidões — NOVO
+
+A certidão de afixação é **prosa**, e não um formulário. O modelo são as
+certidões de oitocentos e do princípio de novecentos: o funcionário identifica-se,
+escreve `CERTIFICA`, conta os factos em frases corridas e fecha com a fórmula —
+*«Por ser verdade e me ter sido pedida, mandei passar a presente certidão, que
+vai por mim assinada.»* — seguida do lugar, da data e do traço por onde se assina.
+
+### As datas por extenso
+
+```
+aos vinte e nove dias do mês de junho de 2026, pelas nove horas e catorze minutos
+```
+
+**Não é enfeite: um algarismo altera-se com um traço de caneta e «vinte e nove»
+não.** Era por isso que os livros de notas se escreviam assim.
+
+Vive em `lib/extenso.py`, em português **europeu** — «catorze», «dezasseis»,
+«dezassete», «dezanove». O ano fica em algarismos de propósito: com ele também
+por extenso, numa certidão que cita leis com ano e prazos com ano, a frase
+deixava de se ler. Os meses vão em minúscula, que é o que a norma manda — o ar
+antigo vem da estrutura e das fórmulas, não de erros de ortografia.
+
+### O que se certifica e como se confere
+
+| Parte | O quê |
+|---|---|
+| Corpo | O que a certidão **afirma**: o documento, a afixação, a retirada, a base legal e as ressalvas |
+| Assinatura | O traço, o nome e o cargo. Uma certidão vale quando alguém a assina |
+| Nota de conferência | Como se **confere**: registo, referência interna, resumo do original, selo e formato |
+
+As ressalvas não se omitem. Um incumprimento do prazo ou um campo que a leitura
+automática propôs e ninguém confirmou aparecem no corpo, em itálico — *uma
+certidão que escondesse o que a lei pede e o que de facto aconteceu seria pior
+do que não haver certidão nenhuma.*
+
+### O timbre vem da configuração, não do código
+
+O desenho do cabeçalho e do rodapé vem dos editais do município. Os **valores**
+não: ficam no `config.json`, e em branco a certidão sai sem eles.
+
+```json
+"servico": "Divisão Administrativa e Financeira",
+"cargo_de_quem_certifica": "Chefe da Divisão Administrativa e Financeira",
+"morada": "Largo do Tabolado, 0000-000 Moimenta da Beira, Portugal",
+"sitio": "www.cm-moimenta.pt",
+"telefone": "+351 254 000 000"
+```
+
+**Copie-os do cabeçalho e do rodapé dos editais verdadeiros.** Não estão no
+código porque não são adivinháveis, e uma certidão com a morada errada é um
+documento com um erro.
+
+### O selo não mudou
+
+Esta peça mudou o aspeto todo e **não tocou num facto**. O `FORMATO` continua em
+2 e o selo do mesmo registo continua a ser o mesmo — medido antes e depois,
+`0129 7FA6 7E5E B66C` nos dois casos. As certidões já emitidas continuam a
+conferir, e há um teste que fixa esse valor para ninguém o mudar por distração.
