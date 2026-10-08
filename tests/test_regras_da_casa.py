@@ -24,7 +24,6 @@ import subprocess
 import sys
 
 import pytest
-import tomllib
 
 RAIZ = pathlib.Path(__file__).resolve().parent.parent
 
@@ -51,6 +50,21 @@ def _versao_do_agente():
     """O VERSAO que o agente.py declara."""
     texto = (RAIZ / "agente.py").read_text(encoding="utf-8")
     return re.search(r'^VERSAO\s*=\s*"([^"]+)"', texto, re.M).group(1)
+
+
+def _versao_do_pyproject():
+    """O `version` que o pyproject.toml declara.
+
+    Por expressão regular e não pelo `tomllib`, que só existe a partir do
+    Python 3.11 e a matriz desta casa começa no 3.10. A primeira versão deste
+    ficheiro importava-o e deixou a perna do 3.10 vermelha — num ficheiro
+    escrito, entre outras coisas, para impor «verde nas DUAS versões da
+    matriz». Trazer o `tomli` só para ler um campo não se justificava.
+    """
+    texto = (RAIZ / "pyproject.toml").read_text(encoding="utf-8")
+    achado = re.search(r'^version\s*=\s*"([^"]+)"', texto, re.M)
+    assert achado, "o pyproject.toml deixou de declarar um `version` na raiz"
+    return achado.group(1)
 
 
 def _seccoes_do_changelog():
@@ -83,10 +97,9 @@ def _quantos_testes(marcador=None):
 
 def test_a_versao_e_a_mesma_no_agente_e_no_pyproject():
     """«`VERSAO` e `version` sobem juntos e nunca se separam» (AGENTS.md)."""
-    pyproject = tomllib.loads((RAIZ / "pyproject.toml").read_text(encoding="utf-8"))
-    assert _versao_do_agente() == pyproject["project"]["version"], (
+    assert _versao_do_agente() == _versao_do_pyproject(), (
         f"agente.py diz {_versao_do_agente()} e o pyproject.toml diz "
-        f"{pyproject['project']['version']}")
+        f"{_versao_do_pyproject()}")
 
 
 # --------------------------------------------------------------------------
@@ -174,12 +187,24 @@ def test_o_readme_cita_a_contagem_certa_dos_testes_de_browser():
 # um edital, e proibi-los seria empobrecer o texto em nome de uma regra que
 # nunca foi sobre isso. Entram os blocos pictográficos, as bandeiras, e
 # qualquer símbolo que peça apresentação de emoji com o U+FE0F.
-EMOJI = re.compile(
-    "[\U0001F000-\U0001FAFF]"
-    "|[\U0001F1E6-\U0001F1FF]"
-    "|[☀-➿]️"
-    "|✅|❌|✨|⭐|⭕|❗|❓"
-)
+# Construída a partir de PONTOS DE CÓDIGO e não de caracteres, para este
+# ficheiro — que proíbe emojis — não ter de conter um único.
+#
+# A primeira versão escrevia-os como «\u2705» e alguma coisa pelo caminho
+# converteu os escapes em caracteres: o ficheiro foi para o repositório com
+# sete emojis dentro da própria regra que os proíbe. Quem o apanhou foi a
+# regra, ao correr contra si mesma.
+_BLOCOS = [(0x1F000, 0x1FAFF),   # pictogramas, emoticons, símbolos, transportes
+           (0x1F1E6, 0x1F1FF)]   # indicadores regionais (bandeiras)
+_SOLTOS = [0x2705, 0x274C, 0x2728, 0x2B50, 0x2B55, 0x2757, 0x2753]
+_SIMBOLOS = (0x2600, 0x27BF)     # mistos: só contam com o seletor a seguir
+_SELETOR_DE_EMOJI = 0xFE0F
+
+EMOJI = re.compile("|".join(
+    [f"[{chr(a)}-{chr(b)}]" for a, b in _BLOCOS]
+    + [f"[{chr(_SIMBOLOS[0])}-{chr(_SIMBOLOS[1])}]{chr(_SELETOR_DE_EMOJI)}"]
+    + [chr(c) for c in _SOLTOS]
+))
 
 
 def test_nao_ha_emojis_no_que_esta_versionado():

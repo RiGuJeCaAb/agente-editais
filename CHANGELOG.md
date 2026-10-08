@@ -1773,6 +1773,27 @@ timidez, é o que a torna utilizável.
 o README desenha o percurso de um edital. Proibi-las seria empobrecer o texto em
 nome de uma regra que nunca foi sobre isso.
 
+### Duas que o próprio ficheiro apanhou, depois de empurrado
+
+A primeira entrega desta peça partiu a perna do 3.10 e levou emojis para dentro
+da regra que os proíbe. As duas ficam escritas porque são o argumento inteiro.
+
+**O `tomllib` só existe a partir do 3.11.** Usei-o para ler a versão do
+`pyproject.toml`, corri tudo em 3.12 e entreguei — num ficheiro escrito, entre
+outras coisas, para impor «verde nas DUAS versões da matriz». A perna do 3.10
+morreu na importação, antes de correr um único teste. Lê-se agora por expressão
+regular: trazer o `tomli` para ler um campo não se justificava.
+
+**Os sete emojis da própria expressão regular.** Estavam escritos como
+`\u2705` e alguma coisa pelo caminho converteu os escapes em caracteres. O
+ficheiro foi para o repositório com sete emojis dentro da regra que os proíbe —
+e a CI nem chegou a dizê-lo, porque a perna do 3.10 morreu primeiro. A
+expressão passa a ser construída a partir de **pontos de código**, para este
+ficheiro não poder conter um emoji nem por acidente.
+
+Quem apanhou as duas foi a regra, ao correr contra si mesma. É a melhor prova
+que se podia pedir — e também a razão por que a matriz tem duas pernas.
+
 ### O que NÃO está aqui, e de propósito
 
 «O teste tem de falhar contra o código anterior», «medir com a mesma régua», «os
