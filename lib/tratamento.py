@@ -82,6 +82,50 @@ MARGEM_LATERAL = (CANVAS_W - (MAX_POR_ECRA * SHEET_W
 LARGA_W = CANVAS_W - 2 * MARGEM_LATERAL    # 3678
 LARGA_H = SHEET_H                          # 1678, a mesma altura das verticais
 
+# ---------------------------------------------------------------------------
+# O logótipo: as frações que o assentam.
+# ---------------------------------------------------------------------------
+# Estavam escritas duas vezes — aqui como valores por omissão de duas funções, e
+# outra vez à mão no CSS da página da televisão. E não batiam: o CSS tinha
+# `top:1.76%`, que numa folha de estilos se resolve sobre a ALTURA do elemento
+# que a contém, quando o 0,0176 nasceu de multiplicar a margem pela largura.
+# Resultado medido num ecrã 4K: o logótipo assentava em y=38 na televisão e em
+# y=67,6 na imagem que ia para o arquivo. Trinta píxeis de diferença entre o que
+# se viu e o que ficou provado.
+LOGO_LARGURA_FRAC = 0.150        # largura do logótipo, sobre a LARGURA do ecrã
+LOGO_MARGEM_FRAC = 0.032         # margem ao canto, sobre a LARGURA do ecrã
+LOGO_MARGEM_Y_FATOR = 0.55       # a margem de cima é mais apertada do que a do lado
+
+# ---------------------------------------------------------------------------
+# As faixas que o desenho reserva, em frações do palco.
+# ---------------------------------------------------------------------------
+# O desenho acima é em píxeis de um palco 16:9 de 3840×2160, porque é nessas
+# medidas que a imagem do arquivo se compõe. A televisão, porém, tem à frente o
+# ecrã que tem — e nem sempre é 16:9. Estas três frações são o mesmo desenho
+# dito de maneira a poder ser reaplicado a qualquer ecrã: não se inventa nada,
+# divide-se o que já cá estava pelo tamanho do palco.
+FRACAO_TOPO = SHEET_TOP / CANVAS_H                              # 0,1148
+FRACAO_FUNDO = (CANVAS_H - SHEET_TOP - SHEET_H) / CANVAS_H      # 0,1083
+FRACAO_LADO = MARGEM_LATERAL / CANVAS_W                         # 0,0211
+
+# Ar entre o logótipo e a primeira folha, em frações da altura do logótipo.
+FOLGA_SOB_A_MARCA = 0.2
+
+# Quanto da ALTURA do ecrã a faixa do logótipo pode ocupar, no máximo.
+#
+# O logótipo é uma fração da LARGURA e a faixa é uma fração da ALTURA, por isso
+# num ecrã largo, ou com um logótipo mais alto do que largo, a faixa cresce sem
+# travão. Medido antes deste teto, com um logótipo de rácio 0,5 num 21:9 de
+# 3440×1440: a faixa ficava com 1092 px dos 1440 e sobrava uma folha de 0,7×1,0
+# PÍXEIS. O teste da sobreposição passava — um píxel não tapa nada —, que é o
+# defeito dele e não da regra.
+#
+# 0,25 e não um valor mais apertado: com o logótipo que o município usa a faixa
+# fica em 11,5% da altura, e este teto só começaria a morder num ecrã com mais
+# de 3,9 para 1. Nenhum ecrã real chega lá, pelo que isto nunca muda nada ao
+# posto — é a rede para o dia em que o logótipo mude de forma.
+TETO_DA_MARCA = 0.25
+
 # Acima deste rácio largura/altura o documento vai sozinho para a caixa larga.
 # 1.0 — isto é, mais largo do que alto — e não um valor mais exigente: mesmo um
 # documento quase quadrado ganha o dobro da área na caixa larga, porque na
@@ -745,6 +789,87 @@ def caixas_do_ecra(paginas):
     return [(x, SHEET_TOP, SHEET_W, SHEET_H) for x in sheet_positions(len(paginas))]
 
 
+def desenho_no_ecra(caixas, largura, altura, logo_racio=None):
+    """Reaplica o desenho de um ecrã às medidas do ecrã que a televisão tem.
+
+    É a regra que faltava. O desenho sai do caixas_do_ecra em píxeis de um palco
+    16:9 de 3840×2160, porque é nessas medidas que a imagem do arquivo se compõe.
+    A televisão encolhia esse palco inteiro para caber — um `min()` dos dois
+    rácios — e com isso punha a folha no meio de uma faixa, com o ecrã a sobrar
+    de todos os lados sempre que o ecrã não era 16:9. Medido num monitor
+    vertical de 1080×1920: a folha ocupava 7,7% do ecrã e sobravam 37,8% acima e
+    37,6% abaixo, com o logótipo a flutuar a meio do nada.
+
+    O que esta função faz é outra coisa: toma a caixa que ENVOLVE as folhas e
+    amplia-a até encostar ao espaço disponível, com uma escala só — a mesma nos
+    dois eixos, e por isso nenhuma folha se deforma, por construção. A disposição
+    relativa (os intervalos, a caixa larga da página deitada, o alinhamento)
+    sobrevive intacta porque é toda medida a partir dessa caixa.
+
+    Num ecrã 16:9 devolve exatamente o que recebeu: as três faixas que delimitam
+    o espaço disponível são as do próprio palco, ditas em frações. Isso não é
+    feliz coincidência, é a condição que a função tinha de cumprir — a televisão
+    do átrio é 16:9 e não se mexe no que lá está certo.
+
+    Args:
+        caixas (list[tuple[int, int, int, int]]): o desenho, em coordenadas do
+            palco, tal como o caixas_do_ecra o devolve.
+        largura (float), altura (float): as medidas do ecrã de destino.
+        logo_racio (float | None): largura/altura do logótipo, se houver um. A
+            faixa de cima tem de o conter: num ecrã muito largo o logótipo, que
+            é uma fração da LARGURA, cresce mais do que a faixa, e sem isto
+            assentava por cima da primeira folha.
+
+    Returns:
+        dict: "caixas" com as caixas em píxeis do ecrã, "escala" com o fator
+        aplicado (que a sombra também precisa de conhecer) e "logotipo" com a
+        caixa do logótipo, ou None se não houver.
+    """
+    if not caixas or largura <= 0 or altura <= 0:
+        return {"caixas": [], "escala": 1.0, "logotipo": None}
+
+    marca = None
+    topo = altura * FRACAO_TOPO
+    if logo_racio:
+        lx = largura * LOGO_MARGEM_FRAC
+        ly = lx * LOGO_MARGEM_Y_FATOR
+        lw = largura * LOGO_LARGURA_FRAC
+        lh = lw / logo_racio
+        # O logótipo encolhe antes de comer o ecrã. Sem este teto, um logótipo
+        # alto num ecrã largo deixava a folha com um píxel de altura — e o
+        # logótipo existe para identificar o município, não para tapar o edital
+        # que o município está a afixar.
+        cabe = altura * TETO_DA_MARCA - ly
+        if cabe > 0 and lh * (1 + FOLGA_SOB_A_MARCA) > cabe:
+            encolher = cabe / (lh * (1 + FOLGA_SOB_A_MARCA))
+            lw, lh = lw * encolher, lh * encolher
+        marca = (lx, ly, lw, lh)
+        # A faixa de cima tem de conter o logótipo, e a folga por baixo dele é
+        # uma fração da sua própria altura — não uma medida nova a inventar.
+        # Num ecrã 16:9 com um logótipo tão largo como o que o município usa
+        # isto dá menos do que a faixa do palco e portanto não mexe em nada;
+        # num ecrã muito largo, onde o logótipo cresce com a LARGURA e a faixa
+        # com a ALTURA, é o que impede o logótipo de assentar sobre a folha.
+        topo = max(topo, ly + lh * (1 + FOLGA_SOB_A_MARCA))
+
+    x0 = min(x for x, _, _, _ in caixas)
+    y0 = min(y for _, y, _, _ in caixas)
+    x1 = max(x + w for x, _, w, _ in caixas)
+    y1 = max(y + h for _, y, _, h in caixas)
+    env_w, env_h = x1 - x0, y1 - y0
+
+    lado = largura * FRACAO_LADO
+    disp_w = max(1.0, largura - 2 * lado)
+    disp_h = max(1.0, altura - topo - altura * FRACAO_FUNDO)
+    k = min(disp_w / env_w, disp_h / env_h)
+
+    ox = (largura - env_w * k) / 2                 # centrado na horizontal
+    oy = topo + (disp_h - env_h * k) / 2           # centrado no que sobra
+    return {"caixas": [(ox + (x - x0) * k, oy + (y - y0) * k, w * k, h * k)
+                       for x, y, w, h in caixas],
+            "escala": k, "logotipo": marca}
+
+
 def folhas_do_ecra(paginas):
     """As folhas deste ecrã, já ajustadas à sua caixa, com as coordenadas.
 
@@ -767,7 +892,8 @@ def folhas_do_ecra(paginas):
             for caixa, pg in zip(caixas, paginas, strict=True)]
 
 
-def ha_espaco_para_o_logotipo(caixas, logo_im, width_frac=0.150, margin_frac=0.032):
+def ha_espaco_para_o_logotipo(caixas, logo_im, width_frac=LOGO_LARGURA_FRAC,
+                              margin_frac=LOGO_MARGEM_FRAC):
     """Diz se o canto superior esquerdo está livre para o logótipo assentar.
 
     A composição em Python responde a isto a olhar para os píxeis da imagem já
@@ -798,7 +924,7 @@ def ha_espaco_para_o_logotipo(caixas, logo_im, width_frac=0.150, margin_frac=0.0
     tw = int(CANVAS_W * width_frac)
     th = int(round(lh * tw / lw))
     mx = int(CANVAS_W * margin_frac)
-    my = int(CANVAS_W * margin_frac * 0.55)
+    my = int(CANVAS_W * margin_frac * LOGO_MARGEM_Y_FATOR)
     if tw <= 0 or th <= 0:
         return False
     # Quanto da faixa do logótipo fica tapado por folhas. As folhas nunca se
@@ -823,7 +949,8 @@ def ha_espaco_para_o_logotipo(caixas, logo_im, width_frac=0.150, margin_frac=0.0
 
 
 def compose_sheets(pages, seed=7, logo_im=None,
-                   logo_width_frac=0.150, logo_margin_frac=0.032, cache_fundos=None):
+                   logo_width_frac=LOGO_LARGURA_FRAC,
+                   logo_margin_frac=LOGO_MARGEM_FRAC, cache_fundos=None):
     """Compõe 1..3 páginas lado a lado, ao mesmo tamanho, sobre o fundo metálico.
 
     É a função central do módulo. Gera o fundo, coloca as folhas nas posições
@@ -882,7 +1009,8 @@ def compose_sheets(pages, seed=7, logo_im=None,
 
 
 def compose_from_image(src_img, seed=7, logo_im=None,
-                       logo_width_frac=0.150, logo_margin_frac=0.032):
+                       logo_width_frac=LOGO_LARGURA_FRAC,
+                       logo_margin_frac=LOGO_MARGEM_FRAC):
     """Recompõe uma imagem 16:9 JÁ montada (deteta as folhas e troca o fundo).
 
     Serve para reaproveitar exportações antigas do expositor: extrai as folhas
@@ -952,7 +1080,8 @@ def _paste_logo(img, mask, logo_im, width_frac, margin_frac):
     W, H = img.size
     LW, LH = logo_im.size
     tw = int(W * width_frac); th = int(round(LH * tw / LW))   # tamanho-alvo do logo
-    mx = int(W * margin_frac); my = int(W * margin_frac * 0.55)  # posição (x,y)
+    mx = int(W * margin_frac)
+    my = int(W * margin_frac * LOGO_MARGEM_Y_FATOR)   # posição (x, y)
 
     # Testa se a faixa do logótipo é fundo verde livre. Recalcula "é fundo?" na
     # composição final (e não na máscara) porque queremos o verde real por baixo.

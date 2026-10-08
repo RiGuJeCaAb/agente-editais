@@ -32,3 +32,29 @@ jobs:
         run: mypy lib/ agente.py
       - name: Testes
         run: pytest
+
+  # A página da televisão é o produto, e até à 0.24.0 nenhum teste a abria:
+  # verificava-se o HTML por pesquisa de texto. Foi assim que passou o defeito
+  # que punha a folha a ocupar 7,7% de um monitor vertical sem uma única linha
+  # vermelha. Estes testes abrem-na mesmo, num Chromium, e medem o que lá está
+  # desenhado.
+  #
+  # Trabalho à parte, e numa versão só: o playwright não é dependência de
+  # execução do agente, e instalá-lo nas duas pernas da matriz pagava duas vezes
+  # por uma verificação que não depende da versão do Python.
+  televisao:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Instalar dependências
+        run: |
+          python -m pip install --upgrade pip
+          pip install -e ".[dev]" playwright
+      - name: Instalar o Chromium
+        run: python -m playwright install --with-deps chromium
+      - name: Testes da página da televisão
+        run: pytest -m navegador

@@ -18,7 +18,7 @@ packages = []
 
 [project]
 name = "agente-editais"
-version = "0.23.1"
+version = "0.24.0"
 description = "Agente de editais do expositor da Câmara Municipal de Moimenta da Beira"
 requires-python = ">=3.10"
 dependencies = [
@@ -43,7 +43,16 @@ testpaths = ["tests"]
 pythonpath = ["lib", "."]
 # Sem -q aqui: a integração contínua já corre `pytest` e um -q duplicado
 # esconde a linha do resumo, que é justamente o que se quer ler no registo da CI.
-addopts = "--strict-markers"
+addopts = "--strict-markers -m 'not navegador'"
+# A página da televisão é o produto, e até aqui nenhum teste a abria: o defeito
+# que a punha a mostrar a folha a 7,7% de um monitor vertical era invisível para
+# a suite toda. Os testes marcados `navegador` abrem-na mesmo, num Chromium, e
+# por isso precisam do playwright — que não é dependência de execução do agente
+# e não se impõe a quem corre `pytest` à mão. Ficam de fora por omissão e correm
+# num trabalho próprio da integração contínua: `pytest -m navegador`.
+markers = [
+    "navegador: abre a página da televisão num browser (precisa do playwright)",
+]
 
 [tool.mypy]
 # Sem python_version fixo, de propósito: cada versão da matriz verifica-se a si

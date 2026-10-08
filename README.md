@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 567 testes
+pytest          # 731 testes (mais 23 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1083,3 +1083,88 @@ Esta peça mudou o aspeto todo e **não tocou num facto**. O `FORMATO` continua 
 2 e o selo do mesmo registo continua a ser o mesmo — medido antes e depois,
 `0129 7FA6 7E5E B66C` nos dois casos. As certidões já emitidas continuam a
 conferir, e há um teste que fixa esse valor para ninguém o mudar por distração.
+
+---
+
+## 23. A folha encontra os limites do ecrã — NOVO
+
+Reportado do posto, com fotografias: num monitor vertical a folha ficava
+«quase a meio» do ecrã, e no Raspberry o fundo preenchia tudo mas o edital e o
+logótipo ficavam numa ilha no meio.
+
+### Porquê
+
+A televisão desenhava num palco de 3840×2160 — as medidas em que a imagem do
+arquivo se compõe — e encolhia esse palco inteiro até ele caber, com o menor
+dos dois rácios. Num ecrã 16:9 isso é exatamente certo. Em qualquer outro punha
+o desenho todo numa faixa, com o ecrã a sobrar dos dois lados. Medido:
+
+| ecrã | antes | depois |
+|---|---|---|
+| TV 16:9 (4K ou FullHD) | 24,3 % da área | **24,3 %** — intocado |
+| Raspberry a 1280×1024 | 17,1 % | **34,6 %** |
+| monitor vertical 1080×1920 | 7,7 % | **72,1 %** |
+| monitor 4:3 1024×768 | 18,2 % | **32,4 %** |
+
+A folha num monitor vertical ocupava **sete por cento e sete décimas** do ecrã,
+com 37,8 % de verde vazio acima e 37,6 % abaixo. E o logótipo, que viaja com o
+palco, flutuava no meio desse vazio em vez de estar num canto.
+
+### O que mudou
+
+O palco **é** o ecrã. A caixa que envolve as folhas é ampliada até encostar ao
+espaço disponível, com **uma escala só** — a mesma nos dois eixos, e por isso
+nenhuma folha se deforma, por construção. A disposição relativa sobrevive
+porque é toda medida a partir dessa caixa: os intervalos, a caixa larga da
+página deitada e o alinhamento saem exatamente na mesma proporção.
+
+**Num ecrã 16:9 nada muda**, e isso não é feliz coincidência: as três faixas
+que delimitam o espaço são as do próprio palco, ditas em frações
+(`FRACAO_TOPO`, `FRACAO_FUNDO`, `FRACAO_LADO` no `tratamento.py`), e por isso a
+ampliação dá exatamente 1. A televisão do átrio é 16:9, e o que lá está é
+certo.
+
+### Dois defeitos que isto destapou
+
+**O logótipo assentava trinta píxeis acima do sítio.** O CSS tinha
+`top:1.76%`, e uma percentagem de `top` resolve-se sobre a **altura** do
+elemento que a contém; o 0,0176 do Python nasceu de multiplicar a margem pela
+**largura**. Num ecrã 4K: y=38 na televisão, y=67,6 na imagem que ficava no
+arquivo — a prova e o que se viu não batiam certo. As frações passam a sair
+todas do `tratamento.py` e a ser injetadas na página.
+
+**Num ecrã muito largo o logótipo podia cair sobre a primeira folha**, porque
+ele é uma fração da largura e a faixa é uma fração da altura. A faixa passa a
+crescer o necessário para o conter. Custo medido num 21:9 de 3440×1440: a folha
+fica 9 % menor do que ficaria sem a guarda — e sem ela o logótipo assentava em
+cima do texto de um edital.
+
+**Mas a faixa não cresce sem travão.** Com um logótipo mais alto do que largo
+num ecrã muito largo, ela comia o ecrã: medido com um rácio de 0,5 num 21:9,
+ficava com 1092 dos 1440 píxeis e a folha saía com **0,7×1,0 píxeis**. O
+logótipo encolhe, com o rácio intacto, antes de a faixa passar de 25 % da
+altura, e a folha nunca desce dos 64 %. Com o logótipo que o município usa a
+faixa fica nos 11,5 % e este teto nunca chega a morder.
+
+### A página da televisão passou a ser testada num browser
+
+Até aqui nenhum teste a abria: verificava-se o HTML por pesquisa de texto, e foi
+assim que este defeito passou sem uma única linha vermelha. Há agora 23 testes
+que a abrem num Chromium, medem o que lá está desenhado e comparam com o
+`trat.desenho_no_ecra()`. Correm num trabalho próprio da integração contínua:
+
+```bash
+pip install playwright && playwright install chromium
+pytest -m navegador
+```
+
+Ficam de fora do `pytest` normal — o playwright não é dependência de execução do
+agente e não se impõe a quem corre a suite à mão. Para os correr contra um
+Chromium já instalado: `CHROMIUM_PARA_TESTES=/caminho/para/chrome pytest -m navegador`.
+
+### O que continua por resolver
+
+Três folhas lado a lado num ecrã vertical continuam pequenas — 23 % da área —
+porque três A4 em fila não cabem noutro sítio numa largura de 1080. Resolver
+isso é **reorganizar** o ecrã (empilhar em vez de alinhar), não ampliá-lo, e é
+outra peça.
