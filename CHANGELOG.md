@@ -1707,3 +1707,187 @@ Leva agora a mesma guarda que o teste do teto já tinha: conta o que mediu e
 exige que tenha medido alguma coisa. Verificado a pôr a fixture a não pedir
 logótipo em caso nenhum — os seis ecrãs falham com «nenhum caso tinha
 logótipo: o teste não mediu nada».
+
+## 0.24.2 — Metade das regras da casa deixa de depender de quem se lembra
+
+Veio de uma conversa sobre revisores automáticos. A observação de quem usa isto,
+a 08/10/2026: as plataformas ganham fama, criam dependência e depois querem
+cobrar — convém não ficar refém de nenhuma.
+
+Verdade, mas a resposta mais útil não era trocar de fornecedor. Olhando para o
+que escapou na onda da 0.24.0, os defeitos dividem-se em dois:
+
+```
+semânticos  teste em seco, folha de 1 píxel, pares trocados  -> precisa de juízo
+mecânicos   a contagem do README, três vezes na mesma onda   -> precisa de um assert
+```
+
+Alugar um revisor para reparar que um número está desatualizado é pagar a alguém
+para fazer o trabalho de um `assert`.
+
+### O que passa a ser verificado por máquina
+
+Em `tests/test_regras_da_casa.py`, contra o que o `AGENTS.md` manda:
+
+- **A versão sobe nos dois ficheiros ao mesmo tempo** — `VERSAO` e `version`.
+- **O CHANGELOG cresce para baixo**, e acaba na versão que o agente declara.
+  Uma secção posta a meio passa despercebida a quem lê o diff, porque o diff
+  mostra-a certa; é o ficheiro inteiro que fica errado.
+- **As contagens do README** conferem-se contra o que o pytest colhe mesmo. Nos
+  **dois** sítios onde aparecem, que foi precisamente a armadilha da última vez.
+- **Não há emojis** no que está versionado.
+- **Não há brasileirismos**, com as excepções declaradas e justificadas uma a
+  uma em `SABIDOS`, à maneira da casa.
+
+E na integração contínua, trabalho `regras_da_pr`: **os assuntos dos commits
+sem acentos**, e a versão a subir. Não são testes do pytest de propósito —
+precisariam do `origin/main`, que quem corre a suite à mão nem sempre tem, e
+passariam em silêncio por não ter o que ver.
+
+### As sete regras foram vistas a falhar
+
+Partiu-se cada uma e confirmou-se que a sua verificação fica vermelha:
+
+```
+APANHA  versao desencontrada
+APANHA  seccao do CHANGELOG fora de ordem
+APANHA  versao sem entrada no CHANGELOG
+APANHA  contagem do README desatualizada
+APANHA  um emoji no README
+APANHA  brasileirismo no README
+APANHA  SABIDOS com palavra que a lista nao conhece
+```
+
+O da contagem nem precisou de ser partido: este ficheiro levou a suite de 731 a
+738 testes, e o teste apanhou a deriva da sua própria PR à primeira corrida.
+
+### Duas coisas que ficam escritas porque custaram
+
+**«time» esteve na lista dos brasileirismos durante uma corrida.** É o módulo do
+Python, e a verificação rebentou com quarenta falsos positivos — três linhas
+abaixo do comentário onde eu próprio avisava que um falso positivo é pior do que
+a verificação não existir. Fica escrito no ficheiro: a lista curta não é
+timidez, é o que a torna utilizável.
+
+**As setas não são emojis.** O primeiro detetor apanhava «→», «↑» e «←», com que
+o README desenha o percurso de um edital. Proibi-las seria empobrecer o texto em
+nome de uma regra que nunca foi sobre isso.
+
+### Duas que o próprio ficheiro apanhou, depois de empurrado
+
+A primeira entrega desta peça partiu a perna do 3.10 e levou emojis para dentro
+da regra que os proíbe. As duas ficam escritas porque são o argumento inteiro.
+
+**O `tomllib` só existe a partir do 3.11.** Usei-o para ler a versão do
+`pyproject.toml`, corri tudo em 3.12 e entreguei — num ficheiro escrito, entre
+outras coisas, para impor «verde nas DUAS versões da matriz». A perna do 3.10
+morreu na importação, antes de correr um único teste. Lê-se agora por expressão
+regular: trazer o `tomli` para ler um campo não se justificava.
+
+**Os sete emojis da própria expressão regular.** Estavam escritos como
+`\u2705` e alguma coisa pelo caminho converteu os escapes em caracteres. O
+ficheiro foi para o repositório com sete emojis dentro da regra que os proíbe —
+e a CI nem chegou a dizê-lo, porque a perna do 3.10 morreu primeiro. A
+expressão passa a ser construída a partir de **pontos de código**, para este
+ficheiro não poder conter um emoji nem por acidente.
+
+Quem apanhou as duas foi a regra, ao correr contra si mesma. É a melhor prova
+que se podia pedir — e também a razão por que a matriz tem duas pernas.
+
+### Terceira ronda: o que a revisão ainda apanhou
+
+**O testemunho da integração contínua estava ao alcance do código da PR.** O
+`actions/checkout` guarda o `GITHUB_TOKEN` na configuração do git da pasta de
+trabalho, e todos estes trabalhos correm código que vem da PR — o pytest, e
+agora a ferramenta dos assuntos. Com permissões de escrita por omissão, esse
+código podia levá-lo consigo. O fluxo passa a declarar `contents: read` e o
+trabalho das regras da PR a não persistir credenciais. Achado do Sourcery, e
+dos bons: não era sobre o que o código faz, era sobre o que podia fazer.
+
+**A regra «cada peça leva uma versão» não estava verificada.** O teste do
+pytest confere que o `VERSAO` e o `version` são o MESMO; não tem como saber se
+SUBIRAM, porque isso só se vê contra a revisão anterior. Uma PR que deixasse os
+dois intactos passava. Entra o `ferramentas/versao_subiu.py`, no mesmo trabalho
+`regras_da_pr` e pela mesma razão — precisa do intervalo de commits.
+
+O que ele não faz, e fica dito: decidir se devia ser o segundo número ou o
+terceiro. Saber se uma alteração muda o que a aplicação faz não é coisa que uma
+máquina conclua de um diff.
+
+**O detetor de emojis deixava passar quatro famílias:** o relógio U+231A, a
+bola U+26BD, os que pedem apresentação de emoji com o seletor U+FE0F a seguir, e
+as teclinhas. Passa a usar a lista do Unicode dos que têm apresentação de emoji
+por omissão, mais a regra do seletor — que apanha as duas últimas famílias sem
+as enumerar.
+
+E ao alargá-lo, apanhou-se a si próprio pela TERCEIRA vez: os exemplos estavam
+escritos em caracteres dentro do comentário que explica a regra. Agora
+nomeiam-se por ponto de código. Neste ficheiro nem a prosa pode conter um.
+
+### E uma varredura que saltava ficheiros em silêncio
+
+O `git ls-files` devolve os nomes com caracteres fora do ASCII **entre aspas e
+com escapes octais**. Um `notas-de-afixação.md` volta como
+`"notas-de-afixa\303\247\303\243o.md"`, o `is_file()` dá falso, e o ficheiro
+desaparece das três verificações que varrem o repositório — sem uma palavra.
+Num projeto escrito em português isso não é hipótese remota.
+
+Passa a usar-se `git ls-files -z`. Achado do revisor da casa, e confirmado a
+correr: o ficheiro de teste era mesmo invisível.
+
+Entra com ele uma guarda que faltava: se um dia a varredura deixar de devolver
+ficheiros, as três regras passam a verde sem olhar para nada. Agora exige-se
+que veja mais de trinta ficheiros e que o README, o AGENTS, o CHANGELOG e o
+agente estejam entre eles. É a quinta vez nesta onda que a mesma armadilha
+aparece, e a primeira em que a tapei antes de alguém ma apontar.
+
+### E duas que nenhuma destas regras apanha
+
+Da quarta ronda de revisão, as duas de documentação e as duas minhas.
+
+**O nome do trabalho da CI mudou a meio da peça e a prosa ficou para trás.**
+Chamava-se `assuntos`; passou a `regras_da_pr` quando ganhou a segunda
+ferramenta, e o CHANGELOG continuou a citar o nome velho. É exatamente o feitio
+da contagem do README — texto a nomear uma coisa que já não se chama assim — e
+nenhum dos oito testes o apanha, porque cruzar nomes de trabalhos da CI com a
+prosa pede uma heurística frágil para render pouco.
+
+**A versão tinha saltado o 0.24.2.** Chamei-lhe 0.24.3 ao subi-la uma segunda
+vez dentro da mesma peça, e ficou um número por usar entre a 0.24.1 e esta. Os
+três ficheiros concordavam entre si, por isso o teste da versão passava — ele
+confere que são o MESMO, não que a série é contígua. Reposto em 0.24.2, que é o
+número que esta peça merece.
+
+As duas vieram de quem lê, e é o argumento desta peça ao contrário: há sempre
+uma camada que só se vê com olhos.
+
+### Um buraco que esta varredura não tapa, e fica nomeado
+
+O teste dos emojis lê os **ficheiros versionados**. As mensagens de commit não
+são ficheiros, e a regra do `AGENTS.md` proíbe emojis «no código, na
+documentação ou nas mensagens de commit» — a terceira superfície continua por
+verificar. Deu para ver ao vivo: a mensagem desta própria ronda levava um
+emoji, e fui eu que o apanhei a relê-la, não uma máquina.
+
+Tapa-se onde já está o intervalo de commits, ao lado das outras duas regras da
+PR. Não entra aqui porque obriga a partilhar a definição de emoji entre o teste
+e a ferramenta, e duplicá-la seria repetir o defeito das contagens do README:
+dois sítios a dizer a mesma coisa, até ao dia em que deixam de dizer.
+
+### O que NÃO está aqui, e de propósito
+
+«O teste tem de falhar contra o código anterior», «medir com a mesma régua», «os
+comentários explicam o porquê». Nenhuma se reduz a uma expressão regular, e
+fingir que sim daria a tranquilidade falsa de uma verificação que não verifica.
+Essas continuam a precisar de alguém que leia — e foi um revisor, não uma
+máquina, que apanhou as cinco da onda anterior.
+
+### Testes
+
+**739 no total, 8 novos**, mais um de browser (39, eram 38). Os oito novos são
+as regras acima e a guarda da varredura; o de browser confere a contagem que só
+se pode medir onde há Chromium.
+
+A contagem apanhou a deriva da sua própria PR **duas vezes**: à primeira corrida
+(731 para 738) e outra vez ao entrar a guarda da varredura (738 para 739). É o
+que ela existe para fazer.

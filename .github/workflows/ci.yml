@@ -8,6 +8,15 @@ on:
     branches: [main]
   pull_request:
 
+# Só leitura, e para o fluxo inteiro. Todos estes trabalhos correm código vindo
+# da PR — o pytest, e agora também a ferramenta dos assuntos —, e o checkout
+# guarda o GITHUB_TOKEN na configuração do git da pasta de trabalho. Com
+# permissões de escrita por omissão, esse código podia levar o testemunho
+# consigo. Apanhado pelo Sourcery na revisão da PR que acrescentou o trabalho
+# dos assuntos; vale para os outros dois pela mesma razão.
+permissions:
+  contents: read
+
 jobs:
   verificar:
     runs-on: ubuntu-latest
@@ -32,6 +41,35 @@ jobs:
         run: mypy lib/ agente.py
       - name: Testes
         run: pytest
+
+  # As duas regras que precisam do INTERVALO de commits da PR, e que por isso
+  # não podem ser testes do pytest: um teste precisaria do `origin/main`, que
+  # quem corre a suite à mão nem sempre tem, e passaria em silêncio por não ter
+  # o que ver. Aqui o intervalo é explícito, e sem ele as ferramentas falham.
+  regras_da_pr:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sem isto o checkout traz só a cabeça e o intervalo não se resolve.
+          fetch-depth: 0
+          # A ferramenta lê o histórico que já está em disco e não fala com o
+          # GitHub: não há razão para lhe deixar o testemunho à mão.
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Assuntos de commit sem acentos
+        run: |
+          python ferramentas/assuntos_sem_acentos.py \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}"
+      - name: A versão subiu
+        run: |
+          python ferramentas/versao_subiu.py \
+            "${{ github.event.pull_request.base.sha }}" \
+            "${{ github.event.pull_request.head.sha }}"
 
   # A página da televisão é o produto, e até à 0.24.0 nenhum teste a abria:
   # verificava-se o HTML por pesquisa de texto. Foi assim que passou o defeito
