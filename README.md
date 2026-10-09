@@ -311,6 +311,7 @@ agente_editais/
 ├── fundos/              # cache dos fundos metálicos (gerada sozinha)
 ├── trabalho/            # temporários (conversão Word)
 ├── tests/               # suite de testes (pytest)
+├── ferramentas/         # guiões da integração contínua e provas de campo
 └── lib/
     ├── armazenamento.py # escrita durável e jornal de auditoria
     ├── certidao.py      # certidão de afixação em PDF
@@ -340,6 +341,28 @@ mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigo
 
 Os testes correm sem LibreOffice e sem Tesseract de propósito: ambos são
 opcionais em execução, e a suite tem de provar que o agente funciona sem eles.
+
+### Quando a folha parece esticada no ecrã do átrio
+
+`ferramentas/prova_do_ecra.html` abre-se no posto, em ecrã inteiro, e desenha um
+quadrado de 300×300 píxeis de CSS com um círculo inscrito, mais um retângulo com
+a forma de uma A4. Imprime também a janela, a resolução declarada e os píxeis
+por píxel de CSS.
+
+A pergunta que ela responde é uma só, e separa duas causas que se parecem:
+
+- **O quadrado sai retângulo e o círculo elipse** — o computador está a mandar
+  para o ecrã uma resolução que não é a do painel, e o painel estica para
+  encher. A aplicação não tem por onde corrigir isto: ela aplica a mesma escala
+  aos dois eixos, e a proporção da folha é preservada por construção em píxeis
+  de CSS.
+- **O quadrado sai mesmo quadrado e a folha continua esticada** — então o
+  defeito é da aplicação, e é por aí que se vai.
+
+Nasceu de um relato do Raspberry a 09/10/2026: a folha parecia «um quadrado
+aumentado», e no mesmo dia, noutro computador ligado a um LG, saía certa. Dois
+sítios com o mesmo código e desenhos diferentes é um sintoma de ecrã, não de
+código — mas afirmá-lo sem medir era palpite.
 
 ### A pasta `fundos/`
 

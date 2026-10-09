@@ -1,0 +1,76 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Prova do ecrã</title>
+<!--
+  Abre-se no posto, em ecrã inteiro, quando a folha parece esticada ou achatada.
+  Separa duas causas que se parecem: o ecrã a esticar o que recebe, e a aplicação
+  a desenhar torto. A página de televisão aplica a MESMA escala aos dois eixos, e
+  por isso a proporção da folha é preservada por construção em píxeis de CSS — se
+  o quadrado abaixo sair retângulo, o que estica está depois da aplicação.
+-->
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;background:#0d2a22;color:#fff;font:14px/1.5 system-ui,sans-serif;
+       min-height:100vh;display:flex;flex-direction:column;align-items:center;
+       justify-content:center;gap:22px;padding:16px}
+  h1{font:600 20px/1.3 Georgia,serif;margin:0;color:#d9c47a;text-align:center}
+  .figuras{display:flex;gap:28px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+  figure{margin:0;text-align:center}
+  figcaption{margin-top:8px;font-size:12px;opacity:.85}
+  /* 300 x 300 píxeis de CSS. Num ecrã honesto isto é um quadrado e a
+     circunferência é redonda. Se o ecrã estica, o quadrado vira retângulo e a
+     circunferência vira elipse — e vê-se de longe, sem medir nada. */
+  .quadrado{width:300px;height:300px;border:3px solid #d9c47a;position:relative;background:#113a2f}
+  .quadrado::after{content:"";position:absolute;inset:14px;border:3px solid #fff;border-radius:50%}
+  /* A4 em retrato: 210 x 297, que é a forma de uma folha de edital. */
+  .a4{width:210px;height:297px;border:3px solid #fff;background:#f4f1e4}
+  table{border-collapse:collapse;font-size:13px;background:#0a2019;border:1px solid #2b5c4d}
+  td{padding:5px 12px;border:1px solid #2b5c4d}
+  td:first-child{opacity:.8}
+  td:last-child{font-family:ui-monospace,monospace;color:#d9c47a;text-align:right}
+  .veredito{max-width:620px;text-align:center;font-size:15px;line-height:1.6;
+            border-top:1px solid #2b5c4d;padding-top:16px}
+  b{color:#d9c47a}
+</style>
+<h1>Prova do ecrã — abrir no posto, em ecrã inteiro</h1>
+
+<div class="figuras">
+  <figure>
+    <div class="quadrado"></div>
+    <figcaption>300 x 300 píxeis de CSS<br><b>tem de ser quadrado, e o círculo redondo</b></figcaption>
+  </figure>
+  <figure>
+    <div class="a4"></div>
+    <figcaption>A4 em retrato (210 x 297)<br>a mesma forma de uma folha</figcaption>
+  </figure>
+</div>
+
+<table id="numeros"></table>
+
+<p class="veredito" id="veredito">a medir…</p>
+
+<script>
+  function linha(nome, valor){ return '<tr><td>' + nome + '</td><td>' + valor + '</td></tr>'; }
+  function racio(l, a){ return (l/a).toFixed(4) + '  (' + l + ' x ' + a + ')'; }
+
+  var W = window.innerWidth, H = window.innerHeight;
+  var SW = screen.width, SH = screen.height;
+  document.getElementById('numeros').innerHTML =
+      linha('janela do browser', racio(W, H))
+    + linha('ecrã declarado', racio(SW, SH))
+    + linha('píxeis por píxel de CSS', window.devicePixelRatio)
+    + linha('ecrã inteiro?', (W >= SW - 2 && H >= SH - 2) ? 'sim' : 'NÃO — a janela é menor que o ecrã');
+
+  var v = [];
+  if (Math.abs(W/H - SW/SH) > 0.01) {
+    v.push('<b>A janela não tem o formato do ecrã.</b> O browser não está em ecrã inteiro, '
+         + 'ou há uma barra a ocupar espaço. A página desenha para a janela que lhe dão.');
+  }
+  v.push('Agora <b>olha para as figuras</b>, que é o que os números não dizem: '
+       + 'se o quadrado parecer um retângulo e o círculo uma elipse, o problema não está '
+       + 'na aplicação — está na <b>resolução que o computador manda para o ecrã</b>, que não '
+       + 'é a do painel, e o painel estica para encher. '
+       + 'Se o quadrado for mesmo quadrado e a folha continuar a parecer esticada, então o '
+       + 'defeito é da aplicação.');
+  document.getElementById('veredito').innerHTML = v.join(' ');
+</script>

@@ -1969,6 +1969,19 @@ O `FORMATO` continua em **2** e o selo do mesmo registo continua a ser o mesmo.
 Isto mexeu no aspeto e não tocou num facto — e o teste que fixa o valor de um
 registo conhecido continua verde, que é a prova.
 
+### E uma prova de campo, para o relato do Raspberry
+
+No mesmo dia veio outro relato: no Raspberry a folha parece «um quadrado
+aumentado», e noutro computador ligado a um LG sai certa. Dois sítios com o
+mesmo código e desenhos diferentes é um sintoma de ecrã e não de código — mas
+afirmá-lo sem medir era palpite, e a aplicação tem valor legal.
+
+`ferramentas/prova_do_ecra.html` desenha um quadrado de 300×300 píxeis de CSS
+com um círculo inscrito. Se sair retângulo, o que estica está depois da
+aplicação: a página da televisão aplica a mesma escala aos dois eixos, e a
+proporção da folha é preservada por construção. Se sair quadrado e a folha
+continuar esticada, o defeito é nosso e é por aí que se vai.
+
 ### Medido
 
 A folha ficou mais cerrada para o painel de conferência caber na primeira: a
@@ -1976,4 +1989,3 @@ entrelinha da prosa desce de 5,5 para 5,0 pt, o corpo da nota de 8 para 7,5, e
 as margens de baixo de 76 para 66 pt. Com o registo que serviu de exemplo — um
 nome de 44 caracteres e um assunto de 66 — a certidão passa de **duas folhas com
 a segunda quase vazia** para **uma só**.
-
