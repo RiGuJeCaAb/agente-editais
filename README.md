@@ -333,7 +333,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 739 testes (mais 39 de browser: pytest -m navegador)
+pytest          # 749 testes (mais 39 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1066,12 +1066,18 @@ O desenho do cabeçalho e do rodapé vem dos editais do município. Os **valores
 não: ficam no `config.json`, e em branco a certidão sai sem eles.
 
 ```json
+"distrito": "Distrito de Viseu",
 "servico": "Divisão Administrativa e Financeira",
 "cargo_de_quem_certifica": "Chefe da Divisão Administrativa e Financeira",
 "morada": "Largo do Tabolado, 0000-000 Moimenta da Beira, Portugal",
 "sitio": "www.cm-moimenta.pt",
 "telefone": "+351 254 000 000"
 ```
+
+O **logótipo** não se configura: são as mesmas duas peças que vão para a
+televisão, `logo_sym` e `logo_txt`, compostas lado a lado. Quem tenha um timbre
+próprio já desenhado num ficheiro põe-no em `logo_certidao`, e esse sobrepõe-se
+aos dois.
 
 **Copie-os do cabeçalho e do rodapé dos editais verdadeiros.** Não estão no
 código porque não são adivinháveis, e uma certidão com a morada errada é um
@@ -1175,3 +1181,73 @@ Três folhas lado a lado num ecrã vertical continuam pequenas — 23 % da área
 porque três A4 em fila não cabem noutro sítio numa largura de 1080. Resolver
 isso é **reorganizar** o ecrã (empilhar em vez de alinhar), não ampliá-lo, e é
 outra peça.
+
+---
+
+## 24. O timbre da Câmara, e a esquemática de uma certidão — NOVO
+
+Visto no posto a 09/10/2026, com o modelo ao lado: «não tem o cabeçalho actual
+da CMMB, e apesar de ter um português arcaico a esquemática do documento é
+exactamente a mesma». Duas observações, e as duas certas.
+
+### O cabeçalho estava a meio
+
+A certidão punha o `logo_txt` — o letreiro «Moimenta da Beira / Município» — e
+mais nada. O logótipo da Câmara são **duas** peças, o monograma e o letreiro, e
+é com as duas que ela assina um ofício. A aplicação já tinha as duas para a
+televisão; a certidão usava uma.
+
+Passam a compor-se lado a lado, alinhadas pela **altura** — têm proporções
+muito diferentes, 134×118 e 375×96, e escalá-las pela largura dava o monograma
+do tamanho de um selo ao lado de um letreiro. Por cima do nome do município vai
+a linha de estado, «REPÚBLICA PORTUGUESA · DISTRITO DE VISEU», com o distrito
+vindo da configuração: é do município, não da aplicação.
+
+### A esquemática
+
+O texto já era prosa desde a 0.23.0, mas a folha continuava a ser uma coluna
+corrida com um traço no fim. Passa a ter a forma de uma certidão:
+
+| Peça | O quê |
+|---|---|
+| Moldura | Duas réguas concêntricas, em todas as folhas, como nos livros de termos |
+| Timbre | Monograma e letreiro, linha de estado, nome do município, serviço, régua dupla |
+| Título | «CERTIDÃO» entre duas réguas curtas, num compartimento seu |
+| Corpo | Prosa justificada, com os **elementos identificadores em negrito** |
+| Fecho | Lugar do selo à esquerda, assinatura encostada à direita |
+| Conferência | O miudinho, numa caixa ao pé da folha |
+
+**O negrito não é enfeite.** Quem abre uma certidão procura quatro coisas — o
+número, a entidade, o assunto e a referência interna. Em redondo no meio de um
+parágrafo justificado, são indistinguíveis do resto, e era esse o sentido de
+«a esquemática é a mesma». O realce vai também nas datas por extenso e nos
+nomes de quem afixou e retirou.
+
+O realce é da **palavra inteira** e não do trecho exato: mudar de tipo a meio
+de uma palavra obrigava a tratar cada palavra como uma lista de pedaços em toda
+a aritmética de quebra de linha, e o que se ganhava era pôr «Beira» em negrito
+e a vírgula a seguir em redondo. E um realce que não apareça no texto **não
+rebenta a emissão**: fica registado e o parágrafo sai sem ele — os realces saem
+de dados do registo, e uma certidão sem negrito certifica exatamente o mesmo.
+
+### O lugar do selo diz que é um lugar
+
+O círculo à esquerda da assinatura vai **a tracejado**, com «LOCUS SIGILLI» lá
+dentro e a legenda «lugar do selo branco, a apor no exemplar impresso» por
+baixo. Um círculo a cheio num documento oficial lê-se como selo aposto, e o PDF
+não leva selo nenhum: seria o desenho a afirmar o que o texto não afirma, que é
+a forma mais silenciosa de um documento mentir.
+
+### A nota de conferência desceu ao pé da folha
+
+Deixa de ser um bloco à solta a seguir à assinatura e passa a ser um painel
+encostado ao rodapé, dentro de uma caixa. Quando não cabe no que resta da
+folha, não se empurra nada: vai inteira para o alto da seguinte, como já ia.
+Um painel no alto de uma folha lê-se; um painel por cima do rodapé, não.
+
+### O selo de conferência não mudou
+
+Outra vez: o `FORMATO` continua em **2** e o selo do mesmo registo continua a
+ser o mesmo. Isto mexeu no aspeto e não tocou num facto — e há um teste que fixa
+o valor para ninguém o mudar por distração.
+

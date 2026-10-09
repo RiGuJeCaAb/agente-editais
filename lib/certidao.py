@@ -84,10 +84,10 @@ ROTULOS_DOS_CAMPOS = {
 # de texto fica com 451 pt, cerca de setenta e cinco caracteres em Times a 11 —
 # a medida a que um parágrafo se lê sem o olho se perder ao mudar de linha.
 MARGEM_X = 72
-MARGEM_TOPO = 64
+MARGEM_TOPO = 56
 # A faixa de baixo é do rodapé, e o texto não entra nela. Sem esta reserva, a
 # última linha de uma página escrevia-se por cima da morada do município.
-MARGEM_BAIXO = 76
+MARGEM_BAIXO = 66
 
 # As três medidas da faixa do rodapé, que estavam espalhadas pelo rodape() como
 # números soltos. Ficam aqui porque é delas que sai quantas linhas lá cabem, e
@@ -107,6 +107,23 @@ SERIF_ITALICO = "tiit"
 PRETO = (0.12, 0.13, 0.10)
 CINZA = (0.42, 0.44, 0.40)
 VERDE = (0.05, 0.30, 0.20)
+
+# A moldura são duas réguas concêntricas, como as dos livros de termos, e estes
+# são os afastamentos à borda do papel. A de DENTRO tem de ficar fora de tudo o
+# que se escreve: o folio assenta em 802 pt e desce aos 804,5 com os
+# descendentes, e a régua está em 810. Encostá-la mais riscava o número da folha.
+MOLDURA_FORA = 26
+MOLDURA_DENTRO = 32
+
+# Altura a que o monograma e o logótipo de texto se compõem no timbre. Os dois
+# ficheiros têm proporções diferentes — 134x118 e 375x96 — e é a altura comum
+# que os alinha; escalá-los pela largura dava o monograma do tamanho de um selo.
+ALTURA_DO_TIMBRE = 36
+INTERVALO_DO_TIMBRE = 12
+
+# O lugar do selo branco, à esquerda da assinatura. Não é decoração: é onde se
+# carimba o exemplar impresso, e é por isso que vai a tracejado e não a cheio.
+RAIO_DO_SELO = 28
 
 
 def _pt(instante: str | None) -> str:
@@ -380,8 +397,8 @@ class _Folha:
         self.y += tamanho + 2 + espaco_depois
 
     def paragrafo(self, texto, *, tamanho=11, fonte=SERIF, cor=PRETO,
-                  recuo_primeira=28, espaco_antes=0, espaco_depois=10,
-                  entrelinha=5.5):
+                  recuo_primeira=28, espaco_antes=0, espaco_depois=9,
+                  entrelinha=5.0, realces=(), fonte_realce=SERIF_NEGRITO):
         """Escreve um parágrafo de prosa, justificado às duas margens.
 
         A justificação é o que separa visualmente um documento de um formulário,
@@ -400,14 +417,15 @@ class _Folha:
         # justificada acaba exatamente no limite, e o teste das margens compara
         # com a medição do próprio PyMuPDF, que arredonda de outra maneira.
         alvo = largura_util - 1
-        linhas = _quebrar_em_palavras(texto, largura_util - recuo_primeira,
-                                      largura_util, tamanho, fonte)
+        linhas = _quebrar_em_palavras(
+            _marcar(texto, realces, fonte, fonte_realce),
+            largura_util - recuo_primeira, largura_util, tamanho)
         for i, palavras in enumerate(linhas):
             self._nova_pagina_se_preciso(tamanho + entrelinha)
             x = MARGEM_X + (recuo_primeira if i == 0 else 0)
             limite = alvo - (recuo_primeira if i == 0 else 0)
             ultima = i == len(linhas) - 1
-            self._escrever_palavras(palavras, x, limite, tamanho, fonte, cor,
+            self._escrever_palavras(palavras, x, limite, tamanho, cor,
                                     justificar=not ultima)
             self.y += tamanho + entrelinha
         self.y += espaco_depois
@@ -416,28 +434,37 @@ class _Folha:
     # linha ficar pior justificada do que alinhada à esquerda.
     ESTICAO_MAXIMO = 7.0
 
-    def _escrever_palavras(self, palavras, x, limite, tamanho, fonte, cor, *,
+    def _escrever_palavras(self, palavras, x, limite, tamanho, cor, *,
                            justificar):
-        """Escreve as palavras de uma linha, esticando os intervalos ou não."""
+        """Escreve as palavras de uma linha, esticando os intervalos ou não.
+
+        Cada palavra traz o seu próprio tipo de letra, porque numa linha podem
+        conviver redondo e negrito. O intervalo a seguir a uma palavra mede-se
+        no tipo DESSA palavra: o espaço do negrito é mais largo que o do
+        redondo, e medi-los todos pelo redondo encolhia a linha o suficiente
+        para a justificação encostar a última palavra à seguinte.
+        """
         if not palavras:
             return
-        larguras = [_largura(p, fonte, tamanho) for p in palavras]
-        espaco_normal = _largura(" ", fonte, tamanho)
+        larguras = [_largura(p, f, tamanho) for p, f in palavras]
+        espacos = [_largura(" ", f, tamanho) for _, f in palavras]
         intervalos = len(palavras) - 1
-        espaco = espaco_normal
+        esticao = 0.0
         if justificar and intervalos:
-            folga = limite - sum(larguras) - intervalos * espaco_normal
-            esticao = folga / intervalos
-            if 0 < esticao <= self.ESTICAO_MAXIMO:
-                espaco = espaco_normal + esticao
+            folga = limite - sum(larguras) - sum(espacos[:intervalos])
+            candidato = folga / intervalos
+            if 0 < candidato <= self.ESTICAO_MAXIMO:
+                esticao = candidato
         cursor = x
-        for palavra, larg in zip(palavras, larguras, strict=True):
+        for i, ((palavra, fonte), larg) in enumerate(
+                zip(palavras, larguras, strict=True)):
             self.pagina.insert_text((cursor, self.y), palavra, fontname=fonte,
                                     fontsize=tamanho, color=cor)
-            cursor += larg + espaco
+            cursor += larg + espacos[i] + esticao
 
     def altura_de(self, texto, *, tamanho=11, fonte=SERIF, recuo_primeira=28,
-                  entrelinha=5.5, espaco_antes=0, espaco_depois=10):
+                  entrelinha=5.0, espaco_antes=0, espaco_depois=9,
+                  realces=(), fonte_realce=SERIF_NEGRITO):
         """Diz quanto espaço um parágrafo vai ocupar, sem o escrever.
 
         Serve para reservar um bloco inteiro antes de o começar. A nota de
@@ -445,33 +472,147 @@ class _Folha:
         linha só — pior do que duas páginas cheias, porque parece defeito.
         """
         largura_util = LARGURA - 2 * MARGEM_X
-        linhas = _quebrar_em_palavras(texto, largura_util - recuo_primeira,
-                                      largura_util, tamanho, fonte)
+        # Os realces entram na conta: o negrito é mais largo que o redondo e
+        # uma linha a mais é uma linha a mais. Medir sem eles reservava espaço
+        # a menos e a caixa da nota de conferência fechava a meio do texto.
+        linhas = _quebrar_em_palavras(
+            _marcar(texto, realces, fonte, fonte_realce),
+            largura_util - recuo_primeira, largura_util, tamanho)
         return espaco_antes + len(linhas) * (tamanho + entrelinha) + espaco_depois
 
     def reservar(self, altura):
         """Muda de página se o bloco seguinte não couber inteiro nesta."""
         self._nova_pagina_se_preciso(altura)
 
-    def assinatura(self, nome, cargo=""):
+    def ancorar_no_fundo(self, altura):
+        """Empurra o cursor para um bloco de dada altura acabar junto ao rodapé.
+
+        A nota de conferência não é continuação do texto: é o painel por onde a
+        certidão se confere, e o sítio de um painel desses é o pé da folha.
+        Corrida logo a seguir à assinatura, ficava a flutuar a meio da página
+        com um palmo de branco por baixo — que se lê como texto que faltou.
+
+        Se o bloco NÃO couber no que resta, não se empurra nada: muda de página
+        e fica no alto da seguinte, como o reservar() já fazia. Um painel no
+        alto de uma folha lê-se; um painel por cima do rodapé, não.
+        """
+        fundo = ALTURA - MARGEM_BAIXO
+        if self.y + altura <= fundo:
+            self.y = fundo - altura
+        else:
+            self._nova_pagina_se_preciso(altura)
+
+    def _centrado_em(self, texto, x0, largura, *, tamanho=10.5, fonte=SERIF,
+                     cor=PRETO, espaco_depois=2):
+        """Centra um texto dentro de uma caixa que não é a largura da página.
+
+        O centrado() centra na folha. Isto centra numa coluna — debaixo do traço
+        da assinatura, que desde 09/10/2026 está encostado à direita e já não
+        coincide com o meio da página.
+        """
+        for pedaco in _quebrar(texto, largura, tamanho, fonte):
+            self._nova_pagina_se_preciso(tamanho + espaco_depois)
+            x = x0 + (largura - _largura(pedaco, fonte, tamanho)) / 2
+            self.pagina.insert_text((x, self.y), pedaco, fontname=fonte,
+                                    fontsize=tamanho, color=cor)
+            self.y += tamanho + 2
+        self.y += espaco_depois
+
+    def assinatura(self, nome, cargo="", *, alinhamento="centro"):
         """Deixa o traço por onde a certidão se assina, com o nome por baixo.
 
         Uma certidão passa a valer quando alguém a assina, e era assim que as
         antigas acabavam. O traço não é decoração: é o sítio onde isso acontece,
         e a sua ausência é que faria deste PDF um documento que afirma ser uma
         certidão sem o ser.
+
+        Encostado à DIREITA, deixa livre a metade esquerda para o lugar do selo
+        — que é a disposição de um documento que se assina e se carimba, e não a
+        de um certificado com o nome ao meio.
         """
         largura_traco = 230
         self._nova_pagina_se_preciso(78)
-        self.y += 26
-        x0 = (LARGURA - largura_traco) / 2
+        self.y += 20
+        x0 = (LARGURA - MARGEM_X - largura_traco if alinhamento == "direita"
+              else (LARGURA - largura_traco) / 2)
         self.pagina.draw_line((x0, self.y), (x0 + largura_traco, self.y),
                               color=PRETO, width=0.8)
         self.y += 15
-        self.centrado(nome, tamanho=10.5, espaco_depois=2)
+        self._centrado_em(nome, x0, largura_traco, tamanho=10.5)
         if cargo:
-            self.centrado(cargo, tamanho=9.5, fonte=SERIF_ITALICO, cor=CINZA,
-                          espaco_depois=2)
+            self._centrado_em(cargo, x0, largura_traco, tamanho=9.5,
+                              fonte=SERIF_ITALICO, cor=CINZA)
+
+    def lugar_do_selo(self, linhas, *, centro, raio=RAIO_DO_SELO, nota=""):
+        """Desenha, a tracejado, o lugar onde se carimba o exemplar impresso.
+
+        A TRACEJADO e com a legenda por baixo, porque é o que é: um lugar. Este
+        PDF não leva selo nenhum, e um círculo a cheio num documento oficial
+        lê-se como selo aposto — seria o desenho a afirmar o que o texto não
+        afirma, que é a forma mais silenciosa de um documento mentir.
+
+        Não mexe no cursor: desenha em coordenadas absolutas, ao lado do bloco
+        da assinatura, e quem chama é que reservou o espaço dos dois.
+        """
+        x, y = centro
+        self.pagina.draw_circle((x, y), raio, color=VERDE, width=0.7,
+                                dashes="[2.2 2.2] 0")
+        # A largura disponível dentro de um círculo ENCOLHE à medida que se sobe
+        # ou desce do meio: a corda a uma distância d do centro mede
+        # 2·raiz(r²−d²). Medir pelo diâmetro punha as linhas de cima e de baixo
+        # a sair pelo arco fora, que é o erro de quem trata um círculo como caixa.
+        def cabe(tamanho):
+            passo = tamanho + 2
+            topo = -(len(linhas) - 1) * passo / 2
+            for i, texto in enumerate(linhas):
+                d = abs(topo + i * passo) + tamanho / 2
+                corda = 2 * (max(raio * raio - d * d, 0.0) ** 0.5)
+                if _largura(texto, SERIF, tamanho) > corda * 0.92:
+                    return False
+            return True
+        tamanho = 6.0
+        while tamanho > 3.5 and not cabe(tamanho):
+            tamanho -= 0.25
+        passo = tamanho + 2
+        topo = y - (len(linhas) - 1) * passo / 2 + tamanho / 3
+        for i, texto in enumerate(linhas):
+            largura = _largura(texto, SERIF, tamanho)
+            self.pagina.insert_text((x - largura / 2, topo + i * passo), texto,
+                                    fontname=SERIF, fontsize=tamanho, color=VERDE)
+        if nota:
+            # A legenda é mais larga do que o círculo, e centrada nele saía pela
+            # margem esquerda fora — a 41 pt, quase em cima da moldura. Encosta
+            # à margem do texto quando não cabe centrada, que é o alinhamento
+            # que o resto da folha já tem.
+            largura = _largura(nota, SERIF_ITALICO, 6)
+            self.pagina.insert_text((max(MARGEM_X, x - largura / 2),
+                                     y + raio + 11), nota,
+                                    fontname=SERIF_ITALICO, fontsize=6, color=CINZA)
+
+    def caixa(self, topo, fundo, *, folga=10, cor=VERDE, largura_traco=0.6):
+        """Encerra numa caixa um bloco já escrito, da margem do texto para fora.
+
+        A caixa cresce para FORA da margem, e não para dentro: assim o texto
+        mantém a medida que tem no resto do documento e não há um parágrafo com
+        setenta caracteres por linha a seguir a outro com sessenta.
+        """
+        self.pagina.draw_rect(
+            fitz.Rect(MARGEM_X - folga, topo, LARGURA - MARGEM_X + folga, fundo),
+            color=cor, width=largura_traco)
+
+    def moldura(self):
+        """Traça a moldura dupla em TODAS as páginas, depois de tudo escrito.
+
+        Como o rodapé, só se pode desenhar no fim: enquanto o texto não acabar,
+        há páginas que ainda não existem. Os afastamentos vivem em MOLDURA_FORA
+        e MOLDURA_DENTRO, e a régua de dentro passa por fora de tudo o que se
+        escreve — incluindo o folio, que desce aos 794,5 pt.
+        """
+        for pagina in self.doc:
+            for recuo, traco in ((MOLDURA_FORA, 1.1), (MOLDURA_DENTRO, 0.5)):
+                pagina.draw_rect(
+                    fitz.Rect(recuo, recuo, LARGURA - recuo, ALTURA - recuo),
+                    color=VERDE, width=traco)
 
     def imagem(self, caminho, *, largura_desejada=120, espaco_depois=10):
         """Assenta uma imagem centrada no topo, se o ficheiro existir.
@@ -494,6 +635,43 @@ class _Folha:
             fitz.Rect(x0, self.y, x0 + largura_desejada, self.y + alt),
             filename=caminho, keep_proportion=True)
         self.y += alt + espaco_depois
+
+    def par_de_imagens(self, caminhos, *, altura=ALTURA_DO_TIMBRE,
+                       intervalo=INTERVALO_DO_TIMBRE, espaco_depois=10):
+        """Assenta as peças do timbre lado a lado, à mesma altura e centradas.
+
+        O timbre da Câmara são DUAS peças — o monograma e o logótipo de texto —
+        e é assim que aparecem nos editais e no expositor. Compô-las aqui, em vez
+        de guardar um terceiro ficheiro já junto, evita ter um logótipo a mais
+        para manter quando a Câmara mudar o seu.
+
+        Alinham-se pela ALTURA e não pela largura: os dois ficheiros têm
+        proporções muito diferentes — 134x118 e 375x96 — e escalá-los pela
+        largura dava o monograma do tamanho de um selo ao lado de um letreiro.
+
+        Uma peça que falte salta-se, e sem nenhuma a certidão sai sem timbre.
+        Era já a regra do imagem(): o documento vale pelo que afirma.
+        """
+        pecas = []
+        for caminho in caminhos:
+            if not caminho:
+                continue
+            try:
+                with fitz.open(caminho) as img:
+                    rect = img[0].rect
+                    pecas.append((caminho, altura * rect.width / rect.height))
+            except Exception:
+                _log.warning("peça do timbre ilegível, sai sem ela: %r", caminho)
+        if not pecas:
+            return
+        total = sum(larg for _, larg in pecas) + intervalo * (len(pecas) - 1)
+        self._nova_pagina_se_preciso(altura + espaco_depois)
+        x = (LARGURA - total) / 2
+        for caminho, larg in pecas:
+            self.pagina.insert_image(fitz.Rect(x, self.y, x + larg, self.y + altura),
+                                     filename=caminho, keep_proportion=True)
+            x += larg + intervalo
+        self.y += altura + espaco_depois
 
     def risco(self, *, espaco_antes=6, espaco_depois=12, cor=(0.85, 0.83, 0.77),
               largura_traco=0.7, encolher=0):
@@ -635,39 +813,103 @@ def _quebrar(texto, largura, tamanho, fonte):
     return linhas
 
 
-def _quebrar_em_palavras(texto, largura_primeira, largura, tamanho, fonte):
-    """Parte um texto em linhas, devolvendo as PALAVRAS de cada uma.
+def _marcar(texto, realces, fonte, fonte_realce):
+    """Reparte um texto em palavras, dizendo com que tipo cada uma se escreve.
+
+    O realce é A PALAVRA INTEIRA e não o trecho exato. Se o trecho começar ou
+    acabar a meio de uma palavra, a palavra vai inteira em negrito. É uma
+    limitação deliberada: mudar de tipo a meio de uma palavra obrigava a tratar
+    cada palavra como uma lista de pedaços em toda a aritmética de quebra de
+    linha e de justificação, e o que se ganhava era pôr «Beira» em negrito e a
+    vírgula a seguir em redondo — distinção que ninguém faz a ler.
+
+    Um realce que NÃO apareça no texto não impede a emissão: fica registado e o
+    parágrafo sai sem ele. Os realces saem de dados do registo — um nome, um
+    número, uma referência — e uma certidão sem negrito continua a certificar
+    exatamente os mesmos factos. Rebentar aqui seria trocar um documento por
+    uma falha de aspeto.
+
+    Returns:
+        list[tuple[str, str]]: cada palavra e o tipo de letra com que se escreve.
+    """
+    limpo = " ".join(str(texto).split())
+    marca = [False] * len(limpo)
+    for trecho in realces:
+        alvo = " ".join(str(trecho).split())
+        if not alvo:
+            continue
+        # TODAS as ocorrências, e não só a primeira. Uma certidão de um edital
+        # afixado e retirado no mesmo dia cita a mesma data por extenso duas
+        # vezes: marcar só a primeira dava a afixação em negrito e a retirada
+        # em redondo, que se lê como distinção e não é nenhuma.
+        inicio = limpo.find(alvo)
+        if inicio < 0:
+            _log.warning("realce %r não consta do parágrafo; sai sem negrito", alvo)
+            continue
+        while inicio >= 0:
+            for i in range(inicio, inicio + len(alvo)):
+                marca[i] = True
+            inicio = limpo.find(alvo, inicio + len(alvo))
+    palavras, posicao = [], 0
+    for palavra in limpo.split(" "):
+        if palavra:
+            realcada = any(marca[posicao:posicao + len(palavra)])
+            palavras.append((palavra, fonte_realce if realcada else fonte))
+        posicao += len(palavra) + 1
+    return palavras
+
+
+def _largura_da_linha(palavras, tamanho):
+    """Mede uma linha cujas palavras podem não estar todas no mesmo tipo.
+
+    Não se pode medir o " ".join() da linha de uma assentada, como se fazia
+    quando o tipo era um só: o negrito e o redondo têm larguras diferentes para
+    a mesma letra, e o resultado seria a medida de uma linha que não é esta.
+    """
+    if not palavras:
+        return 0.0
+    total = sum(_largura(p, f, tamanho) for p, f in palavras)
+    # O intervalo entre duas palavras escreve-se no tipo da que fica à esquerda.
+    return total + sum(_largura(" ", f, tamanho) for _, f in palavras[:-1])
+
+
+def _quebrar_em_palavras(palavras, largura_primeira, largura, tamanho):
+    """Parte palavras já marcadas nas linhas que cabem, devolvendo-as separadas.
 
     O _quebrar() devolve as linhas já juntas com espaços, o que serve para quem
     só as vai escrever. Para justificar é preciso o contrário: ter as palavras
-    separadas, porque é entre elas que o espaço se estica.
+    separadas, porque é entre elas que o espaço se estica — e cada uma leva o
+    seu tipo de letra, que o _marcar() já lhe atribuiu.
 
     A primeira linha leva uma largura própria por causa do recuo do parágrafo —
     tem menos espaço que as outras, e medi-la com a largura das outras punha-lhe
     uma palavra a mais, que ia parar à margem.
 
+    Args:
+        palavras (list[tuple[str, str]]): cada palavra e o seu tipo de letra.
+
     Returns:
-        list[list[str]]: as palavras de cada linha, pela ordem do texto.
+        list[list[tuple[str, str]]]: as palavras de cada linha, pela ordem do texto.
     """
     # A primeira palavra parte-se pela largura da PRIMEIRA linha, não pela da
     # caixa. Medido: uma palavra de 90 letras mede 439,6 pt — cabe na caixa de
     # 451 e não cabe nos 423 que sobram depois do recuo do parágrafo, e ficava
     # inteira a transbordar 16,6 pt para lá da margem. Apanhado em revisão.
-    palavras = []
-    for i, palavra in enumerate(str(texto).split()):
+    partidas = []
+    for i, (palavra, fonte) in enumerate(palavras):
         limite = largura_primeira if i == 0 else largura
-        palavras.extend(_partir_palavra(palavra, limite, tamanho, fonte))
-    if not palavras:
+        partidas.extend((pedaco, fonte) for pedaco
+                        in _partir_palavra(palavra, limite, tamanho, fonte))
+    if not partidas:
         return [[]]
-    linhas, atual = [], [palavras[0]]
-    for palavra in palavras[1:]:
+    linhas, atual = [], [partidas[0]]
+    for par in partidas[1:]:
         disponivel = largura_primeira if not linhas else largura
-        tentativa = " ".join(atual + [palavra])
-        if _largura(tentativa, fonte, tamanho) <= disponivel:
-            atual.append(palavra)
+        if _largura_da_linha(atual + [par], tamanho) <= disponivel:
+            atual.append(par)
         else:
             linhas.append(atual)
-            atual = [palavra]
+            atual = [par]
     linhas.append(atual)
     return linhas
 
@@ -702,7 +944,7 @@ def _partir_palavra(palavra, largura, tamanho, fonte):
     return pedacos
 
 
-def _identificacao(f: dict, d: dict, referencia: str) -> str:
+def _identificacao(f: dict, d: dict, referencia: str) -> tuple[str, list[str]]:
     """Lista os elementos que identificam o documento, sem introdução nenhuma.
 
     Separada das frases que a usam porque o documento é o mesmo esteja ele
@@ -713,24 +955,43 @@ def _identificacao(f: dict, d: dict, referencia: str) -> str:
     Montar por concatenação condicional, e não por um molde fixo com buracos, é
     o que evita a certidão dizer «da autoria de» seguido de nada: um edital pode
     não ter número, pode não ter entidade conhecida e pode ter uma folha ou sete.
+
+    Devolve TAMBÉM os trechos a pôr em negrito, e não os deixa a quem chama. São
+    os mesmos moldes — «n.º X», «"assunto"» — e tê-los escritos duas vezes em
+    sítios diferentes acabaria com um molde alterado num só e o negrito a
+    desaparecer sem ninguém reparar.
+
+    Returns:
+        tuple[str, list[str]]: a enumeração, e os trechos a realçar.
     """
     partes = [d["rotulo"].lower()]
-    partes.append(f"com o n.º {f['numero']}" if f["numero"]
-                  else "a que não foi atribuído número")
+    realces = []
+    if f["numero"]:
+        partes.append(f"com o n.º {f['numero']}")
+        # Com o «n.º » à frente, e não o número sozinho: um edital numerado «5»
+        # punha em negrito o primeiro «5» que aparecesse na frase, que podia ser
+        # o de uma data. Os realces procuram-se por texto, logo levam contexto.
+        realces.append(f"n.º {f['numero']}")
+    else:
+        partes.append("a que não foi atribuído número")
     if f["entidade"]:
         partes.append(f"da autoria de {f['entidade']}")
+        realces.append(f["entidade"])
     if f["data_publicacao"]:
         partes.append(f"com data de {ext.data(f['data_publicacao'])}")
     if f["assunto"]:
         partes.append(f"cujo assunto é «{f['assunto']}»")
+        realces.append(f"«{f['assunto']}»")
     if f["num_paginas"]:
         partes.append(f"composto de {ext.folhas(f['num_paginas'])}")
     partes.append("a que corresponde nesta aplicação a referência interna "
                   f"{referencia}")
-    return ", ".join(partes)
+    realces.append(referencia)
+    return ", ".join(partes), realces
 
 
-def _frase_do_documento(f: dict, d: dict, referencia: str, local: str) -> str:
+def _frase_do_documento(f: dict, d: dict, referencia: str,
+                        local: str) -> tuple[str, list[str]]:
     """A frase que certifica a afixação e identifica o que foi afixado."""
     # «no local designado por «X»» e não «no X»: o artigo tinha de concordar com
     # um valor que vem da configuração e pode ser de qualquer género e número.
@@ -738,28 +999,64 @@ def _frase_do_documento(f: dict, d: dict, referencia: str, local: str) -> str:
     # «Receção» ou «Paços do Concelho» obtinha «no receção» e «no Paços». Assim
     # o valor sai tal e qual foi escrito, entre angulares, e não concorda com
     # nada — que é o que o torna correto para todos os casos de uma vez.
+    enumeracao, realces = _identificacao(f, d, referencia)
     return (f"que, para os devidos efeitos, foi afixado por este Município, no "
             f"local designado por «{local}», o seguinte documento: "
-            f"{_identificacao(f, d, referencia)}.")
+            f"{enumeracao}."), [f"«{local}»"] + realces
 
 
-def _frase_da_afixacao(f: dict, nomes: dict) -> str:
-    """Compõe a frase do ato: quando foi afixado, por quem, e até quando."""
+def _frase_da_afixacao(f: dict, nomes: dict) -> tuple[str, list[str]]:
+    """Compõe a frase do ato: quando foi afixado, por quem, e até quando.
+
+    Realça as DATAS e os NOMES, que são o que alguém procura ao abrir esta
+    certidão. O «quem então servia» fica em redondo de propósito: é a admissão
+    de que o registo não guardou o nome, e pô-la em negrito dava-lhe o peso de
+    um facto apurado.
+
+    Returns:
+        tuple[str, list[str]]: a frase, e os trechos a realçar.
+    """
     quem = nomes.get(f["afixado_por"], f["afixado_por"]) or "quem então servia"
+    realces = [ext.aos(f["afixado_em"])]
+    if nomes.get(f["afixado_por"], f["afixado_por"]):
+        realces.append(quem)
     inicio = (f"Mais certifico que a afixação teve lugar "
               f"{ext.aos(f['afixado_em'])}, {ext.hora(f['afixado_em'])}, "
               f"por {quem}")
     dias = dias_de_afixacao(f) or 0
     if f["desafixado_em"]:
         tirou = nomes.get(f["desafixado_por"], f["desafixado_por"]) or "quem então servia"
+        realces.append(ext.aos(f["desafixado_em"]))
+        if nomes.get(f["desafixado_por"], f["desafixado_por"]):
+            realces.append(tirou)
         return (f"{inicio}, e que foi retirado "
                 f"{ext.aos(f['desafixado_em'])}, {ext.hora(f['desafixado_em'])}, "
-                f"por {tirou}, tendo permanecido afixado {ext.dias(dias)}.")
+                f"por {tirou}, tendo permanecido afixado {ext.dias(dias)}."), realces
     fim = (f"{inicio}, e que à data de hoje se mantém afixado, decorridos "
            f"{ext.dias(dias)} sobre a afixação")
     if f["data_retirada"]:
         fim += f", estando a sua retirada prevista para {ext.data(f['data_retirada'])}"
-    return fim + "."
+        realces.append(ext.data(f["data_retirada"]))
+    return fim + ".", realces
+
+
+def _pecas_do_timbre(cfg: dict) -> list[str]:
+    """As imagens do cabeçalho, por ordem de colocação.
+
+    O `logo_certidao` existe para quem tenha um timbre próprio já composto num
+    ficheiro, e sobrepõe-se a tudo. Sem ele, usam-se as DUAS peças do logótipo
+    que a aplicação já tem para o expositor — o monograma e o letreiro — que
+    são as mesmas que vão nos editais em papel. A ordem é a do logótipo da
+    Câmara: o símbolo à esquerda, o texto à direita.
+
+    Até 09/10/2026 o recurso era o `logo_txt` sozinho, e a certidão saía com
+    meio timbre: o letreiro sem o monograma, que não é o cabeçalho de lado
+    nenhum.
+    """
+    proprio = cfg.get("logo_certidao")
+    if proprio:
+        return [proprio]
+    return [c for c in (cfg.get("logo_sym"), cfg.get("logo_txt")) if c]
 
 
 def _linha_do_rodape(cfg: dict) -> str:
@@ -829,21 +1126,36 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
         "Expositor eletrónico do Município"
 
     # ---- timbre ----------------------------------------------------------
-    folha.imagem(cfg.get("logo_certidao") or cfg.get("logo_txt") or "",
-                 largura_desejada=96, espaco_depois=12)
+    # O cabeçalho é o da Câmara e não meio: o monograma E o logótipo de texto,
+    # lado a lado, como estão nos editais e no expositor. Até 09/10/2026 saía só
+    # o logótipo de texto, e foi a primeira coisa que se notou ao pôr a certidão
+    # ao lado de um ofício do Município. O logo_certidao continua a sobrepor-se
+    # aos dois, para quem tenha um timbre próprio já composto num ficheiro.
+    folha.par_de_imagens(_pecas_do_timbre(cfg), espaco_depois=18)
+    estado = " · ".join(p for p in ("REPÚBLICA PORTUGUESA",
+                                    (cfg.get("distrito") or "").upper()) if p)
+    folha.centrado(estado, tamanho=7, cor=CINZA, espaco_depois=7)
     folha.espacado(municipio.upper(), tamanho=11, espaco_depois=3)
     if cfg.get("servico"):
         folha.centrado(cfg["servico"], tamanho=9.5, fonte=SERIF_ITALICO,
                        cor=CINZA, espaco_depois=2)
-    folha.risco(espaco_antes=9, espaco_depois=30, cor=VERDE, largura_traco=1.1)
+    # Duas réguas e não uma, a grossa por cima da fina: é o remate do timbre dos
+    # editais, e repete à largura do texto o que a moldura faz à do papel.
+    folha.risco(espaco_antes=9, espaco_depois=5, cor=VERDE, largura_traco=1.3)
+    folha.risco(espaco_antes=0, espaco_depois=22, cor=VERDE, largura_traco=0.4)
 
     # ---- título ----------------------------------------------------------
-    folha.espacado("CERTIDÃO", tamanho=20, espaco_depois=8)
+    # Entre duas réguas curtas, como os títulos das certidões antigas: o título
+    # fica num compartimento seu e não encostado ao timbre nem ao corpo.
+    # O espaço DEPOIS da régua tem de dar para a altura das maiúsculas do
+    # título, que assentam na linha de base: com os 15 pt da primeira tentativa,
+    # a régua passava a meio do «CERTIDÃO».
+    folha.risco(espaco_antes=0, espaco_depois=26, encolher=200, cor=VERDE,
+                largura_traco=0.9)
+    folha.espacado("CERTIDÃO", tamanho=19, espaco_depois=7)
     folha.centrado("de afixação e desafixação de edital", tamanho=11,
-                   fonte=SERIF_ITALICO, cor=CINZA, espaco_depois=6)
-    # Regra curta e centrada, como as que fechavam os títulos das certidões
-    # antigas: separa o título do corpo sem cortar a página ao meio.
-    folha.risco(espaco_antes=2, espaco_depois=20, encolher=165, cor=VERDE,
+                   fonte=SERIF_ITALICO, cor=CINZA, espaco_depois=4)
+    folha.risco(espaco_antes=2, espaco_depois=18, encolher=200, cor=VERDE,
                 largura_traco=0.9)
 
     # ---- quem certifica --------------------------------------------------
@@ -851,13 +1163,15 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     if cargo:
         apresentacao += f", {cargo}"
     folha.paragrafo(f"{apresentacao}, do {municipio}:", recuo_primeira=0,
-                    espaco_depois=14)
-    folha.espacado("CERTIFICA", tamanho=13, espaco_depois=13)
+                    espaco_depois=12)
+    folha.espacado("CERTIFICA", tamanho=13, espaco_depois=11)
 
     # ---- o que certifica -------------------------------------------------
     if f["afixado_em"]:
-        folha.paragrafo(_frase_do_documento(f, d, reg_mod.referencia(reg), local))
-        folha.paragrafo(_frase_da_afixacao(f, nomes))
+        texto, realces = _frase_do_documento(f, d, reg_mod.referencia(reg), local)
+        folha.paragrafo(texto, realces=realces)
+        texto, realces = _frase_da_afixacao(f, nomes)
+        folha.paragrafo(texto, realces=realces)
     else:
         # Uma certidão de um edital que nunca foi afixado continua a ser uma
         # certidão: certifica que o documento existe no registo e que a
@@ -865,8 +1179,9 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
         folha.paragrafo(
             "que o documento adiante identificado consta do registo de editais "
             "deste Município e NÃO chegou a ser afixado.")
-        folha.paragrafo("O documento é o seguinte: "
-                        + _identificacao(f, d, reg_mod.referencia(reg)) + ".")
+        enumeracao, realces = _identificacao(f, d, reg_mod.referencia(reg))
+        folha.paragrafo("O documento é o seguinte: " + enumeracao + ".",
+                        realces=realces)
 
     if d.get("base_legal"):
         texto = f"O prazo de afixação é o fixado no {d['base_legal']}."
@@ -915,23 +1230,43 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # ---- fecho e assinatura ---------------------------------------------
     folha.paragrafo("Por ser verdade e me ter sido pedida, mandei passar a "
                     "presente certidão, que vai por mim assinada.",
-                    espaco_antes=6)
+                    espaco_antes=4)
     hoje = datetime.now()
     folha.paragrafo(f"{municipio}, {ext.aos(hoje)}.", recuo_primeira=0,
                     espaco_depois=2)
-    folha.assinatura(emitente, cargo)
+    # O bloco do fecho é UM só: o selo à esquerda e a assinatura à direita, à
+    # mesma altura. Reserva-se inteiro antes de começar, senão a assinatura
+    # mudava de página e o selo ficava desenhado na anterior, sozinho — o
+    # lugar_do_selo() desenha em coordenadas absolutas e não sabe de páginas.
+    folha.reservar(2 * RAIO_DO_SELO + 22)
+    topo_do_fecho = folha.y
+    folha.assinatura(emitente, cargo, alinhamento="direita")
+    folha.lugar_do_selo(
+        ["MUNICÍPIO DE", municipio.upper().replace("MUNICÍPIO DE ", ""),
+         "LOCUS SIGILLI"],
+        centro=(MARGEM_X + RAIO_DO_SELO + 6, topo_do_fecho + RAIO_DO_SELO + 6),
+        nota="lugar do selo branco, a apor no exemplar impresso")
+    # A assinatura é mais curta do que o selo e deixava o cursor a meio dele: o
+    # que viesse a seguir escrevia-se por cima do círculo. O cursor desce ao
+    # mais baixo dos dois, que é sempre a legenda do selo.
+    folha.y = max(folha.y, topo_do_fecho + 2 * RAIO_DO_SELO + 20)
 
     # ---- nota de conferência --------------------------------------------
     # O aparato técnico vive aqui, depois da assinatura e em corpo pequeno, e
     # não misturado com o que a certidão afirma. É a divisão que as certidões
     # antigas já faziam entre o texto e as anotações de registo: em cima o que
     # se certifica, em baixo como se confere.
-    conferencia = [f"Registo n.º {f['id']}",
-                   f"referência interna {reg_mod.referencia(reg)}"]
+    # Rótulo e valor separados, e não já juntos numa cadeia: os rótulos vão a
+    # negrito, e o realce procura-se por texto. Tê-los escritos aqui é a única
+    # forma de a lista a realçar não poder divergir da lista impressa.
+    conferencia = [("Registo n.º", str(f["id"])),
+                   ("referência interna", reg_mod.referencia(reg))]
     if f["hash_original"]:
-        conferencia.append(f"resumo do original {agrupar(f['hash_original'])}")
-    conferencia.append(f"ficheiro de origem {f['ficheiro_origem']}")
-    conferencia.append(f"selo de conferência {selo(f)} (formato {FORMATO})")
+        conferencia.append(("resumo do original", agrupar(f["hash_original"])))
+    conferencia.append(("ficheiro de origem", f["ficheiro_origem"]))
+    conferencia.append(("selo de conferência", f"{selo(f)} (formato {FORMATO})"))
+    identificadores = " · ".join(f"{r} {v}" for r, v in conferencia) + "."
+    rotulos = [r for r, _ in conferencia]
     if f["disponivel_em"]:
         anexo = (f"O documento entrou na rotação do expositor em "
                  f"{_pt(f['disponivel_em'])}. Este registo confirma a "
@@ -951,21 +1286,33 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # A nota vai inteira ou não vai: partida entre duas páginas, deixava a
     # segunda com uma linha solta, que se lê como defeito de impressão e não
     # como documento. O miudinho de uma certidão fica junto do seu título.
-    pequeno = dict(tamanho=8, recuo_primeira=0, entrelinha=3)
-    bloco = 18 + 10 + 18 + sum(
-        folha.altura_de(t, espaco_depois=e, **pequeno)
-        for t, e in ((" · ".join(conferencia) + ".", 6), (anexo, 6), (emissao, 0)))
-    folha.reservar(bloco)
+    pequeno = dict(tamanho=7.5, recuo_primeira=0, entrelinha=2.5)
+    acima_da_caixa = 8        # ar entre o fecho e o cimo da caixa
+    folga_de_dentro = 8       # entre a régua da caixa e o que lá vai escrito
+    altura_do_titulo = 18     # «NOTA DE CONFERÊNCIA» e o espaço que leva
+    bloco = acima_da_caixa + 2 * folga_de_dentro + altura_do_titulo + sum(
+        folha.altura_de(t, espaco_depois=e, realces=r, **pequeno)
+        for t, e, r in ((identificadores, 4, rotulos), (anexo, 4, ()),
+                        (emissao, 0, ())))
+    folha.ancorar_no_fundo(bloco)
 
-    folha.risco(espaco_antes=18, espaco_depois=10, encolher=0)
+    folha.y += acima_da_caixa
+    topo_da_nota = folha.y
+    folha.y += folga_de_dentro
     folha.centrado("NOTA DE CONFERÊNCIA", tamanho=8, fonte=SERIF_NEGRITO,
                    cor=CINZA, espaco_depois=8)
-    folha.paragrafo(" · ".join(conferencia) + ".", cor=CINZA, espaco_depois=6,
-                    **pequeno)
-    folha.paragrafo(anexo, cor=CINZA, espaco_depois=6, **pequeno)
+    folha.paragrafo(identificadores, cor=CINZA, espaco_depois=4,
+                    realces=rotulos, **pequeno)
+    folha.paragrafo(anexo, cor=CINZA, espaco_depois=4, **pequeno)
     folha.paragrafo(emissao, cor=CINZA, espaco_depois=0, **pequeno)
+    # A caixa fecha-se DEPOIS de escrita: só aqui se sabe onde o texto acabou.
+    # Substitui a régua solta que havia antes — uma régua separa, uma caixa diz
+    # «isto é outra coisa», que é o que o miudinho de conferência é.
+    folha.caixa(topo_da_nota, folha.y + folga_de_dentro - 3)
 
     folha.rodape(_linha_do_rodape(cfg))
+    # Por último de tudo, que é quando se sabe quantas páginas há.
+    folha.moldura()
 
     doc.set_metadata({
         "title": f"Certidão de afixação e desafixação — registo {f['id']}",

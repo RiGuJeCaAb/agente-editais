@@ -1891,3 +1891,89 @@ se pode medir onde há Chromium.
 A contagem apanhou a deriva da sua própria PR **duas vezes**: à primeira corrida
 (731 para 738) e outra vez ao entrar a guarda da varredura (738 para 739). É o
 que ela existe para fazer.
+
+---
+
+## 0.24.3 — O timbre da Câmara, e a esquemática de uma certidão
+
+Visto no posto a 09/10/2026, com o modelo ao lado: «não tem o cabeçalho actual
+da CMMB, e apesar de ter um português arcaico como o do séc 19/20 a esquemática
+do documento é exactamente a mesma». Duas observações, e as duas certas.
+
+### O cabeçalho estava a meio
+
+A certidão punha o `logo_txt` — o letreiro «Moimenta da Beira / Município» — e
+mais nada. O logótipo da Câmara são **duas** peças, o monograma e o letreiro, e
+é com as duas que ela assina um ofício. A aplicação já tinha as duas para a
+televisão; a certidão usava uma. Passam a compor-se lado a lado, alinhadas pela
+altura — têm proporções muito diferentes, 134×118 e 375×96, e escalá-las pela
+largura dava o monograma do tamanho de um selo ao lado de um letreiro.
+
+Por cima do nome do município vai a linha de estado, «REPÚBLICA PORTUGUESA ·
+DISTRITO DE VISEU». O distrito entra pela configuração, chave `distrito`: é do
+município e não da aplicação, e em branco escreve-se só «REPÚBLICA PORTUGUESA».
+
+### A esquemática
+
+O texto já era prosa desde a 0.23.0, mas a folha continuava a ser uma coluna
+corrida com um traço no fim — e foi isso que se leu como «a mesma esquemática».
+
+- **Moldura** de duas réguas concêntricas, em todas as folhas. Passa por fora
+  de tudo o que se escreve, folio incluído.
+- **Título** entre duas réguas curtas, num compartimento seu.
+- **Elementos identificadores em negrito** no corpo: o número, a entidade, o
+  assunto, a referência interna, as datas por extenso e os nomes. É o que alguém
+  procura ao abrir uma certidão, e em redondo no meio de um parágrafo
+  justificado era indistinguível do resto.
+- **Lugar do selo** à esquerda e **assinatura encostada à direita**, que é a
+  disposição de um documento que se assina e se carimba.
+- **Nota de conferência** numa caixa ao pé da folha, em vez de um bloco à solta
+  a flutuar a seguir à assinatura.
+
+### Três decisões que se tomaram pelo caminho
+
+**O realce é da palavra inteira**, não do trecho exato. Mudar de tipo a meio de
+uma palavra obrigava a tratar cada palavra como uma lista de pedaços em toda a
+aritmética de quebra de linha e de justificação, e o que se ganhava era pôr
+«Beira» em negrito e a vírgula a seguir em redondo.
+
+**Um realce que não apareça no texto não rebenta a emissão**: fica registado e o
+parágrafo sai sem ele. Os realces saem de dados do registo — um nome, um número,
+uma referência — e uma certidão sem negrito certifica exatamente os mesmos
+factos. Rebentar ali era trocar um documento por uma falha de aspeto, no caminho
+de emissão, que é o pior sítio para rebentar.
+
+**O círculo do selo vai a tracejado**, com «LOCUS SIGILLI» dentro e a legenda
+«lugar do selo branco, a apor no exemplar impresso» por baixo. Um círculo a
+cheio lê-se como selo aposto, e o PDF não leva selo nenhum: seria o desenho a
+afirmar o que o texto não afirma.
+
+### Corrigido pelo caminho
+
+- **A régua acima do título passava a meio do «CERTIDÃO».** As maiúsculas
+  assentam na linha de base e sobem 13,4 pt a 19 pt de corpo; os 15 pt de folga
+  da primeira tentativa não chegavam.
+- **A legenda do selo saía pela margem esquerda fora**, a 41 pt — é mais larga
+  do que o círculo onde está centrada, e a margem do texto são 72. Encosta à
+  margem quando não cabe centrada. Há agora um teste do lado esquerdo, que o
+  das margens não olhava.
+- **O cursor ficava a meio do selo.** A assinatura é mais curta do que o círculo,
+  e o que viesse a seguir escrevia-se por cima dele.
+- **A medida de uma linha mista.** O negrito é mais largo do que o redondo para a
+  mesma letra; medir a linha toda pelo redondo dava-a mais curta do que a
+  desenhada, e a justificação encostava uma palavra à seguinte.
+
+### O selo de conferência não mudou
+
+O `FORMATO` continua em **2** e o selo do mesmo registo continua a ser o mesmo.
+Isto mexeu no aspeto e não tocou num facto — e o teste que fixa o valor de um
+registo conhecido continua verde, que é a prova.
+
+### Medido
+
+A folha ficou mais cerrada para o painel de conferência caber na primeira: a
+entrelinha da prosa desce de 5,5 para 5,0 pt, o corpo da nota de 8 para 7,5, e
+as margens de baixo de 76 para 66 pt. Com o registo que serviu de exemplo — um
+nome de 44 caracteres e um assunto de 66 — a certidão passa de **duas folhas com
+a segunda quase vazia** para **uma só**.
+

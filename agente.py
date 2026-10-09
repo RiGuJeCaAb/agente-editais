@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.24.2"
+VERSAO = "0.24.3"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -124,6 +124,11 @@ CONFIG = {
     # Aparecem no cabeçalho e no corpo do documento que a aplicação emite, por
     # isso convém estarem certos antes de a primeira certidão sair para um processo.
     "municipio": "Município de Moimenta da Beira",
+    # A linha de estado do timbre, por cima do nome do município. Vem do modelo
+    # de certidão passado a 09/10/2026 — «REPÚBLICA PORTUGUESA · DISTRITO DE
+    # VISEU» — e fica aqui, e não no código, porque o distrito é do município e
+    # não da aplicação. Em branco, a certidão escreve só «REPÚBLICA PORTUGUESA».
+    "distrito": "Distrito de Viseu",
     "servico": "",
     "local_do_expositor": "Expositor eletrónico do Município",
     # Tipos de documento com prazos próprios do município, que se somam ou

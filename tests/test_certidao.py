@@ -592,9 +592,10 @@ def test_uma_palavra_enorme_nao_transborda_a_primeira_linha():
     palavra = "a" * 90
     assert cert._largura(palavra, cert.SERIF, 11) <= caixa
     assert cert._largura(palavra, cert.SERIF, 11) > caixa - recuo
-    linhas = cert._quebrar_em_palavras(palavra + " resto", caixa - recuo, caixa,
-                                       11, cert.SERIF)
-    primeira = cert._largura(" ".join(linhas[0]), cert.SERIF, 11)
+    linhas = cert._quebrar_em_palavras(
+        cert._marcar(palavra + " resto", (), cert.SERIF, cert.SERIF_NEGRITO),
+        caixa - recuo, caixa, 11)
+    primeira = cert._largura_da_linha(linhas[0], 11)
     assert recuo + primeira <= caixa, \
         f"a primeira linha transborda {recuo + primeira - caixa:.1f} pt"
 
@@ -697,3 +698,180 @@ def test_as_minhas_ressalvas_continuam_a_encaixar_no_molde(ficha):
     """
     t = corrido(cert.gerar(ficha, CFG, emitida_por="ana.abreu", nomes_completos=NOMES))
     assert "Ressalva-se que os seguintes elementos" in t
+
+
+# ===========================================================================
+# O timbre, a moldura, o selo e o realce — a esquemática pedida a 09/10/2026
+# ===========================================================================
+TIMBRE = dict(CFG, logo_sym="assets/sym_ok.png", logo_txt="assets/txt_ok.png",
+              distrito="Distrito de Viseu")
+
+
+def _spans(pdf):
+    """Todos os pedaços de texto do PDF, com o tipo de letra e a caixa."""
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        return [(s["font"], s["text"], s["bbox"], p.number)
+                for p in d for b in p.get_text("dict")["blocks"]
+                for linha in b.get("lines", []) for s in linha["spans"]]
+
+
+def _negrito(pdf):
+    """O texto que saiu em negrito, junto numa cadeia só.
+
+    Com os espaços NORMALIZADOS: a justificação escreve palavra a palavra e
+    estica os intervalos, e o PyMuPDF devolve-os esticados — «referência
+    interna» vem com três espaços no meio, e um `in` simples não a encontrava.
+    """
+    junto = " ".join(t for f, t, _, _ in _spans(pdf) if f == "Times-Bold")
+    return " ".join(junto.split())
+
+
+def test_o_timbre_leva_as_duas_pecas_do_logotipo(afixado):
+    """O cabeçalho da Câmara é o monograma E o letreiro, não meio.
+
+    Até 09/10/2026 a certidão punha só o `logo_txt` — o letreiro sozinho, que
+    não é o cabeçalho de lado nenhum. O defeito saltou à vista assim que a
+    certidão foi posta ao lado de um ofício do Município.
+    """
+    assert cert._pecas_do_timbre(TIMBRE) == ["assets/sym_ok.png",
+                                             "assets/txt_ok.png"]
+    pdf = cert.gerar(afixado, TIMBRE, emitida_por="ana.abreu", nomes_completos=NOMES)
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        assert len(d[0].get_images()) == 2
+
+
+def test_um_timbre_proprio_sobrepoe_se_as_duas_pecas():
+    """Quem tenha o timbre já composto num ficheiro usa-o, e só a ele."""
+    assert cert._pecas_do_timbre(dict(TIMBRE, logo_certidao="t.png")) == ["t.png"]
+    # E sem peça nenhuma configurada não há lista a tentar abrir.
+    assert cert._pecas_do_timbre({}) == []
+
+
+def test_sem_logotipo_a_certidao_sai_na_mesma(afixado, caplog):
+    """Um ficheiro de logótipo que falte não impede a emissão de uma certidão.
+
+    O documento vale pelo que afirma, não pelo brasão. Era já a regra do
+    imagem() e tinha de continuar a valer agora que o timbre são duas peças.
+    """
+    pdf = cert.gerar(afixado, dict(TIMBRE, logo_sym="nao_existe.png"),
+                     emitida_por="ana.abreu", nomes_completos=NOMES)
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        assert len(d[0].get_images()) == 1
+    assert "nao_existe.png" in caplog.text
+
+
+def test_a_moldura_esta_em_todas_as_folhas_e_por_fora_do_texto(afixado):
+    """A moldura é do documento e não da primeira folha.
+
+    E tem de passar POR FORA de tudo o que se escreve, folio incluído: uma
+    régua a riscar o número da folha é pior do que não haver régua nenhuma.
+    """
+    pdf = cert.gerar(afixado, TIMBRE, emitida_por="ana.abreu", nomes_completos=NOMES)
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        assert d.page_count >= 1
+        for pagina in d:
+            molduras = [p for p in pagina.get_drawings()
+                        if p["rect"].width > cert.LARGURA - 2 * cert.MOLDURA_FORA - 2
+                        and p["rect"].height > cert.ALTURA - 2 * cert.MOLDURA_FORA - 2]
+            assert molduras, f"a folha {pagina.number + 1} saiu sem moldura"
+    dentro = cert.MOLDURA_DENTRO
+    for _fonte, texto, caixa, folha in _spans(pdf):
+        assert caixa[0] >= dentro and caixa[2] <= cert.LARGURA - dentro, \
+            f"«{texto.strip()}» sai da moldura na folha {folha + 1}"
+        assert caixa[1] >= dentro and caixa[3] <= cert.ALTURA - dentro, \
+            f"«{texto.strip()}» sai da moldura na folha {folha + 1}"
+
+
+def test_o_que_identifica_o_documento_sai_em_negrito(afixado):
+    """Quem abre uma certidão procura o número, a entidade e a referência.
+
+    Em redondo no meio de um parágrafo justificado, essas quatro linhas são
+    indistinguíveis do resto — e foi o que se disse da versão anterior: a
+    esquemática era a mesma do formulário que ela veio substituir.
+    """
+    pdf = cert.gerar(afixado, TIMBRE, emitida_por="ana.abreu", nomes_completos=NOMES)
+    destacado = _negrito(pdf)
+    for esperado in ("2026-0017", "ASSEMBLEIA MUNICIPAL", "AE-", "Ana Abreu"):
+        assert esperado in destacado, f"«{esperado}» devia sair em negrito"
+    # E o que NÃO é elemento identificador fica em redondo: se tudo é destaque,
+    # nada é destaque.
+    assert "para os devidos efeitos" not in destacado
+
+
+def test_o_realce_apanha_todas_as_ocorrencias():
+    """Afixado e retirado no mesmo dia cita a mesma data duas vezes.
+
+    Marcar só a primeira dava a afixação em negrito e a retirada em redondo,
+    o que se lê como distinção entre as duas e não é nenhuma.
+    """
+    palavras = cert._marcar("de março a de março de novo", ["de março"],
+                            cert.SERIF, cert.SERIF_NEGRITO)
+    negritas = [p for p, f in palavras if f == cert.SERIF_NEGRITO]
+    assert negritas == ["de", "março", "de", "março"]
+
+
+def test_um_realce_que_nao_existe_nao_rebenta_a_certidao(caplog):
+    """O realce sai de dados do registo, e um documento sem negrito certifica.
+
+    Rebentar aqui era trocar uma certidão por uma falha de aspeto — no caminho
+    de emissão, que é o pior sítio para rebentar.
+    """
+    palavras = cert._marcar("texto simples", ["não está cá"],
+                            cert.SERIF, cert.SERIF_NEGRITO)
+    assert [p for p, _ in palavras] == ["texto", "simples"]
+    assert all(f == cert.SERIF for _, f in palavras)
+    assert "não está cá" in caplog.text
+
+
+def test_a_regua_de_uma_linha_mista_soma_os_dois_tipos():
+    """Uma linha com negrito e redondo não se mede toda pelo redondo.
+
+    O negrito é mais largo para a mesma letra. Medi-la pelo redondo dava uma
+    linha mais curta do que a desenhada, e a justificação encostava a última
+    palavra à seguinte — que é sobreposição, não é alinhamento.
+    """
+    so_redondo = [("palavra", cert.SERIF), ("outra", cert.SERIF)]
+    com_negrito = [("palavra", cert.SERIF_NEGRITO), ("outra", cert.SERIF)]
+    assert cert._largura_da_linha(com_negrito, 11) > \
+        cert._largura_da_linha(so_redondo, 11)
+    assert cert._largura_da_linha([], 11) == 0.0
+
+
+def test_a_nota_de_conferencia_sai_dentro_de_uma_caixa(afixado):
+    """A nota não é continuação do texto: é o painel por onde se confere.
+
+    A caixa tem de FECHAR à volta do que lá está escrito — a régua de baixo
+    desenha-se só depois do texto, e uma conta errada punha-a a meio da última
+    linha ou por cima do rodapé.
+    """
+    pdf = cert.gerar(afixado, TIMBRE, emitida_por="ana.abreu", nomes_completos=NOMES)
+    dentro = [(c, n) for f, t, c, n in _spans(pdf) if "selo de conferência" in t]
+    assert dentro, "a nota de conferência não saiu"
+    caixa_do_texto, folha = dentro[0]
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        pagina = d[folha]
+        painel = [p["rect"] for p in pagina.get_drawings()
+                  if p["rect"].x0 < caixa_do_texto[0]
+                  and p["rect"].x1 > caixa_do_texto[2]
+                  and p["rect"].y0 < caixa_do_texto[1]
+                  and p["rect"].y1 > caixa_do_texto[3]
+                  and p["rect"].height < cert.ALTURA / 2]
+        assert painel, "a nota saiu sem caixa à volta"
+        assert painel[0].y1 <= cert.ALTURA - cert.MARGEM_BAIXO, \
+            "a caixa da nota desce para a faixa do rodapé"
+    # Os rótulos da nota vão a negrito e os valores em redondo.
+    destacado = _negrito(pdf)
+    assert "selo de conferência" in destacado
+    assert "referência interna" in destacado
+
+
+def test_nada_transborda_a_margem_esquerda(afixado):
+    """A legenda do selo é mais larga do que o círculo onde está centrada.
+
+    Centrada nele, começava a 41 pt — fora da margem de 72 e quase em cima da
+    moldura. É o lado que o teste das margens não olhava.
+    """
+    pdf = cert.gerar(afixado, TIMBRE, emitida_por="ana.abreu", nomes_completos=NOMES)
+    for _fonte, texto, caixa, _folha in _spans(pdf):
+        assert caixa[0] >= cert.MARGEM_X - 0.5, \
+            f"«{texto.strip()}» entra {cert.MARGEM_X - caixa[0]:.1f} pt na margem"
