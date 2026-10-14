@@ -1963,6 +1963,46 @@ afirmar o que o texto não afirma.
   mesma letra; medir a linha toda pelo redondo dava-a mais curta do que a
   desenhada, e a justificação encostava uma palavra à seguinte.
 
+### A assinatura partia-se entre duas folhas
+
+Apanhado em revisão a 14/10/2026, por leitura do diff. O bloco do fecho
+reservava **78 pt fixos** — o que ele mede com o nome e o cargo numa linha cada.
+Com «Maria da Conceição de Almeida Pinto Vasconcelos e Sousa Albuquerque» e
+«Chefe da Divisão Administrativa, Financeira e de Recursos Humanos do
+Município», que são do comprimento dos que há num organograma municipal, os dois
+quebram em duas linhas e o bloco mede **87 pt**.
+
+E o que passava não transbordava a margem, que é o que o teste das margens
+apanharia: mudava de **página**, porque o `_centrado_em` chama o
+`_nova_pagina_se_preciso` linha a linha. Daí saíam três coisas, por ordem de
+gravidade:
+
+- o traço numa folha e o nome na seguinte, numa certidão;
+- o lugar do selo, que desenha em coordenadas absolutas sobre a página corrente,
+  na folha nova e no `y` que o bloco tinha na antiga — a 656 pt da assinatura;
+- o cursor empurrado para uma coordenada de folha cheia, o que mandava a nota de
+  conferência mais uma folha à frente, com uma quase em branco pelo meio.
+
+A altura passa a ser **medida** (`altura_da_assinatura`), nos dois sítios que
+precisam dela: o `assinatura()` defende-se sozinho, para quem o chame em seco, e
+o `gerar()` reserva o maior entre a assinatura e o selo, que é o que mantém o
+`topo_do_fecho` válido para o selo.
+
+**A janela do defeito tem nove pontos**, e as duas primeiras tentativas de teste
+passaram dos dois lados por não acertarem nela — o `_nova_pagina_se_preciso` mede
+a linha que vem e não o que falta do bloco. Os testes que ficaram acertam de
+propósito e **verificam a própria premissa**: se um ajuste de espaços tirar o
+caso da janela, falham com «o caso deixou de ser o caso» em vez de passarem a
+verde sem exercitar nada.
+
+### Um número de comentário que estava errado
+
+O docstring do `moldura()` dizia que o folio «desce aos 794,5 pt». Desce aos
+804,5 — o comentário das constantes já dizia 802, e o código usa
+`ALTURA - MARGEM_BAIXO + 26`. Ficou da altura em que a margem de baixo passou de
+70 para 66 pt. As regras da casa pedem que números em comentários sejam medidos,
+e este deixara de o ser.
+
 ### O selo de conferência não mudou
 
 O `FORMATO` continua em **2** e o selo do mesmo registo continua a ser o mesmo.
