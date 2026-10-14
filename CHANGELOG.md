@@ -2055,3 +2055,42 @@ E o teste deixa de ser do caso e passa a ser da **propriedade**: a altura medida
 é a que o bloco ocupa, em todas as combinações de vazio e cheio que as duas
 funções podem receber. Contra o escritor antigo, três das sete ficam vermelhas.
 
+### E o selo passa a desenhar-se antes da assinatura
+
+Terceiro achado da mesma revisão, este do Sourcery: com um bloco de assinatura
+maior do que uma folha limpa, o `assinatura()` paginava por sua conta e o
+`topo_do_fecho` ficava a apontar para a folha anterior — o selo saía na folha
+nova com o `y` da antiga.
+
+O caminho é remoto: são precisos uns **três mil caracteres de cargo** para um
+bloco passar os 720 pt de uma folha, e um cargo de divisão municipal tem
+cinquenta. Mas a **classe** do defeito resolve-se de graça, e é a mesma que já
+tinha mordido duas vezes nesta peça: um par de valores que tem de estar de
+acordo, mantido de acordo por atenção em vez de por construção.
+
+O selo passa a desenhar-se **logo a seguir à reserva**, onde a página é, por
+construção, a que se reservou. E a reserva do `assinatura()` pede no máximo o
+que uma folha dá (`min(alta, util)`): sem esse teto, um bloco grande mudava de
+página na reserva do `gerar()`, chegava a uma folha vazia, e mudava outra vez
+dentro do `assinatura()` — deixando o selo sozinho na anterior, que é
+precisamente o que a reordenação veio evitar.
+
+O resto não se trata, **mas diz-se**: um bloco maior do que uma folha parte-se,
+e passa a ficar registado com as medidas e os comprimentos do nome e do cargo.
+Sem isso, a assinatura partia-se e ninguém tinha por onde perceber porquê — é a
+mesma regra do rodapé que não cabe.
+
+### Sobre a versão, que a revisão também levantou
+
+O CodeRabbit leu a regra à letra — «alteração que não muda o que a aplicação faz
+leva o terceiro número» — e concluiu que isto devia ser 0.25.0, por mudar o PDF
+de uma assinatura que quebra. Ficou em **0.24.4**, pelo precedente da própria
+casa: a **0.23.1** foram sete correcções ao português da certidão, que mudam o
+documento que sai, e levou o terceiro número; a **0.24.1** corrigiu a posição do
+logótipo no ecrã, e também. A leitura em uso é que **uma correcção de defeito
+leva o terceiro número e funcionalidade nova leva o segundo**.
+
+A frase do `AGENTS.md` dá para as duas leituras, e já custou uma ronda de
+revisão. Vale a pena afiná-la — mas é decisão de quem escreveu a regra, não
+desta peça.
+

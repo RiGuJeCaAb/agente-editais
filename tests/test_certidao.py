@@ -1067,3 +1067,33 @@ def test_a_altura_medida_e_a_que_o_bloco_ocupa(nome, cargo):
     assert folha.y - topo == pytest.approx(medida), \
         f"medido {medida}, ocupado {folha.y - topo}"
     doc.close()
+
+
+def test_o_selo_desenha_se_na_folha_que_foi_reservada(afixado, caplog):
+    """O par (topo_do_fecho, página) tem de estar de acordo, sempre.
+
+    O lugar_do_selo() desenha em coordenadas ABSOLUTAS sobre a página corrente.
+    Desenhado depois da assinatura, bastava esta mudar de página — o que
+    acontece com um bloco maior do que uma folha limpa — para o selo sair na
+    folha nova com o y da antiga. Apanhado em revisão na PR #23.
+
+    O remédio não foi tratar esse caso: foi desenhar o selo logo a seguir à
+    reserva, onde a página é, por construção, a que se reservou. Aqui força-se
+    o caso absurdo — um cargo de três mil caracteres — e exige-se que o selo
+    continue ao lado do traço, que é o que o torna o selo DESTA assinatura.
+    """
+    cargo_absurdo = "Chefe da Divisão Administrativa e Financeira " * 70
+    pdf = cert.gerar(afixado, dict(TIMBRE, cargo_de_quem_certifica=cargo_absurdo),
+                     emitida_por="ana.abreu", nomes_completos=NOMES)
+    folha_do_traco, altura_do_traco = _traco_da_assinatura(pdf)
+    assert folha_do_traco is not None, "a certidão saiu sem traço de assinatura"
+    selo = [(c, n) for _f, t, c, n in _spans(pdf) if "LOCUS SIGILLI" in t]
+    assert selo, "a certidão saiu sem lugar do selo"
+    caixa_do_selo, folha_do_selo = selo[0]
+    assert folha_do_selo == folha_do_traco, \
+        "o selo saiu numa folha diferente da do traço"
+    meio_do_selo = (caixa_do_selo[1] + caixa_do_selo[3]) / 2
+    assert abs(meio_do_selo - altura_do_traco) <= 2 * cert.RAIO_DO_SELO, \
+        f"o selo assenta a {abs(meio_do_selo - altura_do_traco):.0f} pt do traço"
+    # E o que não cabe diz-se, em vez de a assinatura se partir em silêncio.
+    assert "vai partir-se" in caplog.text

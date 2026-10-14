@@ -577,7 +577,24 @@ class _Folha:
 
         Reserva a altura MEDIDA e não uma fixa: ver altura_da_assinatura().
         """
-        self._nova_pagina_se_preciso(self.altura_da_assinatura(nome, cargo))
+        alta = self.altura_da_assinatura(nome, cargo)
+        # Um bloco maior do que uma folha limpa não há como manter inteiro, e
+        # são precisos uns três mil caracteres de cargo para lá chegar. Não se
+        # trata o caso — mas DIZ-SE, que é o que esta casa faz ao que não cabe:
+        # sem isto, a assinatura partia-se e ninguém tinha por onde perceber
+        # porquê.
+        util = ALTURA - MARGEM_BAIXO - MARGEM_TOPO
+        if alta > util:
+            _log.warning(
+                "bloco da assinatura com %.1f pt para %.1f pt de folha: vai "
+                "partir-se. Nome com %d caracteres, cargo com %d.",
+                alta, util, len(nome or ""), len(cargo or ""))
+        # Pede-se no MÁXIMO o que uma folha limpa dá. Sem o teto, um bloco maior
+        # do que isso mudava de página na reserva do gerar(), chegava a uma folha
+        # vazia, e mudava outra vez aqui — deixando o selo na folha anterior,
+        # sozinho, que é exatamente o que o selo-antes-da-assinatura veio evitar.
+        # Partir-se, parte-se; o que não pode é arrastar o selo atrás.
+        self._nova_pagina_se_preciso(min(alta, util))
         self.y += self.ANTES_DO_TRACO
         x0 = (LARGURA - MARGEM_X - self.LARGURA_DO_TRACO if alinhamento == "direita"
               else (LARGURA - self.LARGURA_DO_TRACO) / 2)
@@ -1291,12 +1308,19 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     folha.reservar(max(folha.altura_da_assinatura(emitente, cargo),
                        2 * RAIO_DO_SELO + 22))
     topo_do_fecho = folha.y
-    folha.assinatura(emitente, cargo, alinhamento="direita")
+    # O selo PRIMEIRO, e não depois da assinatura. Ele desenha em coordenadas
+    # absolutas sobre a página corrente, e aqui essa página é, por construção,
+    # a que acabou de se reservar — o par (topo_do_fecho, folha.pagina) está
+    # garantidamente de acordo. Desenhado a seguir, bastava a assinatura mudar
+    # de página para ele sair na folha nova com o y da antiga. Apanhado em
+    # revisão na PR #23, para uma assinatura mais alta do que uma folha; o
+    # remédio não é tratar esse caso, é não deixar o par separar-se.
     folha.lugar_do_selo(
         ["MUNICÍPIO DE", municipio.upper().replace("MUNICÍPIO DE ", ""),
          "LOCUS SIGILLI"],
         centro=(MARGEM_X + RAIO_DO_SELO + 6, topo_do_fecho + RAIO_DO_SELO + 6),
         nota="lugar do selo branco, a apor no exemplar impresso")
+    folha.assinatura(emitente, cargo, alinhamento="direita")
     # A assinatura é mais curta do que o selo e deixava o cursor a meio dele: o
     # que viesse a seguir escrevia-se por cima do círculo. O cursor desce ao
     # mais baixo dos dois, que é sempre a legenda do selo.
