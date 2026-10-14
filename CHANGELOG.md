@@ -2037,3 +2037,21 @@ O docstring do `moldura()` dizia que o folio «desce aos 794,5 pt». Desce aos
 `ALTURA - MARGEM_BAIXO + 26`. Ficou da altura em que a margem de baixo passou de
 70 para 66 pt. As regras da casa pedem que números em comentários sejam medidos,
 e este deixara de o ser.
+
+### E logo a seguir, outro do mesmo feitio
+
+Apanhado em revisão na PR #23, por leitura do diff. Com o `nome` vazio e o
+`cargo` posto, o medidor saltava a linha do nome e o escritor escrevia-a na
+mesma — o `_quebrar("")` devolve uma linha vazia, e o `_centrado_em` escreve-a.
+Medido: **48,5 pt contra 63**.
+
+É o defeito que esta peça acabou de corrigir, outra vez: o medidor e o escritor
+a decidirem cada um por si o que entra no bloco. Remendar o caso seria não ter
+aprendido nada, por isso passam os dois a percorrer **a mesma lista** — o
+`_linhas_da_assinatura()` — e a divergência deixa de ser possível por
+construção.
+
+E o teste deixa de ser do caso e passa a ser da **propriedade**: a altura medida
+é a que o bloco ocupa, em todas as combinações de vazio e cheio que as duas
+funções podem receber. Contra o escritor antigo, três das sete ficam vermelhas.
+

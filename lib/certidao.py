@@ -527,6 +527,20 @@ class _Folha:
     CORPO_DO_NOME = 10.5
     CORPO_DO_CARGO = 9.5
 
+    def _linhas_da_assinatura(self, nome, cargo):
+        """As linhas do bloco da assinatura: texto, corpo, tipo e cor.
+
+        UMA lista, percorrida pelo altura_da_assinatura() e pelo assinatura().
+        Tê-la em dois sítios é o que estava na origem do defeito que esta peça
+        corrige, e repeti-lo logo a seguir seria não ter aprendido nada: com o
+        nome vazio e o cargo posto, o medidor saltava a linha do nome e o
+        escritor escrevia-a na mesma — o _quebrar("") devolve uma linha vazia —
+        e davam 48,5 contra 63 pt. Apanhado em revisão na PR #23.
+        """
+        return [(texto, corpo, fonte, cor) for texto, corpo, fonte, cor in (
+            (nome, self.CORPO_DO_NOME, SERIF, PRETO),
+            (cargo, self.CORPO_DO_CARGO, SERIF_ITALICO, CINZA)) if texto]
+
     def altura_da_assinatura(self, nome, cargo=""):
         """Diz quanto o bloco da assinatura vai ocupar, antes de o escrever.
 
@@ -543,12 +557,10 @@ class _Folha:
         e ia parar à folha nova, na altura que tinha na antiga.
         """
         altura = self.ANTES_DO_TRACO + self.TRACO_AO_NOME
-        for texto, corpo, fonte in ((nome, self.CORPO_DO_NOME, SERIF),
-                                    (cargo, self.CORPO_DO_CARGO, SERIF_ITALICO)):
-            if texto:
-                linhas = _quebrar(texto, self.LARGURA_DO_TRACO, corpo, fonte)
-                # O _centrado_em avança `corpo + 2` por linha e 2 no fim.
-                altura += len(linhas) * (corpo + 2) + 2
+        for texto, corpo, fonte, _cor in self._linhas_da_assinatura(nome, cargo):
+            linhas = _quebrar(texto, self.LARGURA_DO_TRACO, corpo, fonte)
+            # O _centrado_em avança `corpo + 2` por linha e 2 no fim.
+            altura += len(linhas) * (corpo + 2) + 2
         return altura
 
     def assinatura(self, nome, cargo="", *, alinhamento="centro"):
@@ -572,11 +584,9 @@ class _Folha:
         self.pagina.draw_line((x0, self.y), (x0 + self.LARGURA_DO_TRACO, self.y),
                               color=PRETO, width=0.8)
         self.y += self.TRACO_AO_NOME
-        self._centrado_em(nome, x0, self.LARGURA_DO_TRACO, tamanho=self.CORPO_DO_NOME)
-        if cargo:
-            self._centrado_em(cargo, x0, self.LARGURA_DO_TRACO,
-                              tamanho=self.CORPO_DO_CARGO, fonte=SERIF_ITALICO,
-                              cor=CINZA)
+        for texto, corpo, fonte, cor in self._linhas_da_assinatura(nome, cargo):
+            self._centrado_em(texto, x0, self.LARGURA_DO_TRACO, tamanho=corpo,
+                              fonte=fonte, cor=cor)
 
     def lugar_do_selo(self, linhas, *, centro, raio=RAIO_DO_SELO, nota=""):
         """Desenha, a tracejado, o lugar onde se carimba o exemplar impresso.

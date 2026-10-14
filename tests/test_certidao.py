@@ -1035,3 +1035,35 @@ def test_o_nome_e_o_selo_ficam_na_folha_do_traco(monkeypatch):
     assert abs(meio_do_selo - altura_do_traco) <= 2 * cert.RAIO_DO_SELO, (
         f"o selo assenta a {abs(meio_do_selo - altura_do_traco):.0f} pt do "
         f"traço: não está ao lado da assinatura")
+
+
+@pytest.mark.parametrize("nome, cargo", [
+    ("Ana Abreu", "Chefe de Divisão"),
+    ("Ana Abreu", ""),
+    ("", "Chefe de Divisão"),          # o caso que estava errado por 14,5 pt
+    ("", ""),
+    (NOME_QUE_QUEBRA, CARGO_QUE_QUEBRA),
+    (NOME_QUE_QUEBRA, ""),
+    ("", CARGO_QUE_QUEBRA),
+])
+def test_a_altura_medida_e_a_que_o_bloco_ocupa(nome, cargo):
+    """O medidor e o escritor têm de concordar, em todas as combinações.
+
+    É a propriedade de que todo o resto depende: a reserva sai da medida, e uma
+    medida que não seja a verdade é um bloco a mudar de página a meio. O defeito
+    original estava aqui, e logo a seguir à correção apareceu outro do mesmo
+    feitio — com o nome vazio e o cargo posto, o medidor saltava a linha do nome
+    e o escritor escrevia-a na mesma, porque o _quebrar("") devolve uma linha
+    vazia. Davam 48,5 contra 63 pt. Apanhado em revisão na PR #23.
+
+    Por isso não se testa o caso: testa-se a PROPRIEDADE, em todas as
+    combinações de vazio e cheio que as duas funções podem receber.
+    """
+    doc = pymupdf.open()
+    folha = cert._Folha(doc)
+    topo = folha.y
+    medida = folha.altura_da_assinatura(nome, cargo)
+    folha.assinatura(nome, cargo, alinhamento="direita")
+    assert folha.y - topo == pytest.approx(medida), \
+        f"medido {medida}, ocupado {folha.y - topo}"
+    doc.close()
