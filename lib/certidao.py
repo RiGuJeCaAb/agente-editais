@@ -518,6 +518,39 @@ class _Folha:
             self.y += tamanho + 2
         self.y += espaco_depois
 
+    # As medidas do bloco da assinatura. Ficam aqui porque é delas que sai a
+    # altura reservada, e essa conta tinha-se feito de cabeça: estava escrita
+    # «78», que é o que o bloco mede com o nome e o cargo numa linha cada.
+    LARGURA_DO_TRACO = 230
+    ANTES_DO_TRACO = 20
+    TRACO_AO_NOME = 15
+    CORPO_DO_NOME = 10.5
+    CORPO_DO_CARGO = 9.5
+
+    def altura_da_assinatura(self, nome, cargo=""):
+        """Diz quanto o bloco da assinatura vai ocupar, antes de o escrever.
+
+        O nome e o cargo QUEBRAM: o traço mede 230 pt, e há nomes completos e
+        designações de divisão que não cabem numa linha. Medido com «Maria da
+        Conceição de Almeida Pinto Vasconcelos e Sousa Albuquerque» e «Chefe da
+        Divisão Administrativa, Financeira e de Recursos Humanos do Município»:
+        duas linhas cada, 87 pt de bloco contra os 78 que se reservavam.
+
+        E o que estava a mais não transbordava — mudava de página, porque o
+        _centrado_em chama o _nova_pagina_se_preciso linha a linha. O traço
+        ficava numa folha e o nome na seguinte, numa certidão. Pior ainda: o
+        lugar do selo desenha em coordenadas absolutas sobre a página corrente,
+        e ia parar à folha nova, na altura que tinha na antiga.
+        """
+        altura = self.ANTES_DO_TRACO + self.TRACO_AO_NOME
+        for texto, corpo, fonte in ((nome, self.CORPO_DO_NOME, SERIF),
+                                    (cargo, self.CORPO_DO_CARGO, SERIF_ITALICO)):
+            if texto:
+                linhas = _quebrar(texto, self.LARGURA_DO_TRACO, corpo, fonte)
+                # O _centrado_em avança `corpo + 2` por linha e 2 no fim.
+                altura += len(linhas) * (corpo + 2) + 2
+        return altura
+
     def assinatura(self, nome, cargo="", *, alinhamento="centro"):
         """Deixa o traço por onde a certidão se assina, com o nome por baixo.
 
@@ -529,19 +562,21 @@ class _Folha:
         Encostado à DIREITA, deixa livre a metade esquerda para o lugar do selo
         — que é a disposição de um documento que se assina e se carimba, e não a
         de um certificado com o nome ao meio.
+
+        Reserva a altura MEDIDA e não uma fixa: ver altura_da_assinatura().
         """
-        largura_traco = 230
-        self._nova_pagina_se_preciso(78)
-        self.y += 20
-        x0 = (LARGURA - MARGEM_X - largura_traco if alinhamento == "direita"
-              else (LARGURA - largura_traco) / 2)
-        self.pagina.draw_line((x0, self.y), (x0 + largura_traco, self.y),
+        self._nova_pagina_se_preciso(self.altura_da_assinatura(nome, cargo))
+        self.y += self.ANTES_DO_TRACO
+        x0 = (LARGURA - MARGEM_X - self.LARGURA_DO_TRACO if alinhamento == "direita"
+              else (LARGURA - self.LARGURA_DO_TRACO) / 2)
+        self.pagina.draw_line((x0, self.y), (x0 + self.LARGURA_DO_TRACO, self.y),
                               color=PRETO, width=0.8)
-        self.y += 15
-        self._centrado_em(nome, x0, largura_traco, tamanho=10.5)
+        self.y += self.TRACO_AO_NOME
+        self._centrado_em(nome, x0, self.LARGURA_DO_TRACO, tamanho=self.CORPO_DO_NOME)
         if cargo:
-            self._centrado_em(cargo, x0, largura_traco, tamanho=9.5,
-                              fonte=SERIF_ITALICO, cor=CINZA)
+            self._centrado_em(cargo, x0, self.LARGURA_DO_TRACO,
+                              tamanho=self.CORPO_DO_CARGO, fonte=SERIF_ITALICO,
+                              cor=CINZA)
 
     def lugar_do_selo(self, linhas, *, centro, raio=RAIO_DO_SELO, nota=""):
         """Desenha, a tracejado, o lugar onde se carimba o exemplar impresso.
@@ -606,7 +641,8 @@ class _Folha:
         Como o rodapé, só se pode desenhar no fim: enquanto o texto não acabar,
         há páginas que ainda não existem. Os afastamentos vivem em MOLDURA_FORA
         e MOLDURA_DENTRO, e a régua de dentro passa por fora de tudo o que se
-        escreve — incluindo o folio, que desce aos 794,5 pt.
+        escreve — incluindo o folio, que assenta em 802 pt e desce aos 804,5
+        com os descendentes, contra os 810 da régua de dentro.
         """
         for pagina in self.doc:
             for recuo, traco in ((MOLDURA_FORA, 1.1), (MOLDURA_DENTRO, 0.5)):
@@ -1238,7 +1274,12 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # mesma altura. Reserva-se inteiro antes de começar, senão a assinatura
     # mudava de página e o selo ficava desenhado na anterior, sozinho — o
     # lugar_do_selo() desenha em coordenadas absolutas e não sabe de páginas.
-    folha.reservar(2 * RAIO_DO_SELO + 22)
+    # O fecho são DUAS peças à mesma altura, e reserva-se pela mais alta. Com
+    # a reserva do selo sozinha, um nome e um cargo que quebrassem em duas
+    # linhas cada davam 87 pt de bloco para 78 reservados, e o que passava não
+    # transbordava: mudava de página a meio da assinatura.
+    folha.reservar(max(folha.altura_da_assinatura(emitente, cargo),
+                       2 * RAIO_DO_SELO + 22))
     topo_do_fecho = folha.y
     folha.assinatura(emitente, cargo, alinhamento="direita")
     folha.lugar_do_selo(

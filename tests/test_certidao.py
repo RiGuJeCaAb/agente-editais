@@ -875,3 +875,163 @@ def test_nada_transborda_a_margem_esquerda(afixado):
     for _fonte, texto, caixa, _folha in _spans(pdf):
         assert caixa[0] >= cert.MARGEM_X - 0.5, \
             f"«{texto.strip()}» entra {cert.MARGEM_X - caixa[0]:.1f} pt na margem"
+
+
+# Um nome e um cargo que NÃO cabem na largura do traço, dos dois a quebrar em
+# duas linhas. Não são inventados por comodidade: são do comprimento dos que
+# aparecem num organograma municipal português.
+NOME_QUE_QUEBRA = "Maria da Conceição de Almeida Pinto Vasconcelos e Sousa Albuquerque"
+CARGO_QUE_QUEBRA = ("Chefe da Divisão Administrativa, Financeira e de Recursos "
+                    "Humanos do Município")
+
+# Um edital cujo corpo acaba a 691,5 pt — dentro da janela de nove pontos em que
+# o fecho cabia na reserva antiga e não cabia na que mede. Um assunto de uma só
+# palavra é o que lá acerta; ver _onde_o_fecho_comeca().
+ASSINADO_AO_FUNDO = {
+    "id": 17, "numero": "2026-0017", "assunto": "DELIBERAÇÕES",
+    "entidade": "ASSEMBLEIA MUNICIPAL", "tipo": "deliberacao_orgao_autarquico",
+    "data_publicacao": "2026-06-29", "ficheiro_origem": "edital_am_17.pdf",
+    "num_paginas": 3, "hash_original": "f" * 64,
+    "criado_em": "2026-06-29T09:00:00",
+    "afixado_em": "2026-06-30T10:15:00", "afixado_por": "ana.abreu",
+    "desafixado_em": "2026-07-15T17:02:00", "desafixado_por": "rui.santos",
+}
+
+
+def test_a_assinatura_nao_se_parte_entre_duas_folhas():
+    """O traço numa folha e o nome na seguinte, numa certidão.
+
+    O bloco reservava 78 pt fixos — o que ele mede com o nome e o cargo numa
+    linha cada. Medido com os dois a quebrar: 87 pt. E o que passava não
+    transbordava a margem, que é o que o teste das margens apanharia: mudava de
+    PÁGINA, porque o _centrado_em chama o _nova_pagina_se_preciso linha a linha.
+
+    Apanhado em revisão a 14/10/2026, por leitura do diff.
+    """
+    doc = pymupdf.open()
+    folha = cert._Folha(doc)
+    alta = folha.altura_da_assinatura(NOME_QUE_QUEBRA, CARGO_QUE_QUEBRA)
+    assert alta > 78, "o caso deixou de ser o caso: este nome já cabe em 78 pt"
+
+    # NÃO se reserva nada antes: é o próprio assinatura() que tem de se
+    # defender. Pré-reservar aqui exercitava o caso fácil — o gerar() reserva,
+    # e o teste não dizia nada sobre quem o chama em seco.
+    #
+    # O cursor vai ao ponto mais baixo que a reserva do SELO ainda admite, que
+    # é o que a assinatura usava quando reservava uma altura fixa. A primeira
+    # tentativa pôs o cursor um ponto acima disto e não partiu nada: o
+    # _nova_pagina_se_preciso mede a linha que vem, não o que falta do bloco,
+    # e por isso a janela é estreita e tem de se acertar nela de propósito.
+    fundo = cert.ALTURA - cert.MARGEM_BAIXO
+    folha.y = fundo - (2 * cert.RAIO_DO_SELO + 22)
+    assert folha.y + alta > fundo, \
+        "o caso deixou de ser o caso: a altura medida ainda cabe aqui"
+    folha.assinatura(NOME_QUE_QUEBRA, CARGO_QUE_QUEBRA, alinhamento="direita")
+
+    pdf = doc.tobytes()
+    doc.close()
+    folha_do_traco, altura_do_traco = _traco_da_assinatura(pdf)
+    assert folha_do_traco is not None, "o traço da assinatura não se desenhou"
+    sob_o_traco = [t for _f, t, c, n in _spans(pdf)
+                   if n == folha_do_traco and c[1] >= altura_do_traco]
+    escrito = " ".join(" ".join(sob_o_traco).split())
+    assert NOME_QUE_QUEBRA in escrito, \
+        f"o nome não saiu inteiro na folha do traço; lê-se «{escrito}»"
+    assert CARGO_QUE_QUEBRA in escrito, \
+        f"o cargo não saiu inteiro na folha do traço; lê-se «{escrito}»"
+
+
+def _traco_da_assinatura(pdf):
+    """A folha e a altura do traço por onde a certidão se assina.
+
+    Procura-se pelo DESENHO e não pelo texto: o nome de quem certifica também
+    aparece na abertura e na nota de conferência, e procurá-lo por texto dava
+    três folhas onde há uma assinatura só. O traço identifica-se pela largura
+    e por acabar na margem direita, que é onde o alinhamento o põe.
+    """
+    with pymupdf.open(stream=pdf, filetype="pdf") as d:
+        for pagina in d:
+            for desenho in pagina.get_drawings():
+                r = desenho["rect"]
+                if (abs(r.width - cert._Folha.LARGURA_DO_TRACO) < 1.5
+                        and r.height < 2
+                        and abs(r.x1 - (cert.LARGURA - cert.MARGEM_X)) < 1.5):
+                    return pagina.number, r.y1
+    return None, None
+
+
+def _onde_o_fecho_comeca(monkeypatch):
+    """Espia o y a que o bloco do fecho se reserva, dentro do gerar().
+
+    O defeito só aparece numa janela de nove pontos — o fecho tem de caber na
+    reserva antiga de 78 pt e não caber nos 87 que mede. Sem espiar, um teste
+    que lá acertasse hoje passaria a não acertar ao primeiro ajuste de espaços,
+    e passaria a verde sem exercitar nada. Isto deixa o caso DIZER de si: a
+    premissa é verificada no corpo do teste, e falha alto quando deixar de valer.
+
+    A PRIMEIRA reserva do gerar() é a do fecho; a segunda é a da nota.
+    """
+    visto = []
+    original = cert._Folha.reservar
+
+    def espia(self, altura):
+        if not visto:
+            visto.append(self.y)
+        return original(self, altura)
+
+    monkeypatch.setattr(cert._Folha, "reservar", espia)
+    return visto
+
+
+def test_o_nome_e_o_selo_ficam_na_folha_do_traco(monkeypatch):
+    """O lugar do selo desenha em coordenadas ABSOLUTAS, sobre a página corrente.
+
+    Com o fecho a cair nos últimos pontos da folha e um nome e um cargo que
+    quebram, a reserva de 78 pt não chegava: o traço ficava numa folha, o nome
+    na seguinte, e o selo ia para a folha nova na altura que tinha na antiga.
+    O cursor saltava ainda para uma coordenada de folha cheia, e a nota de
+    conferência caía mais uma folha à frente com uma quase em branco pelo meio.
+
+    O assunto de uma palavra não é comodidade: é o que põe o fecho dentro da
+    janela, e o teste confirma-o antes de afirmar seja o que for.
+    """
+    onde = _onde_o_fecho_comeca(monkeypatch)
+    # Quem afixou é quem certifica, com o nome por extenso: é o caso comum num
+    # serviço pequeno, e é também o que põe o corpo do comprimento certo.
+    pdf = cert.gerar(dict(ASSINADO_AO_FUNDO),
+                     dict(TIMBRE, cargo_de_quem_certifica=CARGO_QUE_QUEBRA),
+                     emitida_por="ana.abreu", nome_de_quem_emite=NOME_QUE_QUEBRA,
+                     nomes_completos=dict(NOMES, **{"ana.abreu": NOME_QUE_QUEBRA}))
+
+    fundo = cert.ALTURA - cert.MARGEM_BAIXO
+    alta = cert._Folha(pymupdf.open()).altura_da_assinatura(
+        NOME_QUE_QUEBRA, CARGO_QUE_QUEBRA)
+    assert onde, "o gerar() deixou de reservar o bloco do fecho"
+    assert fundo - alta < onde[0] <= fundo - (2 * cert.RAIO_DO_SELO + 22), (
+        f"o caso deixou de ser o caso: o fecho começa em {onde[0]:.1f} e a "
+        f"janela é ]{fundo - alta:.1f}, {fundo - (2 * cert.RAIO_DO_SELO + 22):.1f}]")
+
+    folha_do_traco, altura_do_traco = _traco_da_assinatura(pdf)
+    assert folha_do_traco is not None, "a certidão saiu sem traço de assinatura"
+
+    sob_o_traco = [t for _f, t, c, n in _spans(pdf)
+                   if n == folha_do_traco and c[1] >= altura_do_traco]
+    assinatura = " ".join(" ".join(sob_o_traco).split())
+    assert NOME_QUE_QUEBRA in assinatura, \
+        f"o nome não saiu inteiro debaixo do traço; lê-se «{assinatura}»"
+    assert CARGO_QUE_QUEBRA in assinatura, \
+        f"o cargo não saiu inteiro debaixo do traço; lê-se «{assinatura}»"
+
+    # A folha do selo não chega: com o fecho partido, o selo saía na folha
+    # CERTA e a seiscentos pontos da assinatura, porque o lugar_do_selo()
+    # desenha no y que o bloco tinha na folha anterior. O que se exige é que
+    # fiquem LADO A LADO, que é o que faz dele o lugar do selo desta assinatura.
+    selo = [(c, n) for _f, t, c, n in _spans(pdf) if "LOCUS SIGILLI" in t]
+    assert selo, "a certidão saiu sem lugar do selo"
+    caixa_do_selo, folha_do_selo = selo[0]
+    assert folha_do_selo == folha_do_traco, \
+        "o lugar do selo saiu numa folha diferente da do traço"
+    meio_do_selo = (caixa_do_selo[1] + caixa_do_selo[3]) / 2
+    assert abs(meio_do_selo - altura_do_traco) <= 2 * cert.RAIO_DO_SELO, (
+        f"o selo assenta a {abs(meio_do_selo - altura_do_traco):.0f} pt do "
+        f"traço: não está ao lado da assinatura")
