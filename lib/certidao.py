@@ -1307,7 +1307,7 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # transbordava: mudava de página a meio da assinatura.
     folha.reservar(max(folha.altura_da_assinatura(emitente, cargo),
                        2 * RAIO_DO_SELO + 22))
-    topo_do_fecho = folha.y
+    topo_do_fecho, paginas_do_fecho = folha.y, folha.n_paginas
     # O selo PRIMEIRO, e não depois da assinatura. Ele desenha em coordenadas
     # absolutas sobre a página corrente, e aqui essa página é, por construção,
     # a que acabou de se reservar — o par (topo_do_fecho, folha.pagina) está
@@ -1324,7 +1324,17 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # A assinatura é mais curta do que o selo e deixava o cursor a meio dele: o
     # que viesse a seguir escrevia-se por cima do círculo. O cursor desce ao
     # mais baixo dos dois, que é sempre a legenda do selo.
-    folha.y = max(folha.y, topo_do_fecho + 2 * RAIO_DO_SELO + 20)
+    #
+    # SÓ se o fecho não tiver mudado de folha: o `topo_do_fecho` é uma
+    # coordenada DESTA folha, e compará-la com um cursor de outra não quer dizer
+    # nada. Acontece quando a assinatura se parte, e medi-o em vez de o deduzir
+    # — tinha concluído por raciocínio que era inalcançável e estava errado. Com
+    # um cargo de 2880 caracteres o bloco acaba em y=127 na folha nova e o piso
+    # vale 132, pelo que o cursor subia 5 pt por conta de uma folha que já lá
+    # não está. É a terceira vez que este par de valores morde nestas vinte
+    # linhas; aqui fica preso à folha a que pertence.
+    if folha.n_paginas == paginas_do_fecho:
+        folha.y = max(folha.y, topo_do_fecho + 2 * RAIO_DO_SELO + 20)
 
     # ---- nota de conferência --------------------------------------------
     # O aparato técnico vive aqui, depois da assinatura e em corpo pequeno, e

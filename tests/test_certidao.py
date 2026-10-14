@@ -960,6 +960,39 @@ def _traco_da_assinatura(pdf):
     return None, None
 
 
+def _o_percurso_do_fecho(monkeypatch):
+    """Espia o cursor no princípio do fecho e à entrada da nota de conferência.
+
+    A PRIMEIRA reserva do gerar() é a do fecho; a nota chega pelo
+    ancorar_no_fundo(). Com os dois instantes à mão dá para afirmar coisas
+    sobre o que aconteceu ENTRE eles sem duplicar a lógica do gerar() no teste.
+
+    Returns:
+        dict: preenchido durante a geração com «fecho» e «nota», cada um o par
+            (cursor, número de folhas) nesse instante.
+    """
+    visto: dict = {}
+    reservar, ancorar = cert._Folha.reservar, cert._Folha.ancorar_no_fundo
+
+    def espia_fecho(self, altura):
+        # DEPOIS de reservar, e não antes: a reserva pode mudar de folha, e o
+        # `topo_do_fecho` do gerar() é lido a seguir a ela. Registado antes, o
+        # teste calculava um piso de 525 quando o real era 132, e passava dos
+        # dois lados. É a quarta vez nesta peça que um teste afirma sobre um
+        # número que não é o que o código usa.
+        resultado = reservar(self, altura)
+        visto.setdefault("fecho", (self.y, self.n_paginas))
+        return resultado
+
+    def espia_nota(self, altura):
+        visto.setdefault("nota", (self.y, self.n_paginas))
+        return ancorar(self, altura)
+
+    monkeypatch.setattr(cert._Folha, "reservar", espia_fecho)
+    monkeypatch.setattr(cert._Folha, "ancorar_no_fundo", espia_nota)
+    return visto
+
+
 def _onde_o_fecho_comeca(monkeypatch):
     """Espia o y a que o bloco do fecho se reserva, dentro do gerar().
 
@@ -1097,3 +1130,39 @@ def test_o_selo_desenha_se_na_folha_que_foi_reservada(afixado, caplog):
         f"o selo assenta a {abs(meio_do_selo - altura_do_traco):.0f} pt do traço"
     # E o que não cabe diz-se, em vez de a assinatura se partir em silêncio.
     assert "vai partir-se" in caplog.text
+
+
+# Um cargo que põe o bloco da assinatura 67,5 pt acima do que uma folha dá: ele
+# parte-se, e a folha nova fica com o cursor em 127 — cinco pontos acima do piso
+# do selo, que vale 132. É a faixa estreita em que a comparação com a folha
+# antiga muda alguma coisa. Com mais texto o cursor desce e o piso deixa de
+# morder; com menos, o bloco não se parte.
+CARGO_QUE_PARTE_O_FECHO = "Chefe da Divisão Administrativa e Financeira " * 64
+
+
+def test_o_piso_do_selo_nao_atravessa_uma_mudanca_de_folha(afixado, monkeypatch):
+    """O `topo_do_fecho` é uma coordenada DESTA folha, e só vale nela.
+
+    Quando a assinatura se parte, o cursor fica numa folha e o `topo_do_fecho`
+    noutra, e o `max()` entre os dois compara coisas que não se comparam.
+    Apanhado em revisão na PR #23, depois de eu ter concluído por raciocínio que
+    era inalcançável — e de a medição mostrar que não é.
+
+    O efeito é pequeno, cinco pontos de branco a mais numa certidão que já saiu
+    estragada por outro motivo. O que não é pequeno é a terceira repetição da
+    mesma classe nestas vinte linhas: um par de valores que só está de acordo
+    enquanto alguém se lembrar.
+    """
+    percurso = _o_percurso_do_fecho(monkeypatch)
+    cert.gerar(afixado, dict(TIMBRE, cargo_de_quem_certifica=CARGO_QUE_PARTE_O_FECHO),
+               emitida_por="ana.abreu", nomes_completos=NOMES)
+
+    (topo, folhas_no_fecho) = percurso["fecho"]
+    (cursor, folhas_na_nota) = percurso["nota"]
+    piso = topo + 2 * cert.RAIO_DO_SELO + 20
+    assert folhas_na_nota > folhas_no_fecho, \
+        "o caso deixou de ser o caso: o fecho já não se parte entre folhas"
+    assert cursor < piso, (
+        f"o cursor foi levantado a {cursor} pelo piso do selo ({piso}), que é "
+        f"uma coordenada da folha {folhas_no_fecho} e não da {folhas_na_nota}")
+

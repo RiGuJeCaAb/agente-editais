@@ -2094,3 +2094,36 @@ A frase do `AGENTS.md` dá para as duas leituras, e já custou uma ronda de
 revisão. Vale a pena afiná-la — mas é decisão de quem escreveu a regra, não
 desta peça.
 
+### E a terceira repetição da mesma classe, na mesma dúzia de linhas
+
+Observação do revisor da casa, deixada como não-bloqueio. Depois do fecho, o
+cursor desce ao piso do selo com `max(folha.y, topo_do_fecho + 2 * RAIO_DO_SELO
++ 20)`. Mas o `topo_do_fecho` é uma coordenada **daquela** folha: quando a
+assinatura se parte, compara-se um cursor de uma folha com um piso de outra.
+
+**Concluí por raciocínio que era inalcançável, e estava errado.** O argumento
+era que uma assinatura grande o suficiente para se partir força a reserva a
+saltar para uma folha limpa, pelo que o piso ficaria sempre abaixo de onde o
+cursor cai. Medido: com um cargo de 2880 caracteres o cursor cai em 127 e o
+piso vale 132. Sobe cinco pontos, por conta de uma folha que já lá não está.
+Cinco pontos não são nada; deduzir em vez de medir é que é — e foi a segunda
+vez hoje.
+
+O piso passa a aplicar-se **só se o fecho não tiver mudado de folha**.
+
+### Quatro testes vacuosos numa peça só
+
+Vale mais registar isto do que o código. Quatro vezes, nesta peça, um teste
+anunciou o caso difícil e exercitou o fácil:
+
+| O que o teste fazia | Porque não provava nada |
+|---|---|
+| Pré-reservava a altura certa | Exercitava o caminho que o `gerar()` já cobre |
+| Conferia a folha do selo | Com o bloco partido, o selo sai na folha certa e a 656 pt |
+| Punha o cursor a um ponto da janela | A janela tem nove pontos e o cursor ficou fora |
+| Lia o cursor **antes** da reserva | O `gerar()` lê-o depois; o piso calculado era 525 e o real 132 |
+
+O remédio foi o mesmo das quatro vezes: **repor a correção, uma metade de cada
+vez, e exigir ver o vermelho**. Um teste que nunca se viu falhar não é um teste,
+é uma afirmação.
+
