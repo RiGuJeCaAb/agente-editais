@@ -1982,6 +1982,10 @@ aplicação: a página da televisão aplica a mesma escala aos dois eixos, e a
 proporção da folha é preservada por construção. Se sair quadrado e a folha
 continuar esticada, o defeito é nosso e é por aí que se vai.
 
+**Resposta, a 14/10/2026:** era a definição de saída do Raspberry. Ficou tratada
+no posto, sem se tocar numa linha de código — que era precisamente o que a prova
+existia para apurar antes de alguém ir procurar o defeito ao sítio errado.
+
 ### Medido
 
 A folha ficou mais cerrada para o painel de conferência caber na primeira: a

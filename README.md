@@ -364,6 +364,11 @@ aumentado», e no mesmo dia, noutro computador ligado a um LG, saía certa. Dois
 sítios com o mesmo código e desenhos diferentes é um sintoma de ecrã, não de
 código — mas afirmá-lo sem medir era palpite.
 
+**E foi isso mesmo.** A 14/10/2026, do posto: era a definição de saída do
+Raspberry, e ficou tratada sem se tocar numa linha de código. A primeira
+pergunta a fazer a uma folha esticada é esta, e não «o que é que a aplicação
+está a fazer mal».
+
 ### A pasta `fundos/`
 
 O tratamento visual desenha o fundo metálico uma vez por variante (oito ao todo,
