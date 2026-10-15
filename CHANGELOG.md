@@ -1993,3 +1993,137 @@ entrelinha da prosa desce de 5,5 para 5,0 pt, o corpo da nota de 8 para 7,5, e
 as margens de baixo de 76 para 66 pt. Com o registo que serviu de exemplo — um
 nome de 44 caracteres e um assunto de 66 — a certidão passa de **duas folhas com
 a segunda quase vazia** para **uma só**.
+
+---
+
+## 0.24.4 — A assinatura partia-se entre duas folhas
+
+### A assinatura partia-se entre duas folhas
+
+Apanhado em revisão a 14/10/2026, por leitura do diff. O bloco do fecho
+reservava **78 pt fixos** — o que ele mede com o nome e o cargo numa linha cada.
+Com «Maria da Conceição de Almeida Pinto Vasconcelos e Sousa Albuquerque» e
+«Chefe da Divisão Administrativa, Financeira e de Recursos Humanos do
+Município», que são do comprimento dos que há num organograma municipal, os dois
+quebram em duas linhas e o bloco mede **87 pt**.
+
+E o que passava não transbordava a margem, que é o que o teste das margens
+apanharia: mudava de **página**, porque o `_centrado_em` chama o
+`_nova_pagina_se_preciso` linha a linha. Daí saíam três coisas, por ordem de
+gravidade:
+
+- o traço numa folha e o nome na seguinte, numa certidão;
+- o lugar do selo, que desenha em coordenadas absolutas sobre a página corrente,
+  na folha nova e no `y` que o bloco tinha na antiga — a 656 pt da assinatura;
+- o cursor empurrado para uma coordenada de folha cheia, o que mandava a nota de
+  conferência mais uma folha à frente, com uma quase em branco pelo meio.
+
+A altura passa a ser **medida** (`altura_da_assinatura`), nos dois sítios que
+precisam dela: o `assinatura()` defende-se sozinho, para quem o chame em seco, e
+o `gerar()` reserva o maior entre a assinatura e o selo, que é o que mantém o
+`topo_do_fecho` válido para o selo.
+
+**A janela do defeito tem nove pontos**, e as duas primeiras tentativas de teste
+passaram dos dois lados por não acertarem nela — o `_nova_pagina_se_preciso` mede
+a linha que vem e não o que falta do bloco. Os testes que ficaram acertam de
+propósito e **verificam a própria premissa**: se um ajuste de espaços tirar o
+caso da janela, falham com «o caso deixou de ser o caso» em vez de passarem a
+verde sem exercitar nada.
+
+### Um número de comentário que estava errado
+
+O docstring do `moldura()` dizia que o folio «desce aos 794,5 pt». Desce aos
+804,5 — o comentário das constantes já dizia 802, e o código usa
+`ALTURA - MARGEM_BAIXO + 26`. Ficou da altura em que a margem de baixo passou de
+70 para 66 pt. As regras da casa pedem que números em comentários sejam medidos,
+e este deixara de o ser.
+
+### E logo a seguir, outro do mesmo feitio
+
+Apanhado em revisão na PR #23, por leitura do diff. Com o `nome` vazio e o
+`cargo` posto, o medidor saltava a linha do nome e o escritor escrevia-a na
+mesma — o `_quebrar("")` devolve uma linha vazia, e o `_centrado_em` escreve-a.
+Medido: **48,5 pt contra 63**.
+
+É o defeito que esta peça acabou de corrigir, outra vez: o medidor e o escritor
+a decidirem cada um por si o que entra no bloco. Remendar o caso seria não ter
+aprendido nada, por isso passam os dois a percorrer **a mesma lista** — o
+`_linhas_da_assinatura()` — e a divergência deixa de ser possível por
+construção.
+
+E o teste deixa de ser do caso e passa a ser da **propriedade**: a altura medida
+é a que o bloco ocupa, em todas as combinações de vazio e cheio que as duas
+funções podem receber. Contra o escritor antigo, três das sete ficam vermelhas.
+
+### E o selo passa a desenhar-se antes da assinatura
+
+Terceiro achado da mesma revisão, este do Sourcery: com um bloco de assinatura
+maior do que uma folha limpa, o `assinatura()` paginava por sua conta e o
+`topo_do_fecho` ficava a apontar para a folha anterior — o selo saía na folha
+nova com o `y` da antiga.
+
+O caminho é remoto: são precisos uns **três mil caracteres de cargo** para um
+bloco passar os 720 pt de uma folha, e um cargo de divisão municipal tem
+cinquenta. Mas a **classe** do defeito resolve-se de graça, e é a mesma que já
+tinha mordido duas vezes nesta peça: um par de valores que tem de estar de
+acordo, mantido de acordo por atenção em vez de por construção.
+
+O selo passa a desenhar-se **logo a seguir à reserva**, onde a página é, por
+construção, a que se reservou. E a reserva do `assinatura()` pede no máximo o
+que uma folha dá (`min(alta, util)`): sem esse teto, um bloco grande mudava de
+página na reserva do `gerar()`, chegava a uma folha vazia, e mudava outra vez
+dentro do `assinatura()` — deixando o selo sozinho na anterior, que é
+precisamente o que a reordenação veio evitar.
+
+O resto não se trata, **mas diz-se**: um bloco maior do que uma folha parte-se,
+e passa a ficar registado com as medidas e os comprimentos do nome e do cargo.
+Sem isso, a assinatura partia-se e ninguém tinha por onde perceber porquê — é a
+mesma regra do rodapé que não cabe.
+
+### Sobre a versão, que a revisão também levantou
+
+O CodeRabbit leu a regra à letra — «alteração que não muda o que a aplicação faz
+leva o terceiro número» — e concluiu que isto devia ser 0.25.0, por mudar o PDF
+de uma assinatura que quebra. Ficou em **0.24.4**, pelo precedente da própria
+casa: a **0.23.1** foram sete correcções ao português da certidão, que mudam o
+documento que sai, e levou o terceiro número; a **0.24.1** corrigiu a posição do
+logótipo no ecrã, e também. A leitura em uso é que **uma correcção de defeito
+leva o terceiro número e funcionalidade nova leva o segundo**.
+
+A frase do `AGENTS.md` dá para as duas leituras, e já custou uma ronda de
+revisão. Vale a pena afiná-la — mas é decisão de quem escreveu a regra, não
+desta peça.
+
+### E a terceira repetição da mesma classe, na mesma dúzia de linhas
+
+Observação do revisor da casa, deixada como não-bloqueio. Depois do fecho, o
+cursor desce ao piso do selo com `max(folha.y, topo_do_fecho + 2 * RAIO_DO_SELO
++ 20)`. Mas o `topo_do_fecho` é uma coordenada **daquela** folha: quando a
+assinatura se parte, compara-se um cursor de uma folha com um piso de outra.
+
+**Concluí por raciocínio que era inalcançável, e estava errado.** O argumento
+era que uma assinatura grande o suficiente para se partir força a reserva a
+saltar para uma folha limpa, pelo que o piso ficaria sempre abaixo de onde o
+cursor cai. Medido: com um cargo de 2880 caracteres o cursor cai em 127 e o
+piso vale 132. Sobe cinco pontos, por conta de uma folha que já lá não está.
+Cinco pontos não são nada; deduzir em vez de medir é que é — e foi a segunda
+vez hoje.
+
+O piso passa a aplicar-se **só se o fecho não tiver mudado de folha**.
+
+### Quatro testes vacuosos numa peça só
+
+Vale mais registar isto do que o código. Quatro vezes, nesta peça, um teste
+anunciou o caso difícil e exercitou o fácil:
+
+| O que o teste fazia | Porque não provava nada |
+|---|---|
+| Pré-reservava a altura certa | Exercitava o caminho que o `gerar()` já cobre |
+| Conferia a folha do selo | Com o bloco partido, o selo sai na folha certa e a 656 pt |
+| Punha o cursor a um ponto da janela | A janela tem nove pontos e o cursor ficou fora |
+| Lia o cursor **antes** da reserva | O `gerar()` lê-o depois; o piso calculado era 525 e o real 132 |
+
+O remédio foi o mesmo das quatro vezes: **repor a correção, uma metade de cada
+vez, e exigir ver o vermelho**. Um teste que nunca se viu falhar não é um teste,
+é uma afirmação.
+

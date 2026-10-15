@@ -518,6 +518,51 @@ class _Folha:
             self.y += tamanho + 2
         self.y += espaco_depois
 
+    # As medidas do bloco da assinatura. Ficam aqui porque é delas que sai a
+    # altura reservada, e essa conta tinha-se feito de cabeça: estava escrita
+    # «78», que é o que o bloco mede com o nome e o cargo numa linha cada.
+    LARGURA_DO_TRACO = 230
+    ANTES_DO_TRACO = 20
+    TRACO_AO_NOME = 15
+    CORPO_DO_NOME = 10.5
+    CORPO_DO_CARGO = 9.5
+
+    def _linhas_da_assinatura(self, nome, cargo):
+        """As linhas do bloco da assinatura: texto, corpo, tipo e cor.
+
+        UMA lista, percorrida pelo altura_da_assinatura() e pelo assinatura().
+        Tê-la em dois sítios é o que estava na origem do defeito que esta peça
+        corrige, e repeti-lo logo a seguir seria não ter aprendido nada: com o
+        nome vazio e o cargo posto, o medidor saltava a linha do nome e o
+        escritor escrevia-a na mesma — o _quebrar("") devolve uma linha vazia —
+        e davam 48,5 contra 63 pt. Apanhado em revisão na PR #23.
+        """
+        return [(texto, corpo, fonte, cor) for texto, corpo, fonte, cor in (
+            (nome, self.CORPO_DO_NOME, SERIF, PRETO),
+            (cargo, self.CORPO_DO_CARGO, SERIF_ITALICO, CINZA)) if texto]
+
+    def altura_da_assinatura(self, nome, cargo=""):
+        """Diz quanto o bloco da assinatura vai ocupar, antes de o escrever.
+
+        O nome e o cargo QUEBRAM: o traço mede 230 pt, e há nomes completos e
+        designações de divisão que não cabem numa linha. Medido com «Maria da
+        Conceição de Almeida Pinto Vasconcelos e Sousa Albuquerque» e «Chefe da
+        Divisão Administrativa, Financeira e de Recursos Humanos do Município»:
+        duas linhas cada, 87 pt de bloco contra os 78 que se reservavam.
+
+        E o que estava a mais não transbordava — mudava de página, porque o
+        _centrado_em chama o _nova_pagina_se_preciso linha a linha. O traço
+        ficava numa folha e o nome na seguinte, numa certidão. Pior ainda: o
+        lugar do selo desenha em coordenadas absolutas sobre a página corrente,
+        e ia parar à folha nova, na altura que tinha na antiga.
+        """
+        altura = self.ANTES_DO_TRACO + self.TRACO_AO_NOME
+        for texto, corpo, fonte, _cor in self._linhas_da_assinatura(nome, cargo):
+            linhas = _quebrar(texto, self.LARGURA_DO_TRACO, corpo, fonte)
+            # O _centrado_em avança `corpo + 2` por linha e 2 no fim.
+            altura += len(linhas) * (corpo + 2) + 2
+        return altura
+
     def assinatura(self, nome, cargo="", *, alinhamento="centro"):
         """Deixa o traço por onde a certidão se assina, com o nome por baixo.
 
@@ -529,19 +574,36 @@ class _Folha:
         Encostado à DIREITA, deixa livre a metade esquerda para o lugar do selo
         — que é a disposição de um documento que se assina e se carimba, e não a
         de um certificado com o nome ao meio.
+
+        Reserva a altura MEDIDA e não uma fixa: ver altura_da_assinatura().
         """
-        largura_traco = 230
-        self._nova_pagina_se_preciso(78)
-        self.y += 20
-        x0 = (LARGURA - MARGEM_X - largura_traco if alinhamento == "direita"
-              else (LARGURA - largura_traco) / 2)
-        self.pagina.draw_line((x0, self.y), (x0 + largura_traco, self.y),
+        alta = self.altura_da_assinatura(nome, cargo)
+        # Um bloco maior do que uma folha limpa não há como manter inteiro, e
+        # são precisos uns três mil caracteres de cargo para lá chegar. Não se
+        # trata o caso — mas DIZ-SE, que é o que esta casa faz ao que não cabe:
+        # sem isto, a assinatura partia-se e ninguém tinha por onde perceber
+        # porquê.
+        util = ALTURA - MARGEM_BAIXO - MARGEM_TOPO
+        if alta > util:
+            _log.warning(
+                "bloco da assinatura com %.1f pt para %.1f pt de folha: vai "
+                "partir-se. Nome com %d caracteres, cargo com %d.",
+                alta, util, len(nome or ""), len(cargo or ""))
+        # Pede-se no MÁXIMO o que uma folha limpa dá. Sem o teto, um bloco maior
+        # do que isso mudava de página na reserva do gerar(), chegava a uma folha
+        # vazia, e mudava outra vez aqui — deixando o selo na folha anterior,
+        # sozinho, que é exatamente o que o selo-antes-da-assinatura veio evitar.
+        # Partir-se, parte-se; o que não pode é arrastar o selo atrás.
+        self._nova_pagina_se_preciso(min(alta, util))
+        self.y += self.ANTES_DO_TRACO
+        x0 = (LARGURA - MARGEM_X - self.LARGURA_DO_TRACO if alinhamento == "direita"
+              else (LARGURA - self.LARGURA_DO_TRACO) / 2)
+        self.pagina.draw_line((x0, self.y), (x0 + self.LARGURA_DO_TRACO, self.y),
                               color=PRETO, width=0.8)
-        self.y += 15
-        self._centrado_em(nome, x0, largura_traco, tamanho=10.5)
-        if cargo:
-            self._centrado_em(cargo, x0, largura_traco, tamanho=9.5,
-                              fonte=SERIF_ITALICO, cor=CINZA)
+        self.y += self.TRACO_AO_NOME
+        for texto, corpo, fonte, cor in self._linhas_da_assinatura(nome, cargo):
+            self._centrado_em(texto, x0, self.LARGURA_DO_TRACO, tamanho=corpo,
+                              fonte=fonte, cor=cor)
 
     def lugar_do_selo(self, linhas, *, centro, raio=RAIO_DO_SELO, nota=""):
         """Desenha, a tracejado, o lugar onde se carimba o exemplar impresso.
@@ -606,7 +668,8 @@ class _Folha:
         Como o rodapé, só se pode desenhar no fim: enquanto o texto não acabar,
         há páginas que ainda não existem. Os afastamentos vivem em MOLDURA_FORA
         e MOLDURA_DENTRO, e a régua de dentro passa por fora de tudo o que se
-        escreve — incluindo o folio, que desce aos 794,5 pt.
+        escreve — incluindo o folio, que assenta em 802 pt e desce aos 804,5
+        com os descendentes, contra os 810 da régua de dentro.
         """
         for pagina in self.doc:
             for recuo, traco in ((MOLDURA_FORA, 1.1), (MOLDURA_DENTRO, 0.5)):
@@ -1238,18 +1301,40 @@ def gerar(reg: dict, cfg: dict, *, emitida_por: str, nome_de_quem_emite: str = "
     # mesma altura. Reserva-se inteiro antes de começar, senão a assinatura
     # mudava de página e o selo ficava desenhado na anterior, sozinho — o
     # lugar_do_selo() desenha em coordenadas absolutas e não sabe de páginas.
-    folha.reservar(2 * RAIO_DO_SELO + 22)
-    topo_do_fecho = folha.y
-    folha.assinatura(emitente, cargo, alinhamento="direita")
+    # O fecho são DUAS peças à mesma altura, e reserva-se pela mais alta. Com
+    # a reserva do selo sozinha, um nome e um cargo que quebrassem em duas
+    # linhas cada davam 87 pt de bloco para 78 reservados, e o que passava não
+    # transbordava: mudava de página a meio da assinatura.
+    folha.reservar(max(folha.altura_da_assinatura(emitente, cargo),
+                       2 * RAIO_DO_SELO + 22))
+    topo_do_fecho, paginas_do_fecho = folha.y, folha.n_paginas
+    # O selo PRIMEIRO, e não depois da assinatura. Ele desenha em coordenadas
+    # absolutas sobre a página corrente, e aqui essa página é, por construção,
+    # a que acabou de se reservar — o par (topo_do_fecho, folha.pagina) está
+    # garantidamente de acordo. Desenhado a seguir, bastava a assinatura mudar
+    # de página para ele sair na folha nova com o y da antiga. Apanhado em
+    # revisão na PR #23, para uma assinatura mais alta do que uma folha; o
+    # remédio não é tratar esse caso, é não deixar o par separar-se.
     folha.lugar_do_selo(
         ["MUNICÍPIO DE", municipio.upper().replace("MUNICÍPIO DE ", ""),
          "LOCUS SIGILLI"],
         centro=(MARGEM_X + RAIO_DO_SELO + 6, topo_do_fecho + RAIO_DO_SELO + 6),
         nota="lugar do selo branco, a apor no exemplar impresso")
+    folha.assinatura(emitente, cargo, alinhamento="direita")
     # A assinatura é mais curta do que o selo e deixava o cursor a meio dele: o
     # que viesse a seguir escrevia-se por cima do círculo. O cursor desce ao
     # mais baixo dos dois, que é sempre a legenda do selo.
-    folha.y = max(folha.y, topo_do_fecho + 2 * RAIO_DO_SELO + 20)
+    #
+    # SÓ se o fecho não tiver mudado de folha: o `topo_do_fecho` é uma
+    # coordenada DESTA folha, e compará-la com um cursor de outra não quer dizer
+    # nada. Acontece quando a assinatura se parte, e medi-o em vez de o deduzir
+    # — tinha concluído por raciocínio que era inalcançável e estava errado. Com
+    # um cargo de 2880 caracteres o bloco acaba em y=127 na folha nova e o piso
+    # vale 132, pelo que o cursor subia 5 pt por conta de uma folha que já lá
+    # não está. É a terceira vez que este par de valores morde nestas vinte
+    # linhas; aqui fica preso à folha a que pertence.
+    if folha.n_paginas == paginas_do_fecho:
+        folha.y = max(folha.y, topo_do_fecho + 2 * RAIO_DO_SELO + 20)
 
     # ---- nota de conferência --------------------------------------------
     # O aparato técnico vive aqui, depois da assinatura e em corpo pequeno, e
