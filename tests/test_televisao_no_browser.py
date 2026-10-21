@@ -648,3 +648,46 @@ def test_sem_numero_atribuido_sai_o_rotulo_sozinho(browser, expositor_depressa):
         assert "n.º" not in pagina.text_content("#numero")
     finally:
         pagina.close()
+
+
+def test_quando_a_lista_encolhe_a_barra_e_o_temporizador_recomecam_juntos(
+        browser, expositor_depressa):
+    """Retirar um edital reancora o índice — e tem de reancorar o relógio dele.
+
+    Quando a lista encolhe e o `idx` fica fora de gama, o `aplica()` chama
+    `mostra(0)`. Isso reinicia a BARRA, mas o `setInterval` seguia a fase
+    antiga: a barra prometia um ecrã inteiro de tempo e a troca podia chegar no
+    instante seguinte. Não perde nem troca edital nenhum — mente sobre quanto
+    falta, que é precisamente o que esta barra existe para não fazer.
+
+    Apanhado em revisão na PR #24, e o defeito é desta mesma peça: antes dela
+    não havia barra que se pudesse desfasar do temporizador.
+
+    Mede-se a identidade do temporizador e não o tempo até à troca seguinte: um
+    teste que cronometrasse a troca media uma diferença de milissegundos entre
+    o certo e o errado, e seria instável por construção. O `clearInterval` mais
+    `setInterval` dá um identificador novo, e isso é binário.
+    """
+    pagina = _abre(browser, expositor_depressa)
+    try:
+        medido = pagina.evaluate("""() => {
+            // Põe o cursor no último ecrã e encolhe a lista, que é o que o
+            // aplica() recebe quando um edital é retirado do expositor.
+            idx = nodes.length - 1;
+            mostra(idx);
+            const antes = timer, quantos = nodes.length;
+            aplica(slides.slice(0, quantos - 1));
+            return {quantos_antes: quantos, quantos_depois: nodes.length,
+                    idx: idx, temporizador_mudou: timer !== antes,
+                    largura: document.getElementById('barra')
+                               .getBoundingClientRect().width};
+        }""")
+        assert medido["quantos_depois"] == medido["quantos_antes"] - 1, \
+            "o caso deixou de ser o caso: a lista não encolheu"
+        assert medido["idx"] == 0, "o índice não foi reancorado"
+        assert medido["largura"] == 0, "a barra não recomeçou"
+        assert medido["temporizador_mudou"], (
+            "a barra recomeçou e o temporizador não: a barra promete um ecrã "
+            "inteiro de tempo e a troca chega quando calhar")
+    finally:
+        pagina.close()

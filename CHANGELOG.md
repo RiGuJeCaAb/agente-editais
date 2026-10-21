@@ -2242,3 +2242,30 @@ catálogo à parte, indexado pelo **nome** do caso e não pela posição — dua
 listas paralelas que têm de ficar em passo são precisamente a classe de defeito
 que esta aplicação já apanhou três vezes. Um caso renomeado cai no vazio, e há
 um teste que o apanha.
+
+### Dois achados da revisão
+
+**A barra desfasava-se do temporizador quando a lista encolhia.** Quando um
+edital é retirado e o `idx` fica fora de gama, o `aplica()` chama `mostra(0)` —
+que agora reinicia a barra, mas não o `setInterval`. A barra prometia um ecrã
+inteiro de tempo e a troca podia chegar no instante seguinte.
+
+Não perde nem troca edital nenhum: **mente sobre quanto falta**, que é
+precisamente o que esta barra existe para não fazer. E o defeito é desta mesma
+peça — antes dela não havia barra que se pudesse desfasar.
+
+O teste mede a **identidade do temporizador** e não o tempo até à troca: um
+teste que cronometrasse a troca media uma diferença de milissegundos entre o
+certo e o errado, e seria instável por construção. O `clearInterval` mais
+`setInterval` dá um identificador novo, e isso é binário.
+
+**E a contagem do README em dois sítios, outra vez.** O `televisao` ficou
+vermelho com «o README diz 39 testes de browser e colhem-se 49». Tinha mudado a
+contagem na linha 337 e não na 1192 — exactamente a armadilha que a 0.24.2
+documentou ao criar esta verificação, com as palavras «nos **dois** sítios onde
+aparecem, que foi precisamente a armadilha da última vez».
+
+E não a apanhei localmente porque esse teste está marcado `navegador`: corri o
+`test_regras_da_casa.py` a seco, ele foi deseleccionado, e o verde que vi não
+cobria o que eu precisava de ver. **Correr o ficheiro não é correr o trabalho da
+CI** — o `-m navegador` é outro trabalho e tem de se pedir à parte.

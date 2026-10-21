@@ -1327,7 +1327,14 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     } else {
       elV.style.display = 'none';
       if (!timer){ idx = 0; mostra(0); arrancaRotacao(); }
-      else if (idx >= nodes.length) { mostra(0); }  // reancorar se a lista encolheu
+      // Reancorar se a lista encolheu. O arrancaRotacao() não é opcional aqui:
+      // o mostra() reinicia a BARRA, e sem ele o temporizador seguia a fase
+      // antiga — a barra prometia um ecrã inteiro de tempo e a troca chegava
+      // quando calhasse. Não perde nem troca edital nenhum; mente sobre quanto
+      // falta, que é o que esta barra existe para não fazer. Apanhado em
+      // revisão na PR #24, e o defeito é desta mesma peça: antes dela não
+      // havia barra para se desfasar do temporizador.
+      else if (idx >= nodes.length) { mostra(0); arrancaRotacao(); }
     }
   }
 
