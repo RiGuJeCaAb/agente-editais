@@ -872,7 +872,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
      e por isso vai por cima do assunto e em ouro, que nesta página é a cor do
      que é conteúdo. O rótulo à frente dele vem do TIPO: nem tudo o que se
      afixa é um edital, e chamar-lhe isso seria inventar a designação. */
-  #numero{font-size:1.15vw;color:var(--ouro);letter-spacing:.06em;
+  #numero{font-size:min(1.15vw,2.04vh);color:var(--ouro);letter-spacing:.06em;
     margin-bottom:.5vh;text-shadow:0 2px 6px #000}
   #assunto{text-shadow:0 2px 6px #000}
   #pub{color:var(--ouro);text-align:right;text-shadow:0 2px 6px #000;white-space:nowrap}
@@ -893,9 +893,24 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #relogio{position:fixed;top:1.6vh;right:1.6vw;z-index:3;text-align:right;
     text-shadow:0 2px 6px #000;line-height:1.15}
   /* Algarismos de largura fixa: sem isto a hora dança de um lado para o outro a
-     cada minuto, porque o "1" é mais estreito do que o "8". */
-  #hora{font-size:2vw;color:var(--ouro);font-variant-numeric:tabular-nums}
-  #data{font-size:.95vw;color:rgba(255,255,255,.55)}
+     cada minuto, porque o "1" é mais estreito do que o "8".
+
+     E os corpos são o MENOR entre a medida em vw e a mesma medida em vh. A
+     faixa de topo onde isto vive é uma fração da ALTURA (o FRACAO_TOPO), e um
+     bloco medido só em largura cresce nela sem a respeitar: num 3440x1440 sem
+     logótipo, as três linhas desciam a y=180 e a primeira folha começa em 165 —
+     quinze píxeis de aviso escritos por cima de um edital. Medido nos seis
+     ecrãs do banco.
+
+     O fator entre os pares é 1,777, que é o 16:9: nessa proporção os dois
+     valores são o mesmo e a televisão do átrio não muda um píxel. Só encolhe
+     onde a faixa é estreita, que é onde tem de encolher.
+
+     É a TERCEIRA vez que vw e vh divergem nesta peça. As duas anteriores
+     corrigiram-se tirando o número; aqui o número tem de ficar, por isso fica
+     preso ao menor dos dois. */
+  #hora{font-size:min(2vw,3.55vh);color:var(--ouro);font-variant-numeric:tabular-nums}
+  #data{font-size:min(.95vw,1.69vh);color:rgba(255,255,255,.55)}
   /* O aviso de conteúdo velho passa a correr DENTRO do relógio, e não colocado
      por cima dele com um `top` próprio. A primeira tentativa dava-lhe
      `top:5.9vh` e escrevia-se em cima da data: a altura do bloco do relógio
@@ -904,14 +919,14 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
      que pôs o logótipo trinta píxeis acima do sítio na 0.24.1 — uma percentagem
      resolvida sobre a altura contra um número nascido da largura. A correção
      não é acertar o número: é deixar de haver número. */
-  #estado{font-size:.8vw;color:rgba(255,255,255,.25);margin-top:.6vh}
+  #estado{font-size:min(.8vw,1.42vh);color:rgba(255,255,255,.25);margin-top:.6vh}
   /* Quem está parado à frente de um carrossel tem uma pergunta concreta: «já vi
      tudo, ou falta alguma coisa?». O contador e a barra respondem-lhe, e é por
      isso que entram — não para dar movimento, que o fundo ondulante já dá.
      A barra é um fio no rebordo de baixo: não tapa folha nenhuma e lê-se de
      longe, que é a distância a que se está num átrio. */
   #lado{text-align:right}
-  #contador{font-size:.95vw;color:rgba(255,255,255,.5);margin-top:.5vh;
+  #contador{font-size:min(.95vw,1.69vh);color:rgba(255,255,255,.5);margin-top:.5vh;
     text-shadow:0 2px 6px #000}
   #barra{position:fixed;left:0;bottom:0;height:.45vh;z-index:3;width:0;
     background:linear-gradient(90deg,var(--ouro),var(--ouro2))}
@@ -1300,6 +1315,12 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   // Reconciliação: aplica uma nova lista de slides SEM destruir o que já está,
   // para a rotação não piscar. Só mexe no que mudou.
   function aplica(novos){
+    // Se a lista MEXEU, o ecrã tem de ser redesenhado mesmo que o índice
+    // continue válido: o nó que estava ativo pode ter sido removido (ecrã em
+    // branco) e o contador fica a dizer «ecrã 2 de 5» quando já são três.
+    // Apanhado em revisão na PR #24, pelos dois revisores em paralelo. O
+    // contador é desta peça, logo o defeito do contador também.
+    var mexeu = false;
     // Identidade de um slide = os nomes das folhas do seu ecrã (ver chaveDe).
     var chavesAntigas = nodes.map(function(_,k){ return chaveDe(slides[k]); });
     var chavesNovas = novos.map(chaveDe);
@@ -1309,6 +1330,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (chavesNovas.indexOf(chaveDe(slides[k])) === -1){
         palco.removeChild(nodes[k]);
         nodes.splice(k,1); slides.splice(k,1);
+        mexeu = true;
       }
     }
     // Adicionar os novos (no fim — entram na fila e aparecem na sua vez).
@@ -1316,6 +1338,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (chavesAntigas.indexOf(chaveDe(novos[j])) === -1){
         slides.push(novos[j]);
         nodes.push(criaNode(novos[j]));
+        mexeu = true;
       }
     }
 
@@ -1327,14 +1350,16 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     } else {
       elV.style.display = 'none';
       if (!timer){ idx = 0; mostra(0); arrancaRotacao(); }
-      // Reancorar se a lista encolheu. O arrancaRotacao() não é opcional aqui:
-      // o mostra() reinicia a BARRA, e sem ele o temporizador seguia a fase
-      // antiga — a barra prometia um ecrã inteiro de tempo e a troca chegava
-      // quando calhasse. Não perde nem troca edital nenhum; mente sobre quanto
-      // falta, que é o que esta barra existe para não fazer. Apanhado em
-      // revisão na PR #24, e o defeito é desta mesma peça: antes dela não
-      // havia barra para se desfasar do temporizador.
+      // Reancorar se a lista encolheu, e redesenhar se ela apenas mexeu. O
+      // arrancaRotacao() não é opcional em nenhum dos dois: o mostra() reinicia
+      // a BARRA, e sem ele o temporizador seguia a fase antiga — a barra
+      // prometia um ecrã inteiro de tempo e a troca chegava quando calhasse.
+      // Não perde nem troca edital nenhum; mente sobre quanto falta, que é o
+      // que esta barra existe para não fazer. Apanhado em revisão na PR #24, e
+      // o defeito é desta mesma peça: antes dela não havia barra para se
+      // desfasar do temporizador, nem contador para ficar desactualizado.
       else if (idx >= nodes.length) { mostra(0); arrancaRotacao(); }
+      else if (mexeu) { mostra(idx); arrancaRotacao(); }
     }
   }
 
@@ -1434,6 +1459,12 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     fs();
     anti_screensaver_webos();   // tenta o wake lock real
     arrancaSondagem();
+    // Se o ecrã inteiro foi recusado, a rotação já corria ATRÁS do ecrã de
+    // arranque: ao destapá-la, a barra aparecia a meio e a troca podia chegar
+    // logo a seguir. O primeiro ecrã que alguém vê leva o seu tempo inteiro.
+    // Apanhado em revisão na PR #24; antes dela não havia barra que denunciasse
+    // o temporizador já a meio.
+    if (timer) arrancaRotacao();
   }
 
   arr.addEventListener('click', comeca);

@@ -24,6 +24,7 @@ import functools
 import http.server
 import json
 import os
+import re
 import socketserver
 import threading
 
@@ -475,11 +476,29 @@ def test_o_logotipo_nunca_tapa_a_primeira_folha(browser, expositor, largura, alt
 # carrossel tem uma pergunta concreta, «já vi tudo?», e a página não respondia.
 # ===========================================================================
 def _abre(browser, url, largura=1920, altura=1080):
-    """Abre a televisão, dispensa o ecrã de arranque e espera pelo primeiro ecrã."""
+    """Abre a televisão, dispensa o ecrã de arranque e espera pelo primeiro ecrã.
+
+    Espera por um ESTADO e não por um relógio. A primeira versão dormia 700 ms
+    fixos: num runner carregado, ou com o fetch do slides.json a demorar mais do
+    que isso, os testes mediam uma página ainda por preencher e falhavam por
+    razão errada — uma cada tantas, sem padrão. Apanhado em revisão na PR #24.
+
+    O estado por que se espera é o que o sincroniza() produz: ou há um ecrã
+    ativo, ou o «Sem editais a apresentar» está à vista. Serve as duas pastas,
+    a cheia e a vazia.
+    """
     pagina = browser.new_page(viewport={"width": largura, "height": altura})
     pagina.goto(url)
     pagina.evaluate("document.getElementById('arranque').style.display='none'")
-    pagina.wait_for_timeout(700)
+    # O display calculado, e NÃO o offsetParent: o #vazio é position:fixed, e
+    # nesses o offsetParent é null mesmo com o elemento à vista. A primeira
+    # versão desta espera usava-o, e a pasta vazia ficava quinze segundos à
+    # espera de uma condição que nunca podia ser verdade.
+    pagina.wait_for_function(
+        "() => document.querySelector('.slide.ativo')"
+        "      || getComputedStyle(document.getElementById('vazio'))"
+        "           .display !== 'none'",
+        timeout=15000)
     return pagina
 
 
@@ -493,13 +512,30 @@ def test_o_relogio_mostra_a_hora_e_a_data_desta_maquina(browser, expositor):
     """
     pagina = _abre(browser, expositor)
     try:
-        hora = pagina.text_content("#hora")
-        esperada = pagina.evaluate(
-            "new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})")
-        assert hora == esperada, f"o relógio diz {hora!r} e são {esperada!r}"
-        data = pagina.text_content("#data")
-        ano = pagina.evaluate("'' + new Date().getFullYear()")
-        assert ano in data, f"a data «{data}» não traz o ano corrente"
+        medido = pagina.evaluate("""() => {
+            const mostrado = document.getElementById('hora').textContent;
+            const agora = new Date();
+            const partes = mostrado.split(':').map(Number);
+            const bruta = Math.abs((agora.getHours() * 60 + agora.getMinutes())
+                                   - (partes[0] * 60 + partes[1]));
+            return {mostrado: mostrado,
+                    data: document.getElementById('data').textContent,
+                    ano: '' + agora.getFullYear(),
+                    // A volta da meia-noite: 23:59 e 00:00 distam um minuto.
+                    minutos: Math.min(bruta, 1440 - bruta)};
+        }""")
+        assert re.fullmatch(r"\d{2}:\d{2}", medido["mostrado"]), \
+            f"o relógio diz {medido['mostrado']!r}, que não é uma hora"
+        # Um minuto de folga, e não igualdade: o #hora só se refresca de 15 em
+        # 15 segundos, e se o minuto virar entre a leitura da página e a do
+        # Date um relógio CERTO falhava. Apanhado em revisão na PR #24, pelos
+        # dois revisores. A folga não afrouxa o teste no que importa: um
+        # relógio parado, fixo ou noutro fuso erra por horas, não por um minuto.
+        assert medido["minutos"] <= 1, (
+            f"o relógio diz {medido['mostrado']} e está a {medido['minutos']} "
+            f"minutos da hora do browser")
+        assert medido["ano"] in medido["data"], \
+            f"a data «{medido['data']}» não traz o ano corrente"
     finally:
         pagina.close()
 
@@ -689,5 +725,117 @@ def test_quando_a_lista_encolhe_a_barra_e_o_temporizador_recomecam_juntos(
         assert medido["temporizador_mudou"], (
             "a barra recomeçou e o temporizador não: a barra promete um ecrã "
             "inteiro de tempo e a troca chega quando calhar")
+    finally:
+        pagina.close()
+
+
+@pytest.mark.parametrize("largura, altura", ECRAS)
+def test_o_bloco_do_relogio_nao_escreve_por_cima_da_primeira_folha(
+        browser, expositor_sem_o_ficheiro_do_logotipo, largura, altura):
+    """A faixa de topo é uma fração da ALTURA, e o relógio media-se em largura.
+
+    Num 3440×1440 sem logótipo as três linhas desciam a y=180 e a primeira
+    folha começa em 165: quinze píxeis de aviso escritos por cima de um edital.
+    Medido, e só nesse ecrã — nos outros cinco a conta batia certo, que é a
+    assinatura de uma medida em vw contra uma faixa em vh.
+
+    É a terceira vez que estas duas unidades divergem nesta peça. As duas
+    anteriores corrigiram-se tirando o número; aqui o corpo da letra tem de
+    existir, por isso fica preso ao MENOR entre a medida em vw e a mesma em vh.
+
+    Sem o ficheiro do logótipo de propósito: é a condição em que a faixa de
+    topo encolhe ao mínimo, e portanto o pior caso para quem lá vive.
+    """
+    pagina = _abre(browser, expositor_sem_o_ficheiro_do_logotipo, largura, altura)
+    try:
+        medido = pagina.evaluate("""() => {
+            const rel = document.getElementById('relogio').getBoundingClientRect();
+            const folhas = document.getElementsByClassName('folha');
+            if (!folhas.length) return null;
+            let topo = Infinity, direita = 0;
+            for (const f of folhas){ const b = f.getBoundingClientRect();
+                topo = Math.min(topo, b.top); direita = Math.max(direita, b.right); }
+            return {relogio_fundo: rel.bottom, relogio_esquerda: rel.left,
+                    folha_topo: topo, folha_direita: direita,
+                    aviso: document.getElementById('estado').textContent};
+        }""")
+        assert medido, "não saiu folha nenhuma"
+        assert medido["aviso"], "sem o aviso de conteúdo velho o caso não é o caso"
+        sobrepoe = (medido["relogio_fundo"] > medido["folha_topo"]
+                    and medido["relogio_esquerda"] < medido["folha_direita"])
+        assert not sobrepoe, (
+            f"o relógio desce a {medido['relogio_fundo']:.0f} e a folha começa "
+            f"em {medido['folha_topo']:.0f}: escreve-se por cima do edital")
+    finally:
+        pagina.close()
+
+
+def test_remover_o_edital_a_vista_nao_deixa_o_ecra_em_branco(
+        browser, expositor_depressa):
+    """A lista pode mudar com o índice ainda dentro de gama, e aí ninguém redesenhava.
+
+    O `aplica()` só chamava o `mostra()` quando o índice ficava FORA de gama. Se
+    o edital à vista fosse retirado e sobrassem outros que chegassem para o
+    índice continuar válido, o nó ativo saía do DOM e nenhum outro ficava no
+    lugar: ecrã em branco até à rotação seguinte. E o contador continuava a
+    dizer «ecrã 2 de 3» quando já eram dois.
+
+    Apanhado em revisão na PR #24, pelos dois revisores em paralelo. O ecrã em
+    branco é anterior a esta peça; o contador desactualizado é dela, porque o
+    contador é dela. Corrigem-se com o mesmo redesenho.
+    """
+    pagina = _abre(browser, expositor_depressa)
+    try:
+        medido = pagina.evaluate("""() => {
+            if (nodes.length < 3) return null;
+            // Põe o segundo ecrã à vista e retira-o da lista, deixando os
+            // outros dois — o índice 1 continua válido com dois ecrãs.
+            idx = 1; mostra(1);
+            aplica([slides[0], slides[2]]);
+            return {quantos: nodes.length,
+                    ativos: document.querySelectorAll('.slide.ativo').length,
+                    contador: document.getElementById('contador').textContent,
+                    assunto: document.getElementById('assunto').textContent};
+        }""")
+        assert medido, "o caso precisa de três ecrãs e a pasta não os deu"
+        assert medido["quantos"] == 2, \
+            "o caso deixou de ser o caso: a lista não ficou com dois"
+        assert medido["ativos"] == 1, \
+            "nenhum ecrã ficou à vista: a televisão ficou em branco"
+        assert medido["contador"] == "ecrã 2 de 2", \
+            f"o contador diz «{medido['contador']}» com dois ecrãs na lista"
+        assert medido["assunto"], "o rodapé ficou sem assunto"
+    finally:
+        pagina.close()
+
+
+def test_o_contador_fala_assim_que_chega_o_segundo_edital(
+        browser, expositor_de_um_so_edital):
+    """Passar de um para dois é o caso em que o contador deixa de estar calado.
+
+    E era o mais visível do defeito: com um edital só o contador cala-se de
+    propósito; ao chegar o segundo, continuava calado durante um intervalo
+    inteiro — até trinta segundos a negar que havia outro edital para ver.
+
+    Nomeado pelo revisor da casa na PR #24. O teste do ecrã em branco cobre o
+    encolher; este cobre o crescer, que é o outro lado da mesma porta.
+    """
+    pagina = _abre(browser, expositor_de_um_so_edital)
+    try:
+        assert pagina.text_content("#contador") == "", \
+            "o caso deixou de ser o caso: a pasta já não tem um edital só"
+        medido = pagina.evaluate("""() => {
+            // Um segundo edital, com folhas de nome diferente para o chaveDe()
+            // o ver como outro — é essa a identidade de um slide.
+            const outro = JSON.parse(JSON.stringify(slides[0]));
+            outro.assunto = 'o segundo edital';
+            outro.ecra.folhas.forEach(function(f){ f.src = 'dt.png'; });
+            aplica([slides[0], outro]);
+            return {quantos: nodes.length,
+                    contador: document.getElementById('contador').textContent};
+        }""")
+        assert medido["quantos"] == 2, "o segundo edital não entrou na lista"
+        assert medido["contador"] == "ecrã 1 de 2", (
+            f"o contador diz «{medido['contador']}» com dois editais no ecrã")
     finally:
         pagina.close()

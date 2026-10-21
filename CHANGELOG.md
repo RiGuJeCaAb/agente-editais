@@ -2269,3 +2269,67 @@ E não a apanhei localmente porque esse teste está marcado `navegador`: corri o
 `test_regras_da_casa.py` a seco, ele foi deseleccionado, e o verde que vi não
 cobria o que eu precisava de ver. **Correr o ficheiro não é correr o trabalho da
 CI** — o `-m navegador` é outro trabalho e tem de se pedir à parte.
+
+### Segunda ronda de revisão: cinco achados, quatro corrigidos
+
+Dos nove que o Sourcery levantou e dos dois do revisor da casa, estes eram
+defeitos desta peça:
+
+**O relógio escrevia por cima do edital num 21:9.** Apontado pelo Sourcery e
+**medido antes de se mexer**: num 3440×1440 sem logótipo, o bloco do relógio
+desce a y=180 e a primeira folha começa em 165. Quinze píxeis de aviso por cima
+de um edital. Nos outros cinco ecrãs do banco a conta batia certo — que é a
+assinatura de uma medida em **vw** contra uma faixa que é fração da **altura**.
+
+É a **terceira vez** que estas duas unidades divergem nesta peça. As duas
+anteriores corrigiram-se tirando o número; aqui o corpo da letra tem de existir,
+por isso fica preso ao `min()` entre a medida em vw e a mesma em vh. O fator
+entre os pares é 1,777 — o 16:9 — pelo que na televisão do átrio não muda um
+píxel, e só encolhe onde a faixa é estreita.
+
+**O ecrã ficava em branco e o contador mentia quando a lista mudava.** O
+`aplica()` só redesenhava quando o índice ficava FORA de gama. Se o edital à
+vista fosse retirado e sobrassem outros que chegassem para o índice continuar
+válido, o nó ativo saía do DOM sem substituto — e o contador continuava a dizer
+«ecrã 2 de 3» quando já eram dois. O caso mais visível é o inverso: passar de
+um edital para dois deixava o contador calado durante um intervalo inteiro, a
+negar que havia outro para ver.
+
+Apontado pelos dois revisores em paralelo. O ecrã em branco é anterior a esta
+peça; o contador desactualizado é dela, porque o contador é dela. Corrigem-se
+com o mesmo redesenho.
+
+**A barra aparecia a meio ao destapar o ecrã de arranque.** Se o ecrã inteiro
+for recusado, a rotação corre por trás do ecrã de arranque. Ao tocar nele, a
+barra surgia já a meio e a troca podia chegar logo a seguir. O primeiro ecrã
+que alguém vê passa a levar o seu tempo inteiro.
+
+**E dois defeitos nos meus próprios testes**, ambos apontados: o `_abre()`
+dormia 700 ms fixos em vez de esperar por um estado — uma intermitência à
+espera de acontecer num runner carregado — e o teste do relógio comparava o
+`#hora`, refrescado de 15 em 15 segundos, com um `Date` lido depois: na viragem
+do minuto um relógio **certo** falhava. Passa a aceitar um minuto de folga, o
+que não o afrouxa no que importa: um relógio parado, fixo ou noutro fuso erra
+por horas, não por um minuto.
+
+A espera por estado tinha ela própria um defeito, e foi um teste que o apanhou:
+usava `offsetParent` para ver se o «Sem editais» estava à vista, e em elementos
+`position:fixed` o `offsetParent` é sempre nulo. A pasta vazia ficou quinze
+segundos à espera de uma condição impossível.
+
+### O que não se corrigiu, e porquê
+
+- **Fuso horário fixo em Europe/Lisbon.** O relógio segue o do sistema, como
+  tudo o resto na máquina. Uma TV com o fuso errado mostra tudo errado, e o
+  remédio é a máquina. Fixar o fuso no código tirava a um município de outro
+  sítio a possibilidade de o ter certo.
+- **Respostas do `sincroniza()` fora de ordem.** Precisa de uma sondagem a
+  demorar mais de quinze segundos a servir um JSON pequeno numa LAN. É anterior
+  a esta peça e o remédio custa mais do que previne.
+
+### Seis vacuidades numa sessão
+
+A correção do redesenho **nasceu sem teste**: tirei-a do código à espera de ver
+vermelho e tudo passou. É a sexta vez nesta sessão. Com o teste certo dá
+«nenhum ecrã ficou à vista: a televisão ficou em branco» e «o contador diz «»
+com dois editais no ecrã».
