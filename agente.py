@@ -518,9 +518,18 @@ def _publicar_registos(cfg, reg, logo_im):
             reg.definir_ecras(r["id"], r["ecras"])
         # Cada ecrã do edital é um slide. Vai o desenho, e não um nome de
         # imagem: quem compõe agora é a televisão.
+        # O ROTULO vem do tipo e não é escrito à mão: nem tudo o que se afixa é
+        # um «Edital» — há avisos, anúncios e deliberações de órgão autárquico,
+        # e chamar edital a uma deliberação num ecrã público seria inventar uma
+        # designação. O pr.tipo() nunca rebenta: um tipo desconhecido, vindo de
+        # um registo antigo, recua para o de omissão em vez de tirar o edital
+        # da rotação.
+        rotulo = pr.tipo(r.get("tipo"))["rotulo"]
         for ecra in r["ecras"]:
             slides.append({"ecra": ecra, "assunto": r["assunto"],
-                           "pub": r["data_publicacao"] or ""})
+                           "pub": r["data_publicacao"] or "",
+                           "numero": r.get("numero") or "",
+                           "rotulo": rotulo})
         # O edital entrou mesmo na rotação do expositor. É o registo de
         # disponibilidade que acompanha a certidão em anexo — a confirmação
         # material, distinta do instante oficial de afixação, que é o da
@@ -858,7 +867,14 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #info{position:fixed;left:0;right:0;bottom:0;z-index:2;padding:2.2vh 3vw;
     background:linear-gradient(transparent,rgba(0,0,0,.55));
     display:flex;justify-content:space-between;align-items:flex-end;font-size:1.5vw}
-  #assunto{max-width:74%;text-shadow:0 2px 6px #000}
+  #esquerda{max-width:74%}
+  /* O número é o que alguém cita ao balcão — «venho por causa do 2026-0017» —
+     e por isso vai por cima do assunto e em ouro, que nesta página é a cor do
+     que é conteúdo. O rótulo à frente dele vem do TIPO: nem tudo o que se
+     afixa é um edital, e chamar-lhe isso seria inventar a designação. */
+  #numero{font-size:1.15vw;color:var(--ouro);letter-spacing:.06em;
+    margin-bottom:.5vh;text-shadow:0 2px 6px #000}
+  #assunto{text-shadow:0 2px 6px #000}
   #pub{color:var(--ouro);text-align:right;text-shadow:0 2px 6px #000;white-space:nowrap}
   #vazio{position:fixed;inset:0;z-index:2;display:none;align-items:center;justify-content:center;
     font-size:2vw;color:var(--ouro);opacity:.9;text-align:center}
@@ -905,7 +921,8 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   <canvas id="fundo"></canvas>
   <div id="palco"></div>
   <div id="vazio">Sem editais a apresentar.</div>
-  <div id="info"><div id="assunto"></div>
+  <div id="info">
+    <div id="esquerda"><div id="numero"></div><div id="assunto"></div></div>
     <div id="lado"><div id="pub"></div><div id="contador"></div></div></div>
   <div id="barra"></div>
   <div id="relogio"><div id="hora"></div><div id="data"></div>
@@ -1062,6 +1079,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   var elE = document.getElementById('estado');
   var elH = document.getElementById('hora');
   var elD = document.getElementById('data');
+  var elN = document.getElementById('numero');
   var elC = document.getElementById('contador');
   var elB = document.getElementById('barra');
 
@@ -1216,6 +1234,13 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     idx = ((i % nodes.length) + nodes.length) % nodes.length;
     nodes[idx].classList.add('ativo');
     var s = slides[idx];
+    // Sem número, sai o rótulo sozinho: «Aviso» já diz a quem passa de que
+    // natureza é o documento, e é verdade. Inventar um número não é opção, e a
+    // frase da certidão para este caso — «a que não foi atribuído número» — é
+    // comprida demais para um ecrã que se lê de passagem.
+    var rot = s && s.rotulo ? s.rotulo : '';
+    var num = s && s.numero ? s.numero : '';
+    elN.textContent = num ? ((rot ? rot + ' ' : '') + 'n.º ' + num) : rot;
     elA.textContent = s && s.assunto ? s.assunto : '';
     elP.textContent = s && s.pub ? ('Publicado em ' + fmt(s.pub)) : '';
     // Com um só edital o contador cala-se: «ecrã 1 de 1» não responde a pergunta
@@ -1297,7 +1322,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     // Estado vazio vs com conteúdo.
     if (!nodes.length){
       elV.style.display = 'flex'; elA.textContent=''; elP.textContent='';
-      elC.textContent=''; paraBarra();
+      elN.textContent=''; elC.textContent=''; paraBarra();
       if (timer){ clearInterval(timer); timer=null; }
     } else {
       elV.style.display = 'none';

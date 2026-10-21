@@ -51,6 +51,24 @@ CASOS = [("uma folha vertical", [A4]),
          ("tres folhas verticais", [A4, A4, A4]),
          ("uma pagina deitada", [DEITADA])]
 
+# O número e o rótulo de cada caso, À PARTE dos tamanhos. Alargar o CASOS a
+# quatro valores obrigava seis testes de geometria a desempacotar dois que
+# ignoram, e isso é ruído num sítio onde o que importa são píxeis.
+#
+# Indexado pelo NOME e não pela posição: duas listas paralelas que têm de ficar
+# em passo são precisamente a classe de defeito que esta aplicação já apanhou
+# três vezes. Um caso renomeado cai no ("", "") e o guarda abaixo apanha-o.
+#
+# O terceiro vai SEM número de propósito: um edital pode não ter número
+# atribuído — a certidão tem uma frase só para esse caso — e a televisão tem de
+# o mostrar na mesma, com o rótulo sozinho, em vez de inventar um número ou de
+# ficar com um «n.º» pendurado.
+IDENTIFICACAO = {
+    "uma folha vertical": ("2026-0017", "Edital"),
+    "tres folhas verticais": ("2026-0018", "Aviso"),
+    "uma pagina deitada": ("", "Deliberação de órgão autárquico"),
+}
+
 ECRAS = [(3840, 2160), (1920, 1080), (1280, 1024), (1080, 1920), (1024, 768),
          (3440, 1440)]
 
@@ -170,10 +188,12 @@ def _servir(pasta, logotipo, escrever_o_ficheiro=True, spe=600, casos=None):
 
     slides = []
     for nome, tamanhos in (CASOS if casos is None else casos):
+        numero, rotulo = IDENTIFICACAO.get(nome, ("", ""))
         paginas = [Image.new("RGB", t) for t in tamanhos]
         caixas = trat.caixas_do_ecra(paginas)
         src = "dt.png" if tamanhos == [DEITADA] else "a4.png"
-        slides.append({"assunto": nome, "pub": "2026-10-08", "ecra": {
+        slides.append({"assunto": nome, "pub": "2026-10-08",
+                       "numero": numero, "rotulo": rotulo, "ecra": {
             "folhas": [{"src": src, "x": x, "y": y, "w": w, "h": h}
                        for x, y, w, h in caixas],
             "logotipo": trat.ha_espaco_para_o_logotipo(
@@ -573,5 +593,58 @@ def test_sem_editais_a_barra_nao_promete_um_ecra_seguinte(browser, expositor_vaz
             "document.getElementById('barra').getBoundingClientRect().width") == 0
         assert pagina.text_content("#contador") == ""
         assert pagina.locator("#vazio").is_visible()
+    finally:
+        pagina.close()
+
+
+def test_o_catalogo_de_identificacao_cobre_os_casos_todos():
+    """O IDENTIFICACAO é indexado pelo nome, e um nome que mude cai no vazio.
+
+    Sem este guarda, renomear um caso do CASOS dava número e rótulo em branco
+    nos testes que os medem — e eles passariam a verificar o caso «sem número»
+    três vezes, convencidos de que estavam a cobrir três casos diferentes.
+    """
+    nomes = {nome for nome, _ in CASOS}
+    assert nomes <= set(IDENTIFICACAO), (
+        f"sem identificação declarada: {sorted(nomes - set(IDENTIFICACAO))}")
+
+
+def test_o_numero_do_edital_sai_por_cima_do_assunto(browser, expositor):
+    """O número é o que alguém cita ao balcão — «venho por causa do 2026-0017».
+
+    Em ouro e por cima do assunto, que nesta página é onde vive o que é
+    conteúdo. E com o rótulo à frente, vindo do TIPO: o primeiro caso é um
+    «Edital» e o segundo um «Aviso», e a televisão tem de os distinguir em vez
+    de chamar edital a tudo o que afixa.
+    """
+    pagina = _abre(browser, expositor)
+    try:
+        assert pagina.text_content("#numero") == "Edital n.º 2026-0017"
+        # E assenta mesmo ACIMA do assunto, não ao lado nem por baixo.
+        caixas = pagina.evaluate("""() => {
+            const r = id => document.getElementById(id).getBoundingClientRect();
+            return {numero: r('numero').bottom, assunto: r('assunto').top}; }""")
+        assert caixas["numero"] <= caixas["assunto"] + 0.5
+    finally:
+        pagina.close()
+
+
+def test_sem_numero_atribuido_sai_o_rotulo_sozinho(browser, expositor_depressa):
+    """Um edital pode não ter número, e a televisão não o inventa.
+
+    A certidão tem uma frase inteira para este caso — «a que não foi atribuído
+    número» — comprida demais para um ecrã que se lê de passagem. Aqui sai o
+    rótulo sozinho: «Deliberação de órgão autárquico» diz a quem passa de que
+    natureza é o documento, e é verdade. O que não pode sair é um «n.º»
+    pendurado sem nada à frente.
+    """
+    pagina = _abre(browser, expositor_depressa)
+    try:
+        # A pasta rápida roda de dois em dois segundos: espera-se pelo caso que
+        # não tem número, em vez de se assumir que ele é o primeiro.
+        pagina.wait_for_function(
+            "() => document.getElementById('numero').textContent"
+            "        === 'Deliberação de órgão autárquico'", timeout=10000)
+        assert "n.º" not in pagina.text_content("#numero")
     finally:
         pagina.close()

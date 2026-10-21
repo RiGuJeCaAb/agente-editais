@@ -2205,3 +2205,40 @@ leitura do `offsetWidth` que parece supérflua e não é. Sem ela o navegador ju
 as duas escritas num só recálculo, parte do valor antigo, e a barra fica cheia
 desde o primeiro instante sem nunca animar.
 
+### E o número do documento, pedido a seguir
+
+Veio no mesmo dia, depois de ver o render: «poderíamos pensar em incluir o
+número de edital também». É o que alguém cita ao balcão — «venho por causa do
+2026-0017» — e por isso vai **em ouro, por cima do assunto**, que nesta página é
+onde vive o que é conteúdo.
+
+**O rótulo à frente dele vem do TIPO**, não de uma palavra escrita à mão. Nem
+tudo o que se afixa é um edital: há avisos, anúncios e deliberações de órgão
+autárquico, cada um com o seu rótulo no `prazos.py`. Chamar edital a uma
+deliberação num ecrã público seria inventar uma designação.
+
+**E um documento pode não ter número.** Nesse caso sai o rótulo sozinho. A frase
+que a certidão usa para o mesmo caso — «a que não foi atribuído número» — é
+comprida demais para um ecrã que se lê de passagem, e um «n.º» pendurado sem
+nada à frente seria pior do que nada.
+
+### Um buraco que só apareceu ao tentar provar a correção
+
+Os testes de browser escrevem o `slides.json` **à mão**, a partir de um catálogo
+próprio. Logo, um rótulo fixo no lado Python passava-lhes ao lado: repus
+`rotulo = "Edital"` em `agente.py` à espera de ver vermelho, e **todos passaram**.
+
+Daí vieram dois testes no `test_compor_no_browser.py`, que exercitam o caminho
+a sério — do registo ao `slides.json` — e que agora ficam vermelhos com
+`assert 'Edital' == 'Aviso'` e com `assert '1' == ''`. É a quinta vez nestas
+duas semanas que um teste anuncia o caso difícil e exercita o fácil, e a quinta
+vez que foi repor o defeito que o destapou.
+
+### E uma estrutura que não se deixou crescer
+
+Alargar o `CASOS` dos testes de browser a quatro valores obrigava **seis testes
+de geometria** a desempacotar dois que ignoram. O número e o rótulo ficaram num
+catálogo à parte, indexado pelo **nome** do caso e não pela posição — duas
+listas paralelas que têm de ficar em passo são precisamente a classe de defeito
+que esta aplicação já apanhou três vezes. Um caso renomeado cai no vazio, e há
+um teste que o apanha.

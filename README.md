@@ -334,7 +334,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 760 testes (mais 49 de browser: pytest -m navegador)
+pytest          # 762 testes (mais 52 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1305,9 +1305,23 @@ alguma coisa?»*
 
 | Peça | Onde | O que diz |
 |---|---|---|
+| **Número do documento** | por cima do assunto, em ouro | «Edital n.º 2026-0017» — o que se cita ao balcão |
 | **Barra de progresso** | fio dourado no rebordo de baixo | quanto falta para o ecrã seguinte |
 | **Contador** | por baixo da data de publicação | «ecrã 2 de 5» |
 | **Relógio** | canto oposto ao logótipo | que o ecrã está vivo, e a data pela qual se contam os prazos |
+
+### O rótulo vem do tipo, e o número não se inventa
+
+**Nem tudo o que um município afixa é um «Edital»** — há avisos, anúncios e
+deliberações de órgão autárquico, cada um com o seu rótulo no `prazos.py`. O que
+sai no ecrã vem de lá, e não de uma palavra escrita à mão: chamar edital a uma
+deliberação num ecrã público seria inventar uma designação, que é a primeira
+coisa que este projeto se proibiu de fazer.
+
+E **um documento pode não ter número atribuído**. Nesse caso sai o rótulo
+sozinho — «Deliberação de órgão autárquico» diz a quem passa de que natureza é o
+documento, e é verdade. O que não sai é um «n.º» pendurado sem nada à frente,
+nem um número fabricado a partir do id interno.
 
 Três decisões que convém conhecer:
 
