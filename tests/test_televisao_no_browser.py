@@ -24,6 +24,7 @@ import functools
 import http.server
 import json
 import os
+import re
 import socketserver
 import threading
 
@@ -50,6 +51,24 @@ DEITADA = (1920, 1080)
 CASOS = [("uma folha vertical", [A4]),
          ("tres folhas verticais", [A4, A4, A4]),
          ("uma pagina deitada", [DEITADA])]
+
+# O número e o rótulo de cada caso, À PARTE dos tamanhos. Alargar o CASOS a
+# quatro valores obrigava seis testes de geometria a desempacotar dois que
+# ignoram, e isso é ruído num sítio onde o que importa são píxeis.
+#
+# Indexado pelo NOME e não pela posição: duas listas paralelas que têm de ficar
+# em passo são precisamente a classe de defeito que esta aplicação já apanhou
+# três vezes. Um caso renomeado cai no ("", "") e o guarda abaixo apanha-o.
+#
+# O terceiro vai SEM número de propósito: um edital pode não ter número
+# atribuído — a certidão tem uma frase só para esse caso — e a televisão tem de
+# o mostrar na mesma, com o rótulo sozinho, em vez de inventar um número ou de
+# ficar com um «n.º» pendurado.
+IDENTIFICACAO = {
+    "uma folha vertical": ("2026-0017", "Edital"),
+    "tres folhas verticais": ("2026-0018", "Aviso"),
+    "uma pagina deitada": ("", "Deliberação de órgão autárquico"),
+}
 
 ECRAS = [(3840, 2160), (1920, 1080), (1280, 1024), (1080, 1920), (1024, 768),
          (3440, 1440)]
@@ -120,12 +139,42 @@ def expositor_sem_o_ficheiro_do_logotipo(tmp_path_factory):
                        escrever_o_ficheiro=False)
 
 
-def _servir(pasta, logotipo, escrever_o_ficheiro=True):
+@pytest.fixture(scope="module")
+def expositor_depressa(tmp_path_factory):
+    """Três editais a dois segundos cada, para a rotação andar à vista.
+
+    As outras pastas servem 600 segundos por ecrã de propósito, para a folha
+    não trocar a meio de uma medição. A barra e o contador precisam do
+    contrário: só se vê uma barra a encher e um contador a mudar se a rotação
+    correr dentro do tempo de um teste.
+    """
+    yield from _servir(tmp_path_factory.mktemp("depressa"), LOGOTIPO, spe=2)
+
+
+@pytest.fixture(scope="module")
+def expositor_de_um_so_edital(tmp_path_factory):
+    """Um edital só. O contador tem de se calar: «ecrã 1 de 1» não informa."""
+    yield from _servir(tmp_path_factory.mktemp("um_so"), LOGOTIPO,
+                       casos=CASOS[:1])
+
+
+@pytest.fixture(scope="module")
+def expositor_vazio(tmp_path_factory):
+    """Nenhum edital. Não há tempo nenhum a correr, e a barra não o pode fingir."""
+    yield from _servir(tmp_path_factory.mktemp("vazio"), LOGOTIPO, casos=[])
+
+
+def _servir(pasta, logotipo, escrever_o_ficheiro=True, spe=600, casos=None):
     """Monta uma pasta de saída com este logótipo e serve-a por HTTP.
 
     Servida e não aberta em file://: a página busca o slides.json por fetch, e
     um fetch a partir de file:// é recusado pelo browser — o que daria uma
     televisão vazia e um teste a falhar por razão errada.
+
+    O `spe` e os `casos` são parâmetros porque a barra de progresso e o
+    contador só se podem medir com a rotação a andar depressa e com números de
+    editais diferentes — e os 600 segundos das outras pastas existem
+    precisamente para a rotação NÃO andar enquanto se mede o desenho.
 
     Com `escrever_o_ficheiro=False` o slides.json continua a dizer que há
     logótipo mas o PNG não vai para a pasta. É o que acontece no posto quando o
@@ -139,17 +188,19 @@ def _servir(pasta, logotipo, escrever_o_ficheiro=True):
         Image.new("RGB", tam, "white").save(pasta / nome)
 
     slides = []
-    for nome, tamanhos in CASOS:
+    for nome, tamanhos in (CASOS if casos is None else casos):
+        numero, rotulo = IDENTIFICACAO.get(nome, ("", ""))
         paginas = [Image.new("RGB", t) for t in tamanhos]
         caixas = trat.caixas_do_ecra(paginas)
         src = "dt.png" if tamanhos == [DEITADA] else "a4.png"
-        slides.append({"assunto": nome, "pub": "2026-10-08", "ecra": {
+        slides.append({"assunto": nome, "pub": "2026-10-08",
+                       "numero": numero, "rotulo": rotulo, "ecra": {
             "folhas": [{"src": src, "x": x, "y": y, "w": w, "h": h}
                        for x, y, w, h in caixas],
             "logotipo": trat.ha_espaco_para_o_logotipo(
                 caixas, Image.new("RGBA", logotipo))}})
     (pasta / "slides.json").write_text(json.dumps(
-        {"versao": "1", "spe": 600, "titulo": "Testes", "v": "1", "gerado_em": "1",
+        {"versao": "1", "spe": spe, "titulo": "Testes", "v": "1", "gerado_em": "1",
          "slides": slides}), encoding="utf-8")
 
     handler = functools.partial(http.server.SimpleHTTPRequestHandler,
@@ -414,3 +465,377 @@ def test_o_logotipo_nunca_tapa_a_primeira_folha(browser, expositor, largura, alt
         _, my, _, mh = medido["marca"]
         for _, y, _, _ in medido["folhas"]:
             assert y >= my + mh - 0.5, f"{nome} em {largura}x{altura}"
+
+
+# ===========================================================================
+# O relógio e a barra de progresso — pedidos a 21/10/2026
+#
+# Vieram de uma pergunta do posto: se a página não parecia «um mono digital».
+# A resposta foi que o movimento já lá estava — o fundo ondulante, o cruzamento
+# de um segundo — e o que faltava era RITMO: quem está parado à frente de um
+# carrossel tem uma pergunta concreta, «já vi tudo?», e a página não respondia.
+# ===========================================================================
+def _abre(browser, url, largura=1920, altura=1080):
+    """Abre a televisão, dispensa o ecrã de arranque e espera pelo primeiro ecrã.
+
+    Espera por um ESTADO e não por um relógio. A primeira versão dormia 700 ms
+    fixos: num runner carregado, ou com o fetch do slides.json a demorar mais do
+    que isso, os testes mediam uma página ainda por preencher e falhavam por
+    razão errada — uma cada tantas, sem padrão. Apanhado em revisão na PR #24.
+
+    O estado por que se espera é o que o sincroniza() produz: ou há um ecrã
+    ativo, ou o «Sem editais a apresentar» está à vista. Serve as duas pastas,
+    a cheia e a vazia.
+    """
+    pagina = browser.new_page(viewport={"width": largura, "height": altura})
+    pagina.goto(url)
+    pagina.evaluate("document.getElementById('arranque').style.display='none'")
+    # O display calculado, e NÃO o offsetParent: o #vazio é position:fixed, e
+    # nesses o offsetParent é null mesmo com o elemento à vista. A primeira
+    # versão desta espera usava-o, e a pasta vazia ficava quinze segundos à
+    # espera de uma condição que nunca podia ser verdade.
+    pagina.wait_for_function(
+        "() => document.querySelector('.slide.ativo')"
+        "      || getComputedStyle(document.getElementById('vazio'))"
+        "           .display !== 'none'",
+        timeout=15000)
+    return pagina
+
+
+def test_o_relogio_mostra_a_hora_e_a_data_desta_maquina(browser, expositor):
+    """O relógio é o sinal mais barato de que um ecrã está vivo e não congelado.
+
+    Num expositor de editais a data não é decorativa: é a mesma pela qual se
+    contam os dias de afixação. Confere-se contra o relógio do próprio browser
+    e não contra o do Python — se a página escrevesse uma hora fixa, ou a de
+    outro fuso, este teste via-o.
+    """
+    pagina = _abre(browser, expositor)
+    try:
+        medido = pagina.evaluate("""() => {
+            const mostrado = document.getElementById('hora').textContent;
+            const agora = new Date();
+            const partes = mostrado.split(':').map(Number);
+            const bruta = Math.abs((agora.getHours() * 60 + agora.getMinutes())
+                                   - (partes[0] * 60 + partes[1]));
+            return {mostrado: mostrado,
+                    data: document.getElementById('data').textContent,
+                    ano: '' + agora.getFullYear(),
+                    // A volta da meia-noite: 23:59 e 00:00 distam um minuto.
+                    minutos: Math.min(bruta, 1440 - bruta)};
+        }""")
+        assert re.fullmatch(r"\d{2}:\d{2}", medido["mostrado"]), \
+            f"o relógio diz {medido['mostrado']!r}, que não é uma hora"
+        # Um minuto de folga, e não igualdade: o #hora só se refresca de 15 em
+        # 15 segundos, e se o minuto virar entre a leitura da página e a do
+        # Date um relógio CERTO falhava. Apanhado em revisão na PR #24, pelos
+        # dois revisores. A folga não afrouxa o teste no que importa: um
+        # relógio parado, fixo ou noutro fuso erra por horas, não por um minuto.
+        assert medido["minutos"] <= 1, (
+            f"o relógio diz {medido['mostrado']} e está a {medido['minutos']} "
+            f"minutos da hora do browser")
+        assert medido["ano"] in medido["data"], \
+            f"a data «{medido['data']}» não traz o ano corrente"
+    finally:
+        pagina.close()
+
+
+@pytest.mark.parametrize("largura, altura", ECRAS)
+def test_o_aviso_de_conteudo_velho_nao_escreve_por_cima_da_data(
+        browser, expositor, largura, altura):
+    """As três linhas do canto empilham-se, em qualquer formato de ecrã.
+
+    A primeira tentativa punha o aviso com um `top` próprio em vh, e a altura
+    do bloco do relógio vem de tamanhos em vw: batem certo num rácio de ecrã e
+    em mais nenhum — e nos outros o aviso escrevia-se por cima da data. É o
+    mesmo defeito que pôs o logótipo trinta píxeis acima do sítio na 0.24.1,
+    uma percentagem resolvida sobre a altura contra um número nascido da
+    largura. Por isso se mede nos seis ecrãs e não só no 16:9.
+
+    O `gerado_em` das pastas de teste é «1», que dá uma data de 2001 — o aviso
+    aparece sempre, que é o que torna este teste possível.
+    """
+    pagina = _abre(browser, expositor, largura, altura)
+    try:
+        caixas = pagina.evaluate("""() => {
+            const r = id => { const b = document.getElementById(id)
+                .getBoundingClientRect();
+              return {topo: b.top, fundo: b.bottom, texto:
+                document.getElementById(id).textContent}; };
+            return {data: r('data'), estado: r('estado')};
+        }""")
+        assert caixas["estado"]["texto"], "o aviso de conteúdo velho não saiu"
+        assert caixas["estado"]["topo"] >= caixas["data"]["fundo"] - 0.5, (
+            f"o aviso começa em {caixas['estado']['topo']:.1f} e a data acaba em "
+            f"{caixas['data']['fundo']:.1f} — escrevem-se um por cima do outro")
+    finally:
+        pagina.close()
+
+
+def test_a_barra_enche_ao_longo_do_ecra_e_recomeca_no_seguinte(
+        browser, expositor_depressa):
+    """A barra responde a «quanto falta para o próximo?», e tem de dizer a verdade.
+
+    Mede-se o que está DESENHADO e não o CSS: a barra anima por uma transição
+    de largura, e uma transição mal reiniciada fica cheia desde o primeiro
+    instante sem nunca animar — que é precisamente o que acontece sem a leitura
+    do offsetWidth entre pôr a zero e mandar encher.
+    """
+    pagina = _abre(browser, expositor_depressa)
+    try:
+        largura = lambda: pagina.evaluate(  # noqa: E731
+            "document.getElementById('barra').getBoundingClientRect().width")
+        contador = lambda: pagina.text_content("#contador")  # noqa: E731
+
+        primeiro = contador()
+        assert primeiro.startswith("ecrã "), f"contador em branco: {primeiro!r}"
+        cedo = largura()
+        pagina.wait_for_timeout(900)
+        tarde = largura()
+        assert tarde > cedo + 50, (
+            f"a barra não encheu: {cedo:.0f} px e depois {tarde:.0f} px")
+
+        # Agora a troca de ecrã: o contador anda e a barra recolhe.
+        pagina.wait_for_function(
+            "t => document.getElementById('contador').textContent !== t",
+            arg=primeiro, timeout=5000)
+        assert largura() < tarde, "a barra não recomeçou no ecrã seguinte"
+    finally:
+        pagina.close()
+
+
+def test_o_contador_cala_se_com_um_so_edital(browser, expositor_de_um_so_edital):
+    """«Ecrã 1 de 1» não responde a pergunta nenhuma, e por isso não se escreve.
+
+    A barra fica: com um edital só, é o único sinal de que aquilo está vivo.
+    """
+    pagina = _abre(browser, expositor_de_um_so_edital)
+    try:
+        assert pagina.text_content("#contador") == ""
+        assert pagina.locator(".slide").count() == 1
+    finally:
+        pagina.close()
+
+
+def test_sem_editais_a_barra_nao_promete_um_ecra_seguinte(browser, expositor_vazio):
+    """Sem editais não há tempo a correr, e uma barra a encher seria uma mentira.
+
+    Sobre «Sem editais a apresentar», uma barra a avançar prometia um ecrã que
+    não vem — e quem está à espera dele fica à espera para sempre.
+    """
+    pagina = _abre(browser, expositor_vazio)
+    try:
+        assert pagina.evaluate(
+            "document.getElementById('barra').getBoundingClientRect().width") == 0
+        assert pagina.text_content("#contador") == ""
+        assert pagina.locator("#vazio").is_visible()
+    finally:
+        pagina.close()
+
+
+def test_o_catalogo_de_identificacao_cobre_os_casos_todos():
+    """O IDENTIFICACAO é indexado pelo nome, e um nome que mude cai no vazio.
+
+    Sem este guarda, renomear um caso do CASOS dava número e rótulo em branco
+    nos testes que os medem — e eles passariam a verificar o caso «sem número»
+    três vezes, convencidos de que estavam a cobrir três casos diferentes.
+    """
+    nomes = {nome for nome, _ in CASOS}
+    assert nomes <= set(IDENTIFICACAO), (
+        f"sem identificação declarada: {sorted(nomes - set(IDENTIFICACAO))}")
+
+
+def test_o_numero_do_edital_sai_por_cima_do_assunto(browser, expositor):
+    """O número é o que alguém cita ao balcão — «venho por causa do 2026-0017».
+
+    Em ouro e por cima do assunto, que nesta página é onde vive o que é
+    conteúdo. E com o rótulo à frente, vindo do TIPO: o primeiro caso é um
+    «Edital» e o segundo um «Aviso», e a televisão tem de os distinguir em vez
+    de chamar edital a tudo o que afixa.
+    """
+    pagina = _abre(browser, expositor)
+    try:
+        assert pagina.text_content("#numero") == "Edital n.º 2026-0017"
+        # E assenta mesmo ACIMA do assunto, não ao lado nem por baixo.
+        caixas = pagina.evaluate("""() => {
+            const r = id => document.getElementById(id).getBoundingClientRect();
+            return {numero: r('numero').bottom, assunto: r('assunto').top}; }""")
+        assert caixas["numero"] <= caixas["assunto"] + 0.5
+    finally:
+        pagina.close()
+
+
+def test_sem_numero_atribuido_sai_o_rotulo_sozinho(browser, expositor_depressa):
+    """Um edital pode não ter número, e a televisão não o inventa.
+
+    A certidão tem uma frase inteira para este caso — «a que não foi atribuído
+    número» — comprida demais para um ecrã que se lê de passagem. Aqui sai o
+    rótulo sozinho: «Deliberação de órgão autárquico» diz a quem passa de que
+    natureza é o documento, e é verdade. O que não pode sair é um «n.º»
+    pendurado sem nada à frente.
+    """
+    pagina = _abre(browser, expositor_depressa)
+    try:
+        # A pasta rápida roda de dois em dois segundos: espera-se pelo caso que
+        # não tem número, em vez de se assumir que ele é o primeiro.
+        pagina.wait_for_function(
+            "() => document.getElementById('numero').textContent"
+            "        === 'Deliberação de órgão autárquico'", timeout=10000)
+        assert "n.º" not in pagina.text_content("#numero")
+    finally:
+        pagina.close()
+
+
+def test_quando_a_lista_encolhe_a_barra_e_o_temporizador_recomecam_juntos(
+        browser, expositor_depressa):
+    """Retirar um edital reancora o índice — e tem de reancorar o relógio dele.
+
+    Quando a lista encolhe e o `idx` fica fora de gama, o `aplica()` chama
+    `mostra(0)`. Isso reinicia a BARRA, mas o `setInterval` seguia a fase
+    antiga: a barra prometia um ecrã inteiro de tempo e a troca podia chegar no
+    instante seguinte. Não perde nem troca edital nenhum — mente sobre quanto
+    falta, que é precisamente o que esta barra existe para não fazer.
+
+    Apanhado em revisão na PR #24, e o defeito é desta mesma peça: antes dela
+    não havia barra que se pudesse desfasar do temporizador.
+
+    Mede-se a identidade do temporizador e não o tempo até à troca seguinte: um
+    teste que cronometrasse a troca media uma diferença de milissegundos entre
+    o certo e o errado, e seria instável por construção. O `clearInterval` mais
+    `setInterval` dá um identificador novo, e isso é binário.
+    """
+    pagina = _abre(browser, expositor_depressa)
+    try:
+        medido = pagina.evaluate("""() => {
+            // Põe o cursor no último ecrã e encolhe a lista, que é o que o
+            // aplica() recebe quando um edital é retirado do expositor.
+            idx = nodes.length - 1;
+            mostra(idx);
+            const antes = timer, quantos = nodes.length;
+            aplica(slides.slice(0, quantos - 1));
+            return {quantos_antes: quantos, quantos_depois: nodes.length,
+                    idx: idx, temporizador_mudou: timer !== antes,
+                    largura: document.getElementById('barra')
+                               .getBoundingClientRect().width};
+        }""")
+        assert medido["quantos_depois"] == medido["quantos_antes"] - 1, \
+            "o caso deixou de ser o caso: a lista não encolheu"
+        assert medido["idx"] == 0, "o índice não foi reancorado"
+        assert medido["largura"] == 0, "a barra não recomeçou"
+        assert medido["temporizador_mudou"], (
+            "a barra recomeçou e o temporizador não: a barra promete um ecrã "
+            "inteiro de tempo e a troca chega quando calhar")
+    finally:
+        pagina.close()
+
+
+@pytest.mark.parametrize("largura, altura", ECRAS)
+def test_o_bloco_do_relogio_nao_escreve_por_cima_da_primeira_folha(
+        browser, expositor_sem_o_ficheiro_do_logotipo, largura, altura):
+    """A faixa de topo é uma fração da ALTURA, e o relógio media-se em largura.
+
+    Num 3440×1440 sem logótipo as três linhas desciam a y=180 e a primeira
+    folha começa em 165: quinze píxeis de aviso escritos por cima de um edital.
+    Medido, e só nesse ecrã — nos outros cinco a conta batia certo, que é a
+    assinatura de uma medida em vw contra uma faixa em vh.
+
+    É a terceira vez que estas duas unidades divergem nesta peça. As duas
+    anteriores corrigiram-se tirando o número; aqui o corpo da letra tem de
+    existir, por isso fica preso ao MENOR entre a medida em vw e a mesma em vh.
+
+    Sem o ficheiro do logótipo de propósito: é a condição em que a faixa de
+    topo encolhe ao mínimo, e portanto o pior caso para quem lá vive.
+    """
+    pagina = _abre(browser, expositor_sem_o_ficheiro_do_logotipo, largura, altura)
+    try:
+        medido = pagina.evaluate("""() => {
+            const rel = document.getElementById('relogio').getBoundingClientRect();
+            const folhas = document.getElementsByClassName('folha');
+            if (!folhas.length) return null;
+            let topo = Infinity, direita = 0;
+            for (const f of folhas){ const b = f.getBoundingClientRect();
+                topo = Math.min(topo, b.top); direita = Math.max(direita, b.right); }
+            return {relogio_fundo: rel.bottom, relogio_esquerda: rel.left,
+                    folha_topo: topo, folha_direita: direita,
+                    aviso: document.getElementById('estado').textContent};
+        }""")
+        assert medido, "não saiu folha nenhuma"
+        assert medido["aviso"], "sem o aviso de conteúdo velho o caso não é o caso"
+        sobrepoe = (medido["relogio_fundo"] > medido["folha_topo"]
+                    and medido["relogio_esquerda"] < medido["folha_direita"])
+        assert not sobrepoe, (
+            f"o relógio desce a {medido['relogio_fundo']:.0f} e a folha começa "
+            f"em {medido['folha_topo']:.0f}: escreve-se por cima do edital")
+    finally:
+        pagina.close()
+
+
+def test_remover_o_edital_a_vista_nao_deixa_o_ecra_em_branco(
+        browser, expositor_depressa):
+    """A lista pode mudar com o índice ainda dentro de gama, e aí ninguém redesenhava.
+
+    O `aplica()` só chamava o `mostra()` quando o índice ficava FORA de gama. Se
+    o edital à vista fosse retirado e sobrassem outros que chegassem para o
+    índice continuar válido, o nó ativo saía do DOM e nenhum outro ficava no
+    lugar: ecrã em branco até à rotação seguinte. E o contador continuava a
+    dizer «ecrã 2 de 3» quando já eram dois.
+
+    Apanhado em revisão na PR #24, pelos dois revisores em paralelo. O ecrã em
+    branco é anterior a esta peça; o contador desactualizado é dela, porque o
+    contador é dela. Corrigem-se com o mesmo redesenho.
+    """
+    pagina = _abre(browser, expositor_depressa)
+    try:
+        medido = pagina.evaluate("""() => {
+            if (nodes.length < 3) return null;
+            // Põe o segundo ecrã à vista e retira-o da lista, deixando os
+            // outros dois — o índice 1 continua válido com dois ecrãs.
+            idx = 1; mostra(1);
+            aplica([slides[0], slides[2]]);
+            return {quantos: nodes.length,
+                    ativos: document.querySelectorAll('.slide.ativo').length,
+                    contador: document.getElementById('contador').textContent,
+                    assunto: document.getElementById('assunto').textContent};
+        }""")
+        assert medido, "o caso precisa de três ecrãs e a pasta não os deu"
+        assert medido["quantos"] == 2, \
+            "o caso deixou de ser o caso: a lista não ficou com dois"
+        assert medido["ativos"] == 1, \
+            "nenhum ecrã ficou à vista: a televisão ficou em branco"
+        assert medido["contador"] == "ecrã 2 de 2", \
+            f"o contador diz «{medido['contador']}» com dois ecrãs na lista"
+        assert medido["assunto"], "o rodapé ficou sem assunto"
+    finally:
+        pagina.close()
+
+
+def test_o_contador_fala_assim_que_chega_o_segundo_edital(
+        browser, expositor_de_um_so_edital):
+    """Passar de um para dois é o caso em que o contador deixa de estar calado.
+
+    E era o mais visível do defeito: com um edital só o contador cala-se de
+    propósito; ao chegar o segundo, continuava calado durante um intervalo
+    inteiro — até trinta segundos a negar que havia outro edital para ver.
+
+    Nomeado pelo revisor da casa na PR #24. O teste do ecrã em branco cobre o
+    encolher; este cobre o crescer, que é o outro lado da mesma porta.
+    """
+    pagina = _abre(browser, expositor_de_um_so_edital)
+    try:
+        assert pagina.text_content("#contador") == "", \
+            "o caso deixou de ser o caso: a pasta já não tem um edital só"
+        medido = pagina.evaluate("""() => {
+            // Um segundo edital, com folhas de nome diferente para o chaveDe()
+            // o ver como outro — é essa a identidade de um slide.
+            const outro = JSON.parse(JSON.stringify(slides[0]));
+            outro.assunto = 'o segundo edital';
+            outro.ecra.folhas.forEach(function(f){ f.src = 'dt.png'; });
+            aplica([slides[0], outro]);
+            return {quantos: nodes.length,
+                    contador: document.getElementById('contador').textContent};
+        }""")
+        assert medido["quantos"] == 2, "o segundo edital não entrou na lista"
+        assert medido["contador"] == "ecrã 1 de 2", (
+            f"o contador diz «{medido['contador']}» com dois editais no ecrã")
+    finally:
+        pagina.close()

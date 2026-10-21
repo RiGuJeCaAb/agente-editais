@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.24.4"
+VERSAO = "0.25.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -518,9 +518,18 @@ def _publicar_registos(cfg, reg, logo_im):
             reg.definir_ecras(r["id"], r["ecras"])
         # Cada ecrã do edital é um slide. Vai o desenho, e não um nome de
         # imagem: quem compõe agora é a televisão.
+        # O ROTULO vem do tipo e não é escrito à mão: nem tudo o que se afixa é
+        # um «Edital» — há avisos, anúncios e deliberações de órgão autárquico,
+        # e chamar edital a uma deliberação num ecrã público seria inventar uma
+        # designação. O pr.tipo() nunca rebenta: um tipo desconhecido, vindo de
+        # um registo antigo, recua para o de omissão em vez de tirar o edital
+        # da rotação.
+        rotulo = pr.tipo(r.get("tipo"))["rotulo"]
         for ecra in r["ecras"]:
             slides.append({"ecra": ecra, "assunto": r["assunto"],
-                           "pub": r["data_publicacao"] or ""})
+                           "pub": r["data_publicacao"] or "",
+                           "numero": r.get("numero") or "",
+                           "rotulo": rotulo})
         # O edital entrou mesmo na rotação do expositor. É o registo de
         # disponibilidade que acompanha a certidão em anexo — a confirmação
         # material, distinta do instante oficial de afixação, que é o da
@@ -858,7 +867,14 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #info{position:fixed;left:0;right:0;bottom:0;z-index:2;padding:2.2vh 3vw;
     background:linear-gradient(transparent,rgba(0,0,0,.55));
     display:flex;justify-content:space-between;align-items:flex-end;font-size:1.5vw}
-  #assunto{max-width:74%;text-shadow:0 2px 6px #000}
+  #esquerda{max-width:74%}
+  /* O número é o que alguém cita ao balcão — «venho por causa do 2026-0017» —
+     e por isso vai por cima do assunto e em ouro, que nesta página é a cor do
+     que é conteúdo. O rótulo à frente dele vem do TIPO: nem tudo o que se
+     afixa é um edital, e chamar-lhe isso seria inventar a designação. */
+  #numero{font-size:min(1.15vw,2.04vh);color:var(--ouro);letter-spacing:.06em;
+    margin-bottom:.5vh;text-shadow:0 2px 6px #000}
+  #assunto{text-shadow:0 2px 6px #000}
   #pub{color:var(--ouro);text-align:right;text-shadow:0 2px 6px #000;white-space:nowrap}
   #vazio{position:fixed;inset:0;z-index:2;display:none;align-items:center;justify-content:center;
     font-size:2vw;color:var(--ouro);opacity:.9;text-align:center}
@@ -868,15 +884,64 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #arranque h1{font-family:Georgia,serif;font-weight:600;font-size:3vw;color:#fff;text-align:center;max-width:80%}
   #arranque p{color:#cfe3d6;font-size:1.3vw}
   #arranque .btn{border:2px solid var(--ouro);color:var(--ouro);padding:14px 30px;border-radius:99px;font-size:1.4vw}
-  #estado{position:fixed;top:1vh;right:1vw;z-index:3;font-size:.8vw;color:rgba(255,255,255,.25)}
+  /* O relógio assenta no canto OPOSTO ao logótipo, que vai à esquerda (o
+     LOGO_MARGEM_FRAC do tratamento.py conta da esquerda). Não é enfeite: é o
+     sinal mais barato de que o ecrã está vivo e não congelado — e num expositor
+     de editais a data não é decorativa, é a mesma pela qual se contam os dias
+     de afixação. Ouro sobre branco esbatido, que é a hierarquia do resto da
+     página: ouro para o que se lê, branco fraco para o que só situa. */
+  #relogio{position:fixed;top:1.6vh;right:1.6vw;z-index:3;text-align:right;
+    text-shadow:0 2px 6px #000;line-height:1.15}
+  /* Algarismos de largura fixa: sem isto a hora dança de um lado para o outro a
+     cada minuto, porque o "1" é mais estreito do que o "8".
+
+     E os corpos são o MENOR entre a medida em vw e a mesma medida em vh. A
+     faixa de topo onde isto vive é uma fração da ALTURA (o FRACAO_TOPO), e um
+     bloco medido só em largura cresce nela sem a respeitar: num 3440x1440 sem
+     logótipo, as três linhas desciam a y=180 e a primeira folha começa em 165 —
+     quinze píxeis de aviso escritos por cima de um edital. Medido nos seis
+     ecrãs do banco.
+
+     O fator entre os pares é 1,777, que é o 16:9: nessa proporção os dois
+     valores são o mesmo e a televisão do átrio não muda um píxel. Só encolhe
+     onde a faixa é estreita, que é onde tem de encolher.
+
+     É a TERCEIRA vez que vw e vh divergem nesta peça. As duas anteriores
+     corrigiram-se tirando o número; aqui o número tem de ficar, por isso fica
+     preso ao menor dos dois. */
+  #hora{font-size:min(2vw,3.55vh);color:var(--ouro);font-variant-numeric:tabular-nums}
+  #data{font-size:min(.95vw,1.69vh);color:rgba(255,255,255,.55)}
+  /* O aviso de conteúdo velho passa a correr DENTRO do relógio, e não colocado
+     por cima dele com um `top` próprio. A primeira tentativa dava-lhe
+     `top:5.9vh` e escrevia-se em cima da data: a altura do bloco do relógio
+     vem de tamanhos em vw e o afastamento estava em vh, por isso as duas
+     medidas batem certo num rácio de ecrã e em mais nenhum. É o mesmo defeito
+     que pôs o logótipo trinta píxeis acima do sítio na 0.24.1 — uma percentagem
+     resolvida sobre a altura contra um número nascido da largura. A correção
+     não é acertar o número: é deixar de haver número. */
+  #estado{font-size:min(.8vw,1.42vh);color:rgba(255,255,255,.25);margin-top:.6vh}
+  /* Quem está parado à frente de um carrossel tem uma pergunta concreta: «já vi
+     tudo, ou falta alguma coisa?». O contador e a barra respondem-lhe, e é por
+     isso que entram — não para dar movimento, que o fundo ondulante já dá.
+     A barra é um fio no rebordo de baixo: não tapa folha nenhuma e lê-se de
+     longe, que é a distância a que se está num átrio. */
+  #lado{text-align:right}
+  #contador{font-size:min(.95vw,1.69vh);color:rgba(255,255,255,.5);margin-top:.5vh;
+    text-shadow:0 2px 6px #000}
+  #barra{position:fixed;left:0;bottom:0;height:.45vh;z-index:3;width:0;
+    background:linear-gradient(90deg,var(--ouro),var(--ouro2))}
 </style>
 </head>
 <body>
   <canvas id="fundo"></canvas>
   <div id="palco"></div>
   <div id="vazio">Sem editais a apresentar.</div>
-  <div id="info"><div id="assunto"></div><div id="pub"></div></div>
-  <div id="estado"></div>
+  <div id="info">
+    <div id="esquerda"><div id="numero"></div><div id="assunto"></div></div>
+    <div id="lado"><div id="pub"></div><div id="contador"></div></div></div>
+  <div id="barra"></div>
+  <div id="relogio"><div id="hora"></div><div id="data"></div>
+    <div id="estado"></div></div>
   <div id="arranque">
     <h1>__TITULO__</h1>
     <p>Toque no ecr&atilde; para iniciar a apresenta&ccedil;&atilde;o em ecr&atilde; inteiro</p>
@@ -1027,6 +1092,11 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   var elP = document.getElementById('pub');
   var elV = document.getElementById('vazio');
   var elE = document.getElementById('estado');
+  var elH = document.getElementById('hora');
+  var elD = document.getElementById('data');
+  var elN = document.getElementById('numero');
+  var elC = document.getElementById('contador');
+  var elB = document.getElementById('barra');
 
   // Ao fim de quantos minutos sem o agente escrever o slides.json se considera
   // que o que está no ecrã pode já não valer. Três ciclos do vigia (30 s) com
@@ -1179,21 +1249,78 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     idx = ((i % nodes.length) + nodes.length) % nodes.length;
     nodes[idx].classList.add('ativo');
     var s = slides[idx];
+    // Sem número, sai o rótulo sozinho: «Aviso» já diz a quem passa de que
+    // natureza é o documento, e é verdade. Inventar um número não é opção, e a
+    // frase da certidão para este caso — «a que não foi atribuído número» — é
+    // comprida demais para um ecrã que se lê de passagem.
+    var rot = s && s.rotulo ? s.rotulo : '';
+    var num = s && s.numero ? s.numero : '';
+    elN.textContent = num ? ((rot ? rot + ' ' : '') + 'n.º ' + num) : rot;
     elA.textContent = s && s.assunto ? s.assunto : '';
     elP.textContent = s && s.pub ? ('Publicado em ' + fmt(s.pub)) : '';
+    // Com um só edital o contador cala-se: «ecrã 1 de 1» não responde a pergunta
+    // nenhuma. A barra fica, que aí é o único sinal de que aquilo está vivo.
+    elC.textContent = nodes.length > 1
+      ? ('ecrã ' + (idx + 1) + ' de ' + nodes.length) : '';
+    reiniciaBarra();
   }
 
   function avanca(){ if(nodes.length) mostra(idx + 1); }
+
+  // Acerta o relógio. Um minuto de granularidade chega e sobra: segundos a
+  // saltar num ecrã de átrio são ruído, e obrigavam a redesenhar sessenta vezes
+  // mais vezes uma TV que fica ligada o dia inteiro. Corre de 15 em 15 segundos
+  // para o minuto nunca aparecer atrasado mais do que isso.
+  function relogio(){
+    var agora = new Date();
+    elH.textContent = agora.toLocaleTimeString('pt-PT',
+      {hour: '2-digit', minute: '2-digit'});
+    elD.textContent = agora.toLocaleDateString('pt-PT',
+      {weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'});
+  }
+
+  // Põe a barra a zero e manda-a encher ao longo do tempo deste ecrã.
+  //
+  // A leitura do offsetWidth no meio NÃO é supérflua, por mais que pareça: sem
+  // ela o navegador junta as duas escritas de width num só recálculo, parte do
+  // valor antigo e a barra nunca chega a animar — fica cheia desde o primeiro
+  // instante. Ler uma medida obriga-o a assentar o zero antes de seguir.
+  function reiniciaBarra(){
+    elB.style.transition = 'none';
+    elB.style.width = '0%';
+    void elB.offsetWidth;
+    elB.style.transition = 'width ' + spe + 'ms linear';
+    elB.style.width = '100%';
+  }
+
+  // Recolhe a barra e deixa-a quieta: sem editais não há tempo nenhum a correr,
+  // e uma barra a encher sobre «Sem editais a apresentar» prometia um ecrã
+  // seguinte que não vem.
+  function paraBarra(){
+    elB.style.transition = 'none';
+    elB.style.width = '0%';
+  }
 
   // (Re)arranca o temporizador da rotação com o intervalo atual.
   function arrancaRotacao(){
     if (timer) clearInterval(timer);
     timer = setInterval(avanca, spe);
+    // A barra reinicia COM o temporizador, e não só a cada troca de ecrã. O
+    // slides.json pode mudar os segundos por ecrã a meio, e o sincroniza()
+    // rearranca a rotação a partir de agora: sem isto a barra ficava a contar
+    // o intervalo antigo e prometia uma troca que já não era àquela hora.
+    reiniciaBarra();
   }
 
   // Reconciliação: aplica uma nova lista de slides SEM destruir o que já está,
   // para a rotação não piscar. Só mexe no que mudou.
   function aplica(novos){
+    // Se a lista MEXEU, o ecrã tem de ser redesenhado mesmo que o índice
+    // continue válido: o nó que estava ativo pode ter sido removido (ecrã em
+    // branco) e o contador fica a dizer «ecrã 2 de 5» quando já são três.
+    // Apanhado em revisão na PR #24, pelos dois revisores em paralelo. O
+    // contador é desta peça, logo o defeito do contador também.
+    var mexeu = false;
     // Identidade de um slide = os nomes das folhas do seu ecrã (ver chaveDe).
     var chavesAntigas = nodes.map(function(_,k){ return chaveDe(slides[k]); });
     var chavesNovas = novos.map(chaveDe);
@@ -1203,6 +1330,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (chavesNovas.indexOf(chaveDe(slides[k])) === -1){
         palco.removeChild(nodes[k]);
         nodes.splice(k,1); slides.splice(k,1);
+        mexeu = true;
       }
     }
     // Adicionar os novos (no fim — entram na fila e aparecem na sua vez).
@@ -1210,17 +1338,28 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
       if (chavesAntigas.indexOf(chaveDe(novos[j])) === -1){
         slides.push(novos[j]);
         nodes.push(criaNode(novos[j]));
+        mexeu = true;
       }
     }
 
     // Estado vazio vs com conteúdo.
     if (!nodes.length){
       elV.style.display = 'flex'; elA.textContent=''; elP.textContent='';
+      elN.textContent=''; elC.textContent=''; paraBarra();
       if (timer){ clearInterval(timer); timer=null; }
     } else {
       elV.style.display = 'none';
       if (!timer){ idx = 0; mostra(0); arrancaRotacao(); }
-      else if (idx >= nodes.length) { mostra(0); }  // reancorar se a lista encolheu
+      // Reancorar se a lista encolheu, e redesenhar se ela apenas mexeu. O
+      // arrancaRotacao() não é opcional em nenhum dos dois: o mostra() reinicia
+      // a BARRA, e sem ele o temporizador seguia a fase antiga — a barra
+      // prometia um ecrã inteiro de tempo e a troca chegava quando calhasse.
+      // Não perde nem troca edital nenhum; mente sobre quanto falta, que é o
+      // que esta barra existe para não fazer. Apanhado em revisão na PR #24, e
+      // o defeito é desta mesma peça: antes dela não havia barra para se
+      // desfasar do temporizador, nem contador para ficar desactualizado.
+      else if (idx >= nodes.length) { mostra(0); arrancaRotacao(); }
+      else if (mexeu) { mostra(idx); arrancaRotacao(); }
     }
   }
 
@@ -1320,9 +1459,21 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     fs();
     anti_screensaver_webos();   // tenta o wake lock real
     arrancaSondagem();
+    // Se o ecrã inteiro foi recusado, a rotação já corria ATRÁS do ecrã de
+    // arranque: ao destapá-la, a barra aparecia a meio e a troca podia chegar
+    // logo a seguir. O primeiro ecrã que alguém vê leva o seu tempo inteiro.
+    // Apanhado em revisão na PR #24; antes dela não havia barra que denunciasse
+    // o temporizador já a meio.
+    if (timer) arrancaRotacao();
   }
 
   arr.addEventListener('click', comeca);
+
+  // O relógio arranca já, e não no comeca(): até alguém tocar no ecrã de
+  // arranque ele fica tapado por cima, mas assim que o ecrã abre a hora já está
+  // certa, em vez de aparecer em branco durante os primeiros quinze segundos.
+  relogio();
+  setInterval(relogio, 15000);
 
   // Tenta arrancar automaticamente; se o fullscreen precisar de toque, o ecrã de
   // arranque fica à espera, mas a apresentação começa na mesma passado 1s para o

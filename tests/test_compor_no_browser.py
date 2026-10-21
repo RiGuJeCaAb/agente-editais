@@ -30,6 +30,7 @@ import pytest
 
 import agente
 import conferencia
+import prazos as pr
 import registo as reg_mod
 import tratamento as trat
 
@@ -122,6 +123,51 @@ def test_a_televisao_recebe_o_desenho_no_slides_json(posto):
     assert len(d["slides"]) == 1
     assert len(d["slides"][0]["ecra"]["folhas"]) == 3
     assert "src" not in d["slides"][0], "o slide já não é uma imagem composta"
+
+
+def test_o_slide_leva_o_numero_e_o_rotulo_do_TIPO_do_documento(posto):
+    """O rótulo do ecrã vem do tipo, e não da palavra «Edital» escrita à mão.
+
+    Nem tudo o que um município afixa é um edital: há avisos, anúncios e
+    deliberações de órgão autárquico, cada um com o seu rótulo no prazos.py.
+    Chamar edital a uma deliberação num ecrã público seria inventar uma
+    designação — a primeira coisa que este projeto se proibiu de fazer.
+
+    Este teste existe porque os de browser NÃO o cobrem: eles escrevem o
+    slides.json à mão a partir de um catálogo próprio, e portanto um rótulo
+    fixo aqui passava-lhes ao lado. Apanhado ao tentar provar a correção
+    repondo o defeito, que é para isso que se repõe.
+    """
+    rid = publicar(posto)
+    posto["reg"].editar(rid, {"numero": "2026-0017", "tipo": "aviso"},
+                        utilizador="ana.abreu")
+    agente.publicar_registos(posto["cfg"], posto["reg"], posto["logo"])
+    d = json.loads(open(os.path.join(posto["cfg"]["saida"], "slides.json"),
+                        encoding="utf-8").read())
+    assert d["slides"][0]["numero"] == "2026-0017"
+    assert d["slides"][0]["rotulo"] == pr.tipo("aviso")["rotulo"] == "Aviso"
+
+    # E o tipo manda mesmo: trocá-lo troca o rótulo, sem mais nada mudar.
+    posto["reg"].editar(rid, {"tipo": "deliberacao_orgao_autarquico"},
+                        utilizador="ana.abreu")
+    agente.publicar_registos(posto["cfg"], posto["reg"], posto["logo"])
+    d = json.loads(open(os.path.join(posto["cfg"]["saida"], "slides.json"),
+                        encoding="utf-8").read())
+    assert d["slides"][0]["rotulo"] == "Deliberação de órgão autárquico"
+
+
+def test_um_edital_sem_numero_atribuido_nao_ganha_um_no_slides_json(posto):
+    """Sem número no registo, o slide sai com o campo vazio — não inventado.
+
+    O número é atribuído pelo Gestiona e a aplicação nunca lhe toca. Um campo
+    em branco é a verdade; qualquer coisa escrita ali seria uma designação
+    inventada a sair num ecrã público.
+    """
+    publicar(posto)
+    d = json.loads(open(os.path.join(posto["cfg"]["saida"], "slides.json"),
+                        encoding="utf-8").read())
+    assert d["slides"][0]["numero"] == ""
+    assert d["slides"][0]["rotulo"], "o rótulo do tipo não pode faltar"
 
 
 def test_a_pagina_da_tv_leva_as_fracoes_do_desenho_e_nao_as_medidas_do_palco(posto):

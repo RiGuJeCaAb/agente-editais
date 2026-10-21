@@ -2127,3 +2127,209 @@ O remédio foi o mesmo das quatro vezes: **repor a correção, uma metade de cad
 vez, e exigir ver o vermelho**. Um teste que nunca se viu falhar não é um teste,
 é uma afirmação.
 
+---
+
+## 0.25.0 — O relógio e a barra de progresso
+
+Veio de uma pergunta do posto, a 21/10/2026: se não se devia pôr música de fundo
+no expositor, «para não parecer um mono digital».
+
+### A música ficou de fora
+
+Três razões, e nenhuma é de gosto:
+
+- **Acessibilidade.** O átrio é onde as pessoas falam com o balcão. Música de
+  fundo mascara a fala, e mascara-a pior para quem tem perda auditiva — que num
+  expositor de editais de câmara não é a minoria. Seria piorar o serviço
+  exactamente para quem mais precisa dele.
+- **Licenciamento.** Execução pública em espaço público passa pela SPA e pela
+  PassMúsica. Uma funcionalidade gratuita passaria a ser uma fatura anual e um
+  processo para manter.
+- **Registo do documento.** A certidão afirma que o edital foi afixado «no local
+  designado por *Expositor eletrónico do Município*». Som transforma o lugar de
+  afixação num ambiente.
+
+Fica a nota para quem um dia decidir o contrário: **ambiente sonoro no átrio é
+uma decisão sobre o átrio, não sobre o expositor.** Sistema próprio, licença
+própria, e a página dos editais fica limpa do assunto.
+
+### Mas o diagnóstico estava certo
+
+A página já tinha movimento: o fundo ondulante dourado em canvas e o cruzamento
+de um segundo entre ecrãs. O que lhe faltava era **ritmo** — resposta à pergunta
+que quem está parado à frente de um carrossel tem na cabeça: «já vi tudo, ou
+falta alguma coisa?».
+
+- **Barra de progresso**, um fio dourado no rebordo de baixo, a encher ao longo
+  do tempo do ecrã. Não tapa folha nenhuma e lê-se à distância a que se está num
+  átrio.
+- **Contador** «ecrã 2 de 5», por baixo da data de publicação. Ouro para o que é
+  conteúdo, branco esbatido para o que só situa — que é a hierarquia do resto da
+  página.
+- **Relógio** com a data por extenso, no canto oposto ao logótipo. É o sinal mais
+  barato de que um ecrã está vivo e não congelado, e num expositor de editais a
+  data não é decorativa: é a mesma pela qual se contam os dias de afixação.
+
+Três decisões pelo caminho. O contador **cala-se com um edital só**, porque
+«ecrã 1 de 1» não informa de nada — e a barra fica, que aí é o único sinal de
+vida. **Sem editais a barra recolhe**: a encher sobre «Sem editais a
+apresentar», prometia um ecrã seguinte que não vem. E o relógio **anda ao
+minuto**, não ao segundo: segundos a saltar são ruído, e multiplicavam por
+sessenta os redesenhos de uma TV que fica ligada o dia inteiro.
+
+### O defeito que isto quase repetiu
+
+A primeira tentativa punha o aviso de conteúdo velho com um `top: 5.9vh` por
+cima do relógio. Mas a altura do bloco do relógio vem de tamanhos em **vw** —
+logo as duas medidas batem certo num rácio de ecrã e em mais nenhum. Medido:
+escreve-se por cima da data em **quatro dos seis ecrãs** do banco de testes,
+incluindo o 1920×1080 do átrio e, com 54 pt de sobreposição, o monitor vertical.
+
+É o mesmo defeito que pôs o logótipo trinta píxeis acima do sítio na 0.24.1 —
+uma percentagem resolvida sobre a altura contra um número nascido da largura.
+E a correção não foi acertar o número: foi **deixar de haver número**. O aviso
+passou a correr dentro do bloco do relógio, e empilha-se sozinho.
+
+### Medido
+
+Dez testes de browser novos, e cada um visto a falhar:
+
+| Reposto | O que o teste diz |
+|---|---|
+| a página anterior, sem relógio nem barra | 10 vermelhos |
+| o aviso com `top` em vh | «o aviso começa em 63,7 e a data acaba em 82,4» — em 4 dos 6 ecrãs |
+| a barra sem a leitura do `offsetWidth` | «a barra não recomeçou no ecrã seguinte» |
+
+Essa última merece nota: entre pôr a barra a zero e mandá-la encher há uma
+leitura do `offsetWidth` que parece supérflua e não é. Sem ela o navegador junta
+as duas escritas num só recálculo, parte do valor antigo, e a barra fica cheia
+desde o primeiro instante sem nunca animar.
+
+### E o número do documento, pedido a seguir
+
+Veio no mesmo dia, depois de ver o render: «poderíamos pensar em incluir o
+número de edital também». É o que alguém cita ao balcão — «venho por causa do
+2026-0017» — e por isso vai **em ouro, por cima do assunto**, que nesta página é
+onde vive o que é conteúdo.
+
+**O rótulo à frente dele vem do TIPO**, não de uma palavra escrita à mão. Nem
+tudo o que se afixa é um edital: há avisos, anúncios e deliberações de órgão
+autárquico, cada um com o seu rótulo no `prazos.py`. Chamar edital a uma
+deliberação num ecrã público seria inventar uma designação.
+
+**E um documento pode não ter número.** Nesse caso sai o rótulo sozinho. A frase
+que a certidão usa para o mesmo caso — «a que não foi atribuído número» — é
+comprida demais para um ecrã que se lê de passagem, e um «n.º» pendurado sem
+nada à frente seria pior do que nada.
+
+### Um buraco que só apareceu ao tentar provar a correção
+
+Os testes de browser escrevem o `slides.json` **à mão**, a partir de um catálogo
+próprio. Logo, um rótulo fixo no lado Python passava-lhes ao lado: repus
+`rotulo = "Edital"` em `agente.py` à espera de ver vermelho, e **todos passaram**.
+
+Daí vieram dois testes no `test_compor_no_browser.py`, que exercitam o caminho
+a sério — do registo ao `slides.json` — e que agora ficam vermelhos com
+`assert 'Edital' == 'Aviso'` e com `assert '1' == ''`. É a quinta vez nestas
+duas semanas que um teste anuncia o caso difícil e exercita o fácil, e a quinta
+vez que foi repor o defeito que o destapou.
+
+### E uma estrutura que não se deixou crescer
+
+Alargar o `CASOS` dos testes de browser a quatro valores obrigava **seis testes
+de geometria** a desempacotar dois que ignoram. O número e o rótulo ficaram num
+catálogo à parte, indexado pelo **nome** do caso e não pela posição — duas
+listas paralelas que têm de ficar em passo são precisamente a classe de defeito
+que esta aplicação já apanhou três vezes. Um caso renomeado cai no vazio, e há
+um teste que o apanha.
+
+### Dois achados da revisão
+
+**A barra desfasava-se do temporizador quando a lista encolhia.** Quando um
+edital é retirado e o `idx` fica fora de gama, o `aplica()` chama `mostra(0)` —
+que agora reinicia a barra, mas não o `setInterval`. A barra prometia um ecrã
+inteiro de tempo e a troca podia chegar no instante seguinte.
+
+Não perde nem troca edital nenhum: **mente sobre quanto falta**, que é
+precisamente o que esta barra existe para não fazer. E o defeito é desta mesma
+peça — antes dela não havia barra que se pudesse desfasar.
+
+O teste mede a **identidade do temporizador** e não o tempo até à troca: um
+teste que cronometrasse a troca media uma diferença de milissegundos entre o
+certo e o errado, e seria instável por construção. O `clearInterval` mais
+`setInterval` dá um identificador novo, e isso é binário.
+
+**E a contagem do README em dois sítios, outra vez.** O `televisao` ficou
+vermelho com «o README diz 39 testes de browser e colhem-se 49». Tinha mudado a
+contagem na linha 337 e não na 1192 — exactamente a armadilha que a 0.24.2
+documentou ao criar esta verificação, com as palavras «nos **dois** sítios onde
+aparecem, que foi precisamente a armadilha da última vez».
+
+E não a apanhei localmente porque esse teste está marcado `navegador`: corri o
+`test_regras_da_casa.py` a seco, ele foi deseleccionado, e o verde que vi não
+cobria o que eu precisava de ver. **Correr o ficheiro não é correr o trabalho da
+CI** — o `-m navegador` é outro trabalho e tem de se pedir à parte.
+
+### Segunda ronda de revisão: cinco achados, quatro corrigidos
+
+Dos nove que o Sourcery levantou e dos dois do revisor da casa, estes eram
+defeitos desta peça:
+
+**O relógio escrevia por cima do edital num 21:9.** Apontado pelo Sourcery e
+**medido antes de se mexer**: num 3440×1440 sem logótipo, o bloco do relógio
+desce a y=180 e a primeira folha começa em 165. Quinze píxeis de aviso por cima
+de um edital. Nos outros cinco ecrãs do banco a conta batia certo — que é a
+assinatura de uma medida em **vw** contra uma faixa que é fração da **altura**.
+
+É a **terceira vez** que estas duas unidades divergem nesta peça. As duas
+anteriores corrigiram-se tirando o número; aqui o corpo da letra tem de existir,
+por isso fica preso ao `min()` entre a medida em vw e a mesma em vh. O fator
+entre os pares é 1,777 — o 16:9 — pelo que na televisão do átrio não muda um
+píxel, e só encolhe onde a faixa é estreita.
+
+**O ecrã ficava em branco e o contador mentia quando a lista mudava.** O
+`aplica()` só redesenhava quando o índice ficava FORA de gama. Se o edital à
+vista fosse retirado e sobrassem outros que chegassem para o índice continuar
+válido, o nó ativo saía do DOM sem substituto — e o contador continuava a dizer
+«ecrã 2 de 3» quando já eram dois. O caso mais visível é o inverso: passar de
+um edital para dois deixava o contador calado durante um intervalo inteiro, a
+negar que havia outro para ver.
+
+Apontado pelos dois revisores em paralelo. O ecrã em branco é anterior a esta
+peça; o contador desactualizado é dela, porque o contador é dela. Corrigem-se
+com o mesmo redesenho.
+
+**A barra aparecia a meio ao destapar o ecrã de arranque.** Se o ecrã inteiro
+for recusado, a rotação corre por trás do ecrã de arranque. Ao tocar nele, a
+barra surgia já a meio e a troca podia chegar logo a seguir. O primeiro ecrã
+que alguém vê passa a levar o seu tempo inteiro.
+
+**E dois defeitos nos meus próprios testes**, ambos apontados: o `_abre()`
+dormia 700 ms fixos em vez de esperar por um estado — uma intermitência à
+espera de acontecer num runner carregado — e o teste do relógio comparava o
+`#hora`, refrescado de 15 em 15 segundos, com um `Date` lido depois: na viragem
+do minuto um relógio **certo** falhava. Passa a aceitar um minuto de folga, o
+que não o afrouxa no que importa: um relógio parado, fixo ou noutro fuso erra
+por horas, não por um minuto.
+
+A espera por estado tinha ela própria um defeito, e foi um teste que o apanhou:
+usava `offsetParent` para ver se o «Sem editais» estava à vista, e em elementos
+`position:fixed` o `offsetParent` é sempre nulo. A pasta vazia ficou quinze
+segundos à espera de uma condição impossível.
+
+### O que não se corrigiu, e porquê
+
+- **Fuso horário fixo em Europe/Lisbon.** O relógio segue o do sistema, como
+  tudo o resto na máquina. Uma TV com o fuso errado mostra tudo errado, e o
+  remédio é a máquina. Fixar o fuso no código tirava a um município de outro
+  sítio a possibilidade de o ter certo.
+- **Respostas do `sincroniza()` fora de ordem.** Precisa de uma sondagem a
+  demorar mais de quinze segundos a servir um JSON pequeno numa LAN. É anterior
+  a esta peça e o remédio custa mais do que previne.
+
+### Seis vacuidades numa sessão
+
+A correção do redesenho **nasceu sem teste**: tirei-a do código à espera de ver
+vermelho e tudo passou. É a sexta vez nesta sessão. Com o teste certo dá
+«nenhum ecrã ficou à vista: a televisão ficou em branco» e «o contador diz «»
+com dois editais no ecrã».
