@@ -334,7 +334,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 760 testes (mais 39 de browser: pytest -m navegador)
+pytest          # 760 testes (mais 49 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1278,4 +1278,51 @@ Um painel no alto de uma folha lê-se; um painel por cima do rodapé, não.
 Outra vez: o `FORMATO` continua em **2** e o selo do mesmo registo continua a
 ser o mesmo. Isto mexeu no aspeto e não tocou num facto — e há um teste que fixa
 o valor para ninguém o mudar por distração.
+
+---
+
+## 25. O relógio e a barra de progresso — NOVO
+
+Veio de uma pergunta do posto, a 21/10/2026: se não se devia pôr música de
+fundo no expositor, «para não parecer um mono digital».
+
+A música ficou de fora, e por três razões que não são de gosto. **Acessibilidade**
+— o átrio é onde as pessoas falam com o balcão, e música de fundo mascara a fala
+precisamente para quem tem perda auditiva. **Licenciamento** — execução pública
+em espaço público passa pela SPA e pela PassMúsica, e uma Câmara Municipal não
+se pode dar ao luxo de ser apanhada sem licença. **Registo** — a certidão afirma
+que o edital foi afixado «no local designado por *Expositor eletrónico do
+Município*», e som transforma o lugar de afixação num ambiente.
+
+Mas o diagnóstico estava certo, e a correção não era som.
+
+### O que faltava não era movimento: era ritmo
+
+A página já tinha o fundo ondulante dourado em canvas e o cruzamento de um
+segundo entre ecrãs. O que não tinha era resposta para a pergunta que **quem
+está parado à frente de um carrossel** tem na cabeça: *«já vi tudo, ou falta
+alguma coisa?»*
+
+| Peça | Onde | O que diz |
+|---|---|---|
+| **Barra de progresso** | fio dourado no rebordo de baixo | quanto falta para o ecrã seguinte |
+| **Contador** | por baixo da data de publicação | «ecrã 2 de 5» |
+| **Relógio** | canto oposto ao logótipo | que o ecrã está vivo, e a data pela qual se contam os prazos |
+
+Três decisões que convém conhecer:
+
+- **O contador cala-se com um edital só.** «Ecrã 1 de 1» não responde a pergunta
+  nenhuma. A barra fica: aí é o único sinal de que aquilo está vivo.
+- **Sem editais a barra recolhe.** Uma barra a encher sobre «Sem editais a
+  apresentar» prometia um ecrã seguinte que não vem.
+- **O relógio anda ao minuto**, não ao segundo. Segundos a saltar num ecrã de
+  átrio são ruído, e obrigavam a redesenhar sessenta vezes mais vezes uma TV
+  que fica ligada o dia inteiro.
+
+### Quanto à música, se um dia a quiseres
+
+Fica a nota para quem decidir: **ambiente sonoro no átrio é uma decisão sobre o
+átrio, não sobre o expositor.** Coluna própria, sistema próprio, licença
+própria — e a página dos editais fica limpa do assunto. Separar as duas coisas
+é o que permite discutir cada uma pelo que ela é.
 

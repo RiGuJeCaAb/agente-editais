@@ -2127,3 +2127,81 @@ O remédio foi o mesmo das quatro vezes: **repor a correção, uma metade de cad
 vez, e exigir ver o vermelho**. Um teste que nunca se viu falhar não é um teste,
 é uma afirmação.
 
+---
+
+## 0.25.0 — O relógio e a barra de progresso
+
+Veio de uma pergunta do posto, a 21/10/2026: se não se devia pôr música de fundo
+no expositor, «para não parecer um mono digital».
+
+### A música ficou de fora
+
+Três razões, e nenhuma é de gosto:
+
+- **Acessibilidade.** O átrio é onde as pessoas falam com o balcão. Música de
+  fundo mascara a fala, e mascara-a pior para quem tem perda auditiva — que num
+  expositor de editais de câmara não é a minoria. Seria piorar o serviço
+  exactamente para quem mais precisa dele.
+- **Licenciamento.** Execução pública em espaço público passa pela SPA e pela
+  PassMúsica. Uma funcionalidade gratuita passaria a ser uma fatura anual e um
+  processo para manter.
+- **Registo do documento.** A certidão afirma que o edital foi afixado «no local
+  designado por *Expositor eletrónico do Município*». Som transforma o lugar de
+  afixação num ambiente.
+
+Fica a nota para quem um dia decidir o contrário: **ambiente sonoro no átrio é
+uma decisão sobre o átrio, não sobre o expositor.** Sistema próprio, licença
+própria, e a página dos editais fica limpa do assunto.
+
+### Mas o diagnóstico estava certo
+
+A página já tinha movimento: o fundo ondulante dourado em canvas e o cruzamento
+de um segundo entre ecrãs. O que lhe faltava era **ritmo** — resposta à pergunta
+que quem está parado à frente de um carrossel tem na cabeça: «já vi tudo, ou
+falta alguma coisa?».
+
+- **Barra de progresso**, um fio dourado no rebordo de baixo, a encher ao longo
+  do tempo do ecrã. Não tapa folha nenhuma e lê-se à distância a que se está num
+  átrio.
+- **Contador** «ecrã 2 de 5», por baixo da data de publicação. Ouro para o que é
+  conteúdo, branco esbatido para o que só situa — que é a hierarquia do resto da
+  página.
+- **Relógio** com a data por extenso, no canto oposto ao logótipo. É o sinal mais
+  barato de que um ecrã está vivo e não congelado, e num expositor de editais a
+  data não é decorativa: é a mesma pela qual se contam os dias de afixação.
+
+Três decisões pelo caminho. O contador **cala-se com um edital só**, porque
+«ecrã 1 de 1» não informa de nada — e a barra fica, que aí é o único sinal de
+vida. **Sem editais a barra recolhe**: a encher sobre «Sem editais a
+apresentar», prometia um ecrã seguinte que não vem. E o relógio **anda ao
+minuto**, não ao segundo: segundos a saltar são ruído, e multiplicavam por
+sessenta os redesenhos de uma TV que fica ligada o dia inteiro.
+
+### O defeito que isto quase repetiu
+
+A primeira tentativa punha o aviso de conteúdo velho com um `top: 5.9vh` por
+cima do relógio. Mas a altura do bloco do relógio vem de tamanhos em **vw** —
+logo as duas medidas batem certo num rácio de ecrã e em mais nenhum. Medido:
+escreve-se por cima da data em **quatro dos seis ecrãs** do banco de testes,
+incluindo o 1920×1080 do átrio e, com 54 pt de sobreposição, o monitor vertical.
+
+É o mesmo defeito que pôs o logótipo trinta píxeis acima do sítio na 0.24.1 —
+uma percentagem resolvida sobre a altura contra um número nascido da largura.
+E a correção não foi acertar o número: foi **deixar de haver número**. O aviso
+passou a correr dentro do bloco do relógio, e empilha-se sozinho.
+
+### Medido
+
+Dez testes de browser novos, e cada um visto a falhar:
+
+| Reposto | O que o teste diz |
+|---|---|
+| a página anterior, sem relógio nem barra | 10 vermelhos |
+| o aviso com `top` em vh | «o aviso começa em 63,7 e a data acaba em 82,4» — em 4 dos 6 ecrãs |
+| a barra sem a leitura do `offsetWidth` | «a barra não recomeçou no ecrã seguinte» |
+
+Essa última merece nota: entre pôr a barra a zero e mandá-la encher há uma
+leitura do `offsetWidth` que parece supérflua e não é. Sem ela o navegador junta
+as duas escritas num só recálculo, parte do valor antigo, e a barra fica cheia
+desde o primeiro instante sem nunca animar.
+

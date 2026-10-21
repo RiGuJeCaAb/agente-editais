@@ -120,12 +120,42 @@ def expositor_sem_o_ficheiro_do_logotipo(tmp_path_factory):
                        escrever_o_ficheiro=False)
 
 
-def _servir(pasta, logotipo, escrever_o_ficheiro=True):
+@pytest.fixture(scope="module")
+def expositor_depressa(tmp_path_factory):
+    """Três editais a dois segundos cada, para a rotação andar à vista.
+
+    As outras pastas servem 600 segundos por ecrã de propósito, para a folha
+    não trocar a meio de uma medição. A barra e o contador precisam do
+    contrário: só se vê uma barra a encher e um contador a mudar se a rotação
+    correr dentro do tempo de um teste.
+    """
+    yield from _servir(tmp_path_factory.mktemp("depressa"), LOGOTIPO, spe=2)
+
+
+@pytest.fixture(scope="module")
+def expositor_de_um_so_edital(tmp_path_factory):
+    """Um edital só. O contador tem de se calar: «ecrã 1 de 1» não informa."""
+    yield from _servir(tmp_path_factory.mktemp("um_so"), LOGOTIPO,
+                       casos=CASOS[:1])
+
+
+@pytest.fixture(scope="module")
+def expositor_vazio(tmp_path_factory):
+    """Nenhum edital. Não há tempo nenhum a correr, e a barra não o pode fingir."""
+    yield from _servir(tmp_path_factory.mktemp("vazio"), LOGOTIPO, casos=[])
+
+
+def _servir(pasta, logotipo, escrever_o_ficheiro=True, spe=600, casos=None):
     """Monta uma pasta de saída com este logótipo e serve-a por HTTP.
 
     Servida e não aberta em file://: a página busca o slides.json por fetch, e
     um fetch a partir de file:// é recusado pelo browser — o que daria uma
     televisão vazia e um teste a falhar por razão errada.
+
+    O `spe` e os `casos` são parâmetros porque a barra de progresso e o
+    contador só se podem medir com a rotação a andar depressa e com números de
+    editais diferentes — e os 600 segundos das outras pastas existem
+    precisamente para a rotação NÃO andar enquanto se mede o desenho.
 
     Com `escrever_o_ficheiro=False` o slides.json continua a dizer que há
     logótipo mas o PNG não vai para a pasta. É o que acontece no posto quando o
@@ -139,7 +169,7 @@ def _servir(pasta, logotipo, escrever_o_ficheiro=True):
         Image.new("RGB", tam, "white").save(pasta / nome)
 
     slides = []
-    for nome, tamanhos in CASOS:
+    for nome, tamanhos in (CASOS if casos is None else casos):
         paginas = [Image.new("RGB", t) for t in tamanhos]
         caixas = trat.caixas_do_ecra(paginas)
         src = "dt.png" if tamanhos == [DEITADA] else "a4.png"
@@ -149,7 +179,7 @@ def _servir(pasta, logotipo, escrever_o_ficheiro=True):
             "logotipo": trat.ha_espaco_para_o_logotipo(
                 caixas, Image.new("RGBA", logotipo))}})
     (pasta / "slides.json").write_text(json.dumps(
-        {"versao": "1", "spe": 600, "titulo": "Testes", "v": "1", "gerado_em": "1",
+        {"versao": "1", "spe": spe, "titulo": "Testes", "v": "1", "gerado_em": "1",
          "slides": slides}), encoding="utf-8")
 
     handler = functools.partial(http.server.SimpleHTTPRequestHandler,
@@ -414,3 +444,134 @@ def test_o_logotipo_nunca_tapa_a_primeira_folha(browser, expositor, largura, alt
         _, my, _, mh = medido["marca"]
         for _, y, _, _ in medido["folhas"]:
             assert y >= my + mh - 0.5, f"{nome} em {largura}x{altura}"
+
+
+# ===========================================================================
+# O relógio e a barra de progresso — pedidos a 21/10/2026
+#
+# Vieram de uma pergunta do posto: se a página não parecia «um mono digital».
+# A resposta foi que o movimento já lá estava — o fundo ondulante, o cruzamento
+# de um segundo — e o que faltava era RITMO: quem está parado à frente de um
+# carrossel tem uma pergunta concreta, «já vi tudo?», e a página não respondia.
+# ===========================================================================
+def _abre(browser, url, largura=1920, altura=1080):
+    """Abre a televisão, dispensa o ecrã de arranque e espera pelo primeiro ecrã."""
+    pagina = browser.new_page(viewport={"width": largura, "height": altura})
+    pagina.goto(url)
+    pagina.evaluate("document.getElementById('arranque').style.display='none'")
+    pagina.wait_for_timeout(700)
+    return pagina
+
+
+def test_o_relogio_mostra_a_hora_e_a_data_desta_maquina(browser, expositor):
+    """O relógio é o sinal mais barato de que um ecrã está vivo e não congelado.
+
+    Num expositor de editais a data não é decorativa: é a mesma pela qual se
+    contam os dias de afixação. Confere-se contra o relógio do próprio browser
+    e não contra o do Python — se a página escrevesse uma hora fixa, ou a de
+    outro fuso, este teste via-o.
+    """
+    pagina = _abre(browser, expositor)
+    try:
+        hora = pagina.text_content("#hora")
+        esperada = pagina.evaluate(
+            "new Date().toLocaleTimeString('pt-PT',{hour:'2-digit',minute:'2-digit'})")
+        assert hora == esperada, f"o relógio diz {hora!r} e são {esperada!r}"
+        data = pagina.text_content("#data")
+        ano = pagina.evaluate("'' + new Date().getFullYear()")
+        assert ano in data, f"a data «{data}» não traz o ano corrente"
+    finally:
+        pagina.close()
+
+
+@pytest.mark.parametrize("largura, altura", ECRAS)
+def test_o_aviso_de_conteudo_velho_nao_escreve_por_cima_da_data(
+        browser, expositor, largura, altura):
+    """As três linhas do canto empilham-se, em qualquer formato de ecrã.
+
+    A primeira tentativa punha o aviso com um `top` próprio em vh, e a altura
+    do bloco do relógio vem de tamanhos em vw: batem certo num rácio de ecrã e
+    em mais nenhum — e nos outros o aviso escrevia-se por cima da data. É o
+    mesmo defeito que pôs o logótipo trinta píxeis acima do sítio na 0.24.1,
+    uma percentagem resolvida sobre a altura contra um número nascido da
+    largura. Por isso se mede nos seis ecrãs e não só no 16:9.
+
+    O `gerado_em` das pastas de teste é «1», que dá uma data de 2001 — o aviso
+    aparece sempre, que é o que torna este teste possível.
+    """
+    pagina = _abre(browser, expositor, largura, altura)
+    try:
+        caixas = pagina.evaluate("""() => {
+            const r = id => { const b = document.getElementById(id)
+                .getBoundingClientRect();
+              return {topo: b.top, fundo: b.bottom, texto:
+                document.getElementById(id).textContent}; };
+            return {data: r('data'), estado: r('estado')};
+        }""")
+        assert caixas["estado"]["texto"], "o aviso de conteúdo velho não saiu"
+        assert caixas["estado"]["topo"] >= caixas["data"]["fundo"] - 0.5, (
+            f"o aviso começa em {caixas['estado']['topo']:.1f} e a data acaba em "
+            f"{caixas['data']['fundo']:.1f} — escrevem-se um por cima do outro")
+    finally:
+        pagina.close()
+
+
+def test_a_barra_enche_ao_longo_do_ecra_e_recomeca_no_seguinte(
+        browser, expositor_depressa):
+    """A barra responde a «quanto falta para o próximo?», e tem de dizer a verdade.
+
+    Mede-se o que está DESENHADO e não o CSS: a barra anima por uma transição
+    de largura, e uma transição mal reiniciada fica cheia desde o primeiro
+    instante sem nunca animar — que é precisamente o que acontece sem a leitura
+    do offsetWidth entre pôr a zero e mandar encher.
+    """
+    pagina = _abre(browser, expositor_depressa)
+    try:
+        largura = lambda: pagina.evaluate(  # noqa: E731
+            "document.getElementById('barra').getBoundingClientRect().width")
+        contador = lambda: pagina.text_content("#contador")  # noqa: E731
+
+        primeiro = contador()
+        assert primeiro.startswith("ecrã "), f"contador em branco: {primeiro!r}"
+        cedo = largura()
+        pagina.wait_for_timeout(900)
+        tarde = largura()
+        assert tarde > cedo + 50, (
+            f"a barra não encheu: {cedo:.0f} px e depois {tarde:.0f} px")
+
+        # Agora a troca de ecrã: o contador anda e a barra recolhe.
+        pagina.wait_for_function(
+            "t => document.getElementById('contador').textContent !== t",
+            arg=primeiro, timeout=5000)
+        assert largura() < tarde, "a barra não recomeçou no ecrã seguinte"
+    finally:
+        pagina.close()
+
+
+def test_o_contador_cala_se_com_um_so_edital(browser, expositor_de_um_so_edital):
+    """«Ecrã 1 de 1» não responde a pergunta nenhuma, e por isso não se escreve.
+
+    A barra fica: com um edital só, é o único sinal de que aquilo está vivo.
+    """
+    pagina = _abre(browser, expositor_de_um_so_edital)
+    try:
+        assert pagina.text_content("#contador") == ""
+        assert pagina.locator(".slide").count() == 1
+    finally:
+        pagina.close()
+
+
+def test_sem_editais_a_barra_nao_promete_um_ecra_seguinte(browser, expositor_vazio):
+    """Sem editais não há tempo a correr, e uma barra a encher seria uma mentira.
+
+    Sobre «Sem editais a apresentar», uma barra a avançar prometia um ecrã que
+    não vem — e quem está à espera dele fica à espera para sempre.
+    """
+    pagina = _abre(browser, expositor_vazio)
+    try:
+        assert pagina.evaluate(
+            "document.getElementById('barra').getBoundingClientRect().width") == 0
+        assert pagina.text_content("#contador") == ""
+        assert pagina.locator("#vazio").is_visible()
+    finally:
+        pagina.close()

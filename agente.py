@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.24.4"
+VERSAO = "0.25.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -868,15 +868,48 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   #arranque h1{font-family:Georgia,serif;font-weight:600;font-size:3vw;color:#fff;text-align:center;max-width:80%}
   #arranque p{color:#cfe3d6;font-size:1.3vw}
   #arranque .btn{border:2px solid var(--ouro);color:var(--ouro);padding:14px 30px;border-radius:99px;font-size:1.4vw}
-  #estado{position:fixed;top:1vh;right:1vw;z-index:3;font-size:.8vw;color:rgba(255,255,255,.25)}
+  /* O relógio assenta no canto OPOSTO ao logótipo, que vai à esquerda (o
+     LOGO_MARGEM_FRAC do tratamento.py conta da esquerda). Não é enfeite: é o
+     sinal mais barato de que o ecrã está vivo e não congelado — e num expositor
+     de editais a data não é decorativa, é a mesma pela qual se contam os dias
+     de afixação. Ouro sobre branco esbatido, que é a hierarquia do resto da
+     página: ouro para o que se lê, branco fraco para o que só situa. */
+  #relogio{position:fixed;top:1.6vh;right:1.6vw;z-index:3;text-align:right;
+    text-shadow:0 2px 6px #000;line-height:1.15}
+  /* Algarismos de largura fixa: sem isto a hora dança de um lado para o outro a
+     cada minuto, porque o "1" é mais estreito do que o "8". */
+  #hora{font-size:2vw;color:var(--ouro);font-variant-numeric:tabular-nums}
+  #data{font-size:.95vw;color:rgba(255,255,255,.55)}
+  /* O aviso de conteúdo velho passa a correr DENTRO do relógio, e não colocado
+     por cima dele com um `top` próprio. A primeira tentativa dava-lhe
+     `top:5.9vh` e escrevia-se em cima da data: a altura do bloco do relógio
+     vem de tamanhos em vw e o afastamento estava em vh, por isso as duas
+     medidas batem certo num rácio de ecrã e em mais nenhum. É o mesmo defeito
+     que pôs o logótipo trinta píxeis acima do sítio na 0.24.1 — uma percentagem
+     resolvida sobre a altura contra um número nascido da largura. A correção
+     não é acertar o número: é deixar de haver número. */
+  #estado{font-size:.8vw;color:rgba(255,255,255,.25);margin-top:.6vh}
+  /* Quem está parado à frente de um carrossel tem uma pergunta concreta: «já vi
+     tudo, ou falta alguma coisa?». O contador e a barra respondem-lhe, e é por
+     isso que entram — não para dar movimento, que o fundo ondulante já dá.
+     A barra é um fio no rebordo de baixo: não tapa folha nenhuma e lê-se de
+     longe, que é a distância a que se está num átrio. */
+  #lado{text-align:right}
+  #contador{font-size:.95vw;color:rgba(255,255,255,.5);margin-top:.5vh;
+    text-shadow:0 2px 6px #000}
+  #barra{position:fixed;left:0;bottom:0;height:.45vh;z-index:3;width:0;
+    background:linear-gradient(90deg,var(--ouro),var(--ouro2))}
 </style>
 </head>
 <body>
   <canvas id="fundo"></canvas>
   <div id="palco"></div>
   <div id="vazio">Sem editais a apresentar.</div>
-  <div id="info"><div id="assunto"></div><div id="pub"></div></div>
-  <div id="estado"></div>
+  <div id="info"><div id="assunto"></div>
+    <div id="lado"><div id="pub"></div><div id="contador"></div></div></div>
+  <div id="barra"></div>
+  <div id="relogio"><div id="hora"></div><div id="data"></div>
+    <div id="estado"></div></div>
   <div id="arranque">
     <h1>__TITULO__</h1>
     <p>Toque no ecr&atilde; para iniciar a apresenta&ccedil;&atilde;o em ecr&atilde; inteiro</p>
@@ -1027,6 +1060,10 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   var elP = document.getElementById('pub');
   var elV = document.getElementById('vazio');
   var elE = document.getElementById('estado');
+  var elH = document.getElementById('hora');
+  var elD = document.getElementById('data');
+  var elC = document.getElementById('contador');
+  var elB = document.getElementById('barra');
 
   // Ao fim de quantos minutos sem o agente escrever o slides.json se considera
   // que o que está no ecrã pode já não valer. Três ciclos do vigia (30 s) com
@@ -1181,14 +1218,58 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     var s = slides[idx];
     elA.textContent = s && s.assunto ? s.assunto : '';
     elP.textContent = s && s.pub ? ('Publicado em ' + fmt(s.pub)) : '';
+    // Com um só edital o contador cala-se: «ecrã 1 de 1» não responde a pergunta
+    // nenhuma. A barra fica, que aí é o único sinal de que aquilo está vivo.
+    elC.textContent = nodes.length > 1
+      ? ('ecrã ' + (idx + 1) + ' de ' + nodes.length) : '';
+    reiniciaBarra();
   }
 
   function avanca(){ if(nodes.length) mostra(idx + 1); }
+
+  // Acerta o relógio. Um minuto de granularidade chega e sobra: segundos a
+  // saltar num ecrã de átrio são ruído, e obrigavam a redesenhar sessenta vezes
+  // mais vezes uma TV que fica ligada o dia inteiro. Corre de 15 em 15 segundos
+  // para o minuto nunca aparecer atrasado mais do que isso.
+  function relogio(){
+    var agora = new Date();
+    elH.textContent = agora.toLocaleTimeString('pt-PT',
+      {hour: '2-digit', minute: '2-digit'});
+    elD.textContent = agora.toLocaleDateString('pt-PT',
+      {weekday: 'short', day: 'numeric', month: 'long', year: 'numeric'});
+  }
+
+  // Põe a barra a zero e manda-a encher ao longo do tempo deste ecrã.
+  //
+  // A leitura do offsetWidth no meio NÃO é supérflua, por mais que pareça: sem
+  // ela o navegador junta as duas escritas de width num só recálculo, parte do
+  // valor antigo e a barra nunca chega a animar — fica cheia desde o primeiro
+  // instante. Ler uma medida obriga-o a assentar o zero antes de seguir.
+  function reiniciaBarra(){
+    elB.style.transition = 'none';
+    elB.style.width = '0%';
+    void elB.offsetWidth;
+    elB.style.transition = 'width ' + spe + 'ms linear';
+    elB.style.width = '100%';
+  }
+
+  // Recolhe a barra e deixa-a quieta: sem editais não há tempo nenhum a correr,
+  // e uma barra a encher sobre «Sem editais a apresentar» prometia um ecrã
+  // seguinte que não vem.
+  function paraBarra(){
+    elB.style.transition = 'none';
+    elB.style.width = '0%';
+  }
 
   // (Re)arranca o temporizador da rotação com o intervalo atual.
   function arrancaRotacao(){
     if (timer) clearInterval(timer);
     timer = setInterval(avanca, spe);
+    // A barra reinicia COM o temporizador, e não só a cada troca de ecrã. O
+    // slides.json pode mudar os segundos por ecrã a meio, e o sincroniza()
+    // rearranca a rotação a partir de agora: sem isto a barra ficava a contar
+    // o intervalo antigo e prometia uma troca que já não era àquela hora.
+    reiniciaBarra();
   }
 
   // Reconciliação: aplica uma nova lista de slides SEM destruir o que já está,
@@ -1216,6 +1297,7 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
     // Estado vazio vs com conteúdo.
     if (!nodes.length){
       elV.style.display = 'flex'; elA.textContent=''; elP.textContent='';
+      elC.textContent=''; paraBarra();
       if (timer){ clearInterval(timer); timer=null; }
     } else {
       elV.style.display = 'none';
@@ -1323,6 +1405,12 @@ _HTML_TEMPLATE = r"""<!DOCTYPE html>
   }
 
   arr.addEventListener('click', comeca);
+
+  // O relógio arranca já, e não no comeca(): até alguém tocar no ecrã de
+  // arranque ele fica tapado por cima, mas assim que o ecrã abre a hora já está
+  // certa, em vez de aparecer em branco durante os primeiros quinze segundos.
+  relogio();
+  setInterval(relogio, 15000);
 
   // Tenta arrancar automaticamente; se o fullscreen precisar de toque, o ecrã de
   // arranque fica à espera, mas a apresentação começa na mesma passado 1s para o
