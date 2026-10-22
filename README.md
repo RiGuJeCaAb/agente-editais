@@ -334,7 +334,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 763 testes (mais 61 de browser: pytest -m navegador)
+pytest          # 764 testes (mais 61 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -595,11 +595,14 @@ Ficheiros gerados em `saida/`: `index.html` (reescrito a cada publicação e no
 arranque do agente), `slides.json` (muda a cada publicação), os PNG e o ZIP de
 arquivo.
 
-**Depois de atualizar o agente, recarrega a televisão uma vez** (Ctrl+F5). A
-página vai buscar o `slides.json` sozinha mas nunca se recarrega a si própria — é
-isso que deixa o carrossel correr sem piscar — e por isso o código novo da
-própria página só entra com um recarregamento. Reiniciar o agente reescreve o
-`index.html`; é a televisão que tem de o voltar a pedir.
+**Depois de atualizar o agente, recarrega a televisão uma vez.** Com teclado,
+Ctrl+F5, que é o mais seguro porque ignora a cache. Só com o comando, a opção de
+recarregar do browser da TV, ou fechar e voltar a abrir a app; num Raspberry Pi em
+modo quiosque, reiniciá-lo. A página vai buscar o `slides.json` sozinha mas nunca
+se recarrega a si própria — é isso que deixa o carrossel correr sem piscar — e
+por isso o código novo da própria página só entra com um recarregamento.
+Reiniciar o agente reescreve o `index.html` logo no arranque: quando o painel
+responde, a página nova já lá está, e é a televisão que a tem de voltar a pedir.
 
 ### Fundo com veias douradas ondulantes
 

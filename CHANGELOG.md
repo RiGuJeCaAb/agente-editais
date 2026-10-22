@@ -2338,9 +2338,9 @@ com dois editais no ecrã».
 
 ## 0.25.1 — Dois textos que diziam o que não era
 
-Duas pontas soltas que ficaram anotadas no fim da 0.25.0. Nenhuma mexe no que a
-aplicação faz no posto. Por isso levam o terceiro número, pela regra que esta
-mesma versão escreve.
+Duas pontas soltas que ficaram anotadas no fim da 0.25.0, e uma correção que a
+revisão da primeira trouxe. Não há funcionalidade nova. Por isso levam o terceiro
+número, pela regra que esta mesma versão escreve.
 
 ### O index.html não é escrito «uma vez»
 
@@ -2377,3 +2377,22 @@ Passa a estar escrita como se usa. Funcionalidade nova leva o segundo número.
 Correção, documentação, testes e arrumação levam o terceiro. A
 `ferramentas/versao_subiu.py` citava a frase antiga na mensagem de erro e foi
 atualizada também, para que as duas não voltem a divergir.
+
+### A página da TV escreve-se no arranque, antes de tudo
+
+Achado do Sourcery na revisão desta versão. O README passava a mandar recarregar
+a televisão depois de atualizar o agente, mas a página nova só era escrita pela
+publicação do arranque, que corre em fundo para a composição não atrasar o
+painel. Uma TV recarregada nessa janela recebia a página da versão anterior. Se
+essa publicação falhasse, recebia-a até à publicação seguinte.
+
+O `index.html` escreve-se agora logo no início do arranque, antes da migração e
+antes de o painel abrir. É barato, porque é só um modelo de texto. Quando o
+painel responde, a página nova já lá está. A escrita passou para uma função só,
+`escrever_pagina_da_tv`, que o arranque e a publicação chamam, para os dois
+caminhos não divergirem. Um disco que não deixa escrever fica no diário e não
+impede o painel de abrir. O teste simula o pior caso, em que a publicação em
+fundo não chega a correr, e foi visto a falhar contra o código anterior.
+
+O README dizia só Ctrl+F5, e uma televisão operada com o comando não tem
+teclado. Passa a dizer também como recarregar sem ele.

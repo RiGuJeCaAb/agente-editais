@@ -1573,15 +1573,15 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
     # regenera sozinho no ciclo seguinte.
     arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0)
 
-    # index.html — reescrito a CADA republicação, incluindo a do arranque. Este
-    # comentário dizia «escrito uma vez», e era falso: não há condição nenhuma à
-    # volta da escrita. Importa saber porquê não é «uma vez», porque decide o que
-    # fazer depois de atualizar o agente: reiniciá-lo chega para o ficheiro ficar
-    # novo, mas a TELEVISÃO não o volta a pedir sozinha — só vai buscar o
-    # slides.json — e tem de ser recarregada uma vez. Já não leva os slides lá
-    # dentro: só o título inicial, o intervalo por defeito e as frações do desenho.
-    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"),
-                            pagina_da_tv(cfg))
+    # index.html — reescrito a CADA republicação, e também no arranque, antes de
+    # o painel abrir (ver iniciar_painel). Este comentário dizia «escrito uma
+    # vez», e era falso: não há condição nenhuma à volta da escrita. Importa
+    # saber porquê não é «uma vez», porque decide o que fazer depois de atualizar
+    # o agente: reiniciá-lo chega para o ficheiro ficar novo, mas a TELEVISÃO não
+    # o volta a pedir sozinha — só vai buscar o slides.json — e tem de ser
+    # recarregada uma vez. Já não leva os slides lá dentro: só o título inicial,
+    # o intervalo por defeito e as frações do desenho.
+    escrever_pagina_da_tv(cfg)
 
     # O logótipo passou a ser uma imagem servida à parte, porque quem o assenta
     # agora é a televisão. Antes vinha gravado dentro de cada PNG composto.
@@ -1593,6 +1593,21 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
             logo_im.save(caminho, "PNG")
         except OSError as ex:
             _agente.warning(f"não foi possível escrever o logótipo da TV: {ex}")
+
+
+def escrever_pagina_da_tv(cfg):
+    """Escreve o index.html da televisão, sem tocar nos slides.
+
+    À parte de _escrever_pagina_tv porque o arranque precisa só disto, e já:
+    a publicação do arranque corre em fundo, e uma TV recarregada nessa janela
+    — ou depois de essa publicação falhar — recebia a página da versão
+    anterior. É barato, é um modelo de texto; o pesado fica para a publicação.
+
+    Args:
+        cfg (dict): configuração.
+    """
+    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"),
+                            pagina_da_tv(cfg))
 
 
 def _escrever_texto_atomico(caminho, texto):
@@ -1665,6 +1680,17 @@ def iniciar_painel(cfg):
     Args:
         cfg (dict): configuração.
     """
+    # A página da TV escreve-se JÁ, antes de tudo o resto e sem esperar pela
+    # publicação em fundo. Sem isto, uma TV recarregada depois de atualizar o
+    # agente apanhava a página velha até essa publicação acabar — e para sempre,
+    # se ela falhasse. Assim, quando o painel responde, a página nova já lá está.
+    # Um disco que não deixa escrever não impede o painel de abrir: é
+    # precisamente de lá que se vê o que se passa.
+    try:
+        escrever_pagina_da_tv(cfg)
+    except OSError as ex:
+        _tv.warning(f"não foi possível escrever a página da TV no arranque: {ex}")
+
     reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
 
     # Traz os editais do modelo antigo, se os houver. Corre antes de tudo o
