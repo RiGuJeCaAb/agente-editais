@@ -170,6 +170,34 @@ def test_um_edital_sem_numero_atribuido_nao_ganha_um_no_slides_json(posto):
     assert d["slides"][0]["rotulo"], "o rótulo do tipo não pode faltar"
 
 
+def test_uma_pagina_da_tv_velha_e_substituida_ao_publicar(posto):
+    """O index.html é reescrito a cada publicação — e não «uma vez».
+
+    Um comentário e o README diziam «escrito uma vez», e era falso. Mas a
+    diferença não é de estilo: se alguém um dia acreditar no comentário e puser
+    um «só se não existir» à volta da escrita, a televisão NUNCA MAIS recebe
+    código novo. Cada atualização do agente ficaria a meio — o painel novo, a
+    página do átrio velha — e sem um único erro em lado nenhum.
+
+    Simula-se o posto depois de um git pull: na pasta de saída está a página de
+    uma versão anterior, e a publicação seguinte tem de a substituir.
+
+    Passa contra o código anterior DE PROPÓSITO, e o AGENTS.md pede que isso se
+    diga: não prova uma correção, fixa um comportamento que não pode mudar. Foi
+    visto a falhar contra a escrita guardada por «só se não existir», que é a
+    regressão que existe para apanhar.
+    """
+    saida = posto["cfg"]["saida"]
+    velha = "<!doctype html><title>página de uma versão anterior</title>"
+    with open(os.path.join(saida, "index.html"), "w", encoding="utf-8") as f:
+        f.write(velha)
+    publicar(posto)
+    with open(os.path.join(saida, "index.html"), encoding="utf-8") as f:
+        atual = f.read()
+    assert atual != velha, "a página velha ficou: a TV nunca recebe código novo"
+    assert atual == agente.pagina_da_tv(posto["cfg"])
+
+
 def test_a_pagina_da_tv_leva_as_fracoes_do_desenho_e_nao_as_medidas_do_palco(posto):
     """Levava o TAMANHO do palco, porque encolhia um retângulo de 3840×2160 até
     ele caber. Num ecrã que não fosse 16:9 isso punha o desenho inteiro numa

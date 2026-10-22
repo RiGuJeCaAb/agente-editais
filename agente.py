@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.25.0"
+VERSAO = "0.25.1"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -1548,8 +1548,8 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
     Mudança de arquitetura face à versão anterior: os slides deixam de ser
     embebidos no HTML. Passam a viver num ficheiro à parte, 'slides.json', que a
     página busca periodicamente (polling). Assim, editais novos entram no carrossel
-    SEM recarregar a página nem interromper a rotação — o HTML é escrito uma vez e
-    só o JSON muda. O 'v' (versão) é um carimbo temporal que a página usa para
+    SEM recarregar a página nem interromper a rotação — a página não volta a pedir
+    o HTML, só o JSON. O 'v' (versão) é um carimbo temporal que a página usa para
     detetar se houve alteração sem comparar a lista toda.
 
     Args:
@@ -1573,8 +1573,13 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
     # regenera sozinho no ciclo seguinte.
     arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0)
 
-    # index.html — escrito uma vez; já não leva os slides lá dentro. Só precisa de
-    # saber o título inicial, o intervalo por defeito e as frações do desenho.
+    # index.html — reescrito a CADA republicação, incluindo a do arranque. Este
+    # comentário dizia «escrito uma vez», e era falso: não há condição nenhuma à
+    # volta da escrita. Importa saber porquê não é «uma vez», porque decide o que
+    # fazer depois de atualizar o agente: reiniciá-lo chega para o ficheiro ficar
+    # novo, mas a TELEVISÃO não o volta a pedir sozinha — só vai buscar o
+    # slides.json — e tem de ser recarregada uma vez. Já não leva os slides lá
+    # dentro: só o título inicial, o intervalo por defeito e as frações do desenho.
     _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"),
                             pagina_da_tv(cfg))
 

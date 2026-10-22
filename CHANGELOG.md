@@ -2333,3 +2333,47 @@ A correção do redesenho **nasceu sem teste**: tirei-a do código à espera de 
 vermelho e tudo passou. É a sexta vez nesta sessão. Com o teste certo dá
 «nenhum ecrã ficou à vista: a televisão ficou em branco» e «o contador diz «»
 com dois editais no ecrã».
+
+---
+
+## 0.25.1 — Dois textos que diziam o que não era
+
+Duas pontas soltas que ficaram anotadas no fim da 0.25.0. Nenhuma mexe no que a
+aplicação faz no posto. Por isso levam o terceiro número, pela regra que esta
+mesma versão escreve.
+
+### O index.html não é escrito «uma vez»
+
+Um comentário no `agente.py`, a docstring da mesma função e o README, em dois
+sítios, diziam que o `index.html` da televisão era escrito uma vez. É falso: não
+há condição nenhuma à volta da escrita, e o ficheiro é reescrito a cada
+publicação, incluindo a do arranque.
+
+O erro parece de estilo, mas tem consequências práticas. Decide o que fazer
+depois de atualizar o agente. **Reiniciar o agente chega para o ficheiro ficar
+novo, mas a televisão não o volta a pedir sozinha.** Só vai buscar o
+`slides.json`, e é por isso que o carrossel corre sem piscar. O código novo da
+própria página só entra se se recarregar a TV uma vez. O README passa a dizê-lo.
+
+Fica um teste para garantir isto. Se alguém acreditasse no comentário antigo e
+pusesse um «só se não existir» à volta da escrita, a televisão **nunca mais
+receberia código novo**. Cada atualização do agente ficaria a meio, com o painel
+novo e a página do átrio velha, sem um único erro em lado nenhum. O teste passa
+contra o código anterior de propósito, e diz isso, como o `AGENTS.md` pede. Foi
+visto a falhar contra a escrita guardada, que é a regressão que existe para
+apanhar.
+
+### A regra da versão, escrita como se usa
+
+O `AGENTS.md` dizia «alteração que não muda o que a aplicação faz leva o
+terceiro número; tudo o resto leva o segundo». A frase dá para duas leituras, e
+a divergência custou uma ronda de revisão na PR #23. À letra, qualquer correção
+levaria o segundo número, porque corrigir um defeito é mudar o que a aplicação
+fazia. A prática da casa sempre foi outra: a 0.23.1, com sete correções ao
+português da certidão, e a 0.24.1, com o logótipo no sítio errado, levaram o
+terceiro.
+
+Passa a estar escrita como se usa. Funcionalidade nova leva o segundo número.
+Correção, documentação e testes levam o terceiro. A `ferramentas/versao_subiu.py`
+citava a frase antiga na mensagem de erro e foi atualizada também, para que as
+duas não voltem a divergir.

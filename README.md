@@ -334,7 +334,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 762 testes (mais 61 de browser: pytest -m navegador)
+pytest          # 763 testes (mais 61 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -589,10 +589,17 @@ Passam a viver num ficheiro **`slides.json`** que a página vai buscar de 15 em 
 segundos. Quando publica ou retira um edital no painel, só o `slides.json` muda —
 a página deteta a nova versão e **reconcilia o carrossel ao vivo** (adiciona os
 novos no fim da fila, remove os que saíram) sem recarregar nem cortar a rotação
-que está a decorrer. O `index.html` é escrito uma vez; a fonte viva é o JSON.
+que está a decorrer. A fonte viva é o JSON.
 
-Ficheiros gerados em `saida/`: `index.html` (uma vez), `slides.json` (muda a cada
-publicação), os PNG e o ZIP de arquivo.
+Ficheiros gerados em `saida/`: `index.html` (reescrito a cada publicação e no
+arranque do agente), `slides.json` (muda a cada publicação), os PNG e o ZIP de
+arquivo.
+
+**Depois de atualizar o agente, recarrega a televisão uma vez** (Ctrl+F5). A
+página vai buscar o `slides.json` sozinha mas nunca se recarrega a si própria — é
+isso que deixa o carrossel correr sem piscar — e por isso o código novo da
+própria página só entra com um recarregamento. Reiniciar o agente reescreve o
+`index.html`; é a televisão que tem de o voltar a pedir.
 
 ### Fundo com veias douradas ondulantes
 

@@ -87,8 +87,20 @@ recente no fim. Secção nova vai para o **fim** do ficheiro. Já se inseriu uma
 sítio errado por se assumir a ordem contrária.
 
 Cada peça leva uma versão. `VERSAO` em `agente.py` e `version` em `pyproject.toml`
-sobem juntos e nunca se separam. Alteração que não muda o que a aplicação faz leva
-o terceiro número; tudo o resto leva o segundo.
+sobem juntos e nunca se separam.
+
+- **Funcionalidade nova** leva o **segundo** número: 0.24.4 → 0.25.0.
+- **Correção de um defeito** leva o **terceiro**, mesmo que mude o que a aplicação
+  faz — corrigir um defeito é, por definição, mudar o que ela fazia mal.
+- **Documentação, testes e arrumação**, que não mudam nada no posto, levam também
+  o terceiro.
+
+A frase anterior dizia «alteração que não muda o que a aplicação faz leva o
+terceiro número; tudo o resto leva o segundo», e dava para duas leituras. À letra,
+qualquer correção levaria o segundo; mas a 0.23.1 (sete correções ao português da
+certidão) e a 0.24.1 (o logótipo no sítio errado) levaram o terceiro, e é essa a
+prática. A divergência custou uma ronda de revisão na PR #23, e passou a estar
+escrita como se usa.
 
 ## Funcionalidade nova entra no README
 
