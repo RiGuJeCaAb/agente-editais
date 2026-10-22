@@ -196,6 +196,11 @@ def test_uma_pagina_da_tv_velha_e_substituida_ao_publicar(posto):
         atual = f.read()
     assert atual != velha, "a página velha ficou: a TV nunca recebe código novo"
     assert atual == agente.pagina_da_tv(posto["cfg"])
+    # A igualdade acima passaria com uma página vazia, se o gerador a devolvesse
+    # vazia. Confere-se à parte o que faz dela a página do átrio: o palco onde
+    # os slides entram e o pedido do slides.json que os traz.
+    assert '<div id="palco">' in atual, "a página escrita não tem o palco"
+    assert "fetch('slides.json" in atual, "a página escrita não pede os slides"
 
 
 def test_a_pagina_da_tv_leva_as_fracoes_do_desenho_e_nao_as_medidas_do_palco(posto):

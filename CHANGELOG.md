@@ -2374,6 +2374,6 @@ português da certidão, e a 0.24.1, com o logótipo no sítio errado, levaram o
 terceiro.
 
 Passa a estar escrita como se usa. Funcionalidade nova leva o segundo número.
-Correção, documentação e testes levam o terceiro. A `ferramentas/versao_subiu.py`
-citava a frase antiga na mensagem de erro e foi atualizada também, para que as
-duas não voltem a divergir.
+Correção, documentação, testes e arrumação levam o terceiro. A
+`ferramentas/versao_subiu.py` citava a frase antiga na mensagem de erro e foi
+atualizada também, para que as duas não voltem a divergir.
