@@ -250,6 +250,42 @@ def test_o_arranque_escreve_a_pagina_da_tv_antes_de_o_painel_abrir(posto, monkey
     assert visto["pagina"] == agente.pagina_da_tv(cfg)
 
 
+def test_uma_configuracao_estragada_nao_impede_o_painel_de_abrir(posto, monkeypatch):
+    """Um config.json com o intervalo por extenso não fecha a porta ao painel.
+
+    A página da TV faz int(cfg["segundos_por_ecra"]), e não há validação antes.
+    Enquanto a escrita vivia só na thread de publicação, «"trinta"» rebentava lá
+    dentro e o painel abria na mesma. Quando a escrita passou para o início do
+    arranque, só se apanhava OSError, e o mesmo erro deixava o posto sem painel.
+    Apanhado pelo revisor da casa na PR #25; visto a falhar com o except estreito.
+    """
+    import threading
+
+    cfg = dict(posto["cfg"], segundos_por_ecra="trinta")
+
+    class ThreadQueNaoCorre:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            pass
+
+    abriu = []
+
+    class PainelFalso:
+        def __init__(self, *a, **k):
+            pass
+
+        def iniciar(self, **k):
+            abriu.append(True)
+
+    monkeypatch.setattr(threading, "Thread", ThreadQueNaoCorre)
+    monkeypatch.setattr(agente.painel_mod, "PainelServer", PainelFalso)
+    agente.iniciar_painel(cfg)
+
+    assert abriu, "o painel não abriu por causa de um valor do config.json"
+
+
 def test_a_pagina_da_tv_leva_as_fracoes_do_desenho_e_nao_as_medidas_do_palco(posto):
     """Levava o TAMANHO do palco, porque encolhia um retângulo de 3840×2160 até
     ele caber. Num ecrã que não fosse 16:9 isso punha o desenho inteiro numa

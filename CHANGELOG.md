@@ -2390,8 +2390,11 @@ O `index.html` escreve-se agora logo no início do arranque, antes da migração
 antes de o painel abrir. É barato, porque é só um modelo de texto. Quando o
 painel responde, a página nova já lá está. A escrita passou para uma função só,
 `escrever_pagina_da_tv`, que o arranque e a publicação chamam, para os dois
-caminhos não divergirem. Um disco que não deixa escrever fica no diário e não
-impede o painel de abrir. O teste simula o pior caso, em que a publicação em
+caminhos não divergirem. Um erro nessa escrita fica no diário e não impede o
+painel de abrir: nem um disco que não deixa escrever, nem um `config.json` com o
+intervalo por extenso, que a primeira versão desta correção, por só apanhar erros
+de disco, deixava fechar a porta ao painel. Apanhou-o o revisor da casa, e tem
+teste. O teste simula o pior caso, em que a publicação em
 fundo não chega a correr, e foi visto a falhar contra o código anterior.
 
 O README dizia só Ctrl+F5, e uma televisão operada com o comando não tem

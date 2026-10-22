@@ -1684,11 +1684,14 @@ def iniciar_painel(cfg):
     # publicação em fundo. Sem isto, uma TV recarregada depois de atualizar o
     # agente apanhava a página velha até essa publicação acabar — e para sempre,
     # se ela falhasse. Assim, quando o painel responde, a página nova já lá está.
-    # Um disco que não deixa escrever não impede o painel de abrir: é
-    # precisamente de lá que se vê o que se passa.
+    # Nada aqui pode impedir o painel de abrir, que é precisamente de onde se vê
+    # o que se passa: nem um disco que não deixa escrever, nem um config.json com
+    # «"segundos_por_ecra": "trinta"», que o int() da página recusa. Esse erro
+    # rebentava antes dentro da thread de publicação, com o painel já no ar, e
+    # passar a escrita para aqui não pode piorar isso.
     try:
         escrever_pagina_da_tv(cfg)
-    except OSError as ex:
+    except Exception as ex:
         _tv.warning(f"não foi possível escrever a página da TV no arranque: {ex}")
 
     reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
