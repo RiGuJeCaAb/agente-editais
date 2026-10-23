@@ -412,8 +412,8 @@ def paginas_uma_a_uma(path, workdir, indices=None, zoom=3.0):
 def ler_metadados(path, workdir):
     """Texto e número de páginas de um documento, sem o rasterizar inteiro.
 
-    É a variante em streaming de `ler_documento`: devolve o que os metadados
-    precisam — o texto e a contagem — sem as páginas. Para um PDF com texto
+    É a variante em streaming de `to_pages_and_text`: devolve o que os
+    metadados precisam — o texto e a contagem — sem as páginas. Para um PDF com texto
     pesquisável, que é a maioria dos editais, não se rasteriza nada de todo.
     Só um documento sem texto (uma digitalização, um printscreen) obriga a
     rasterizar UMA página para o OCR.
