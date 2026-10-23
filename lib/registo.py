@@ -88,9 +88,6 @@ TRANSICOES = {
     DESCARTADO: {RASCUNHO},
 }
 
-# Estados que a fila de trabalho e o expositor ignoram por completo.
-ESTADOS_INATIVOS = (DESCARTADO,)
-
 # Limiar abaixo do qual um campo lido automaticamente é considerado "duvidoso" e
 # o painel o assinala a pedir verificação. 0.6 é o ponto onde uma heurística de
 # recurso (confiança 0.5) cai do lado do "confirma isto" e a leitura normal

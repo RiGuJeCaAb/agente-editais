@@ -43,10 +43,10 @@ import registo as reg_mod
 import utilizadores as utl
 
 # Cabeçalho próprio que o painel envia em todos os pedidos de escrita. É metade
-# da defesa contra CSRF: um <form> de outro sítio consegue enviar um POST com as
-# credenciais Basic em cache, mas NÃO consegue pôr um cabeçalho personalizado —
-# isso exigiria CORS com pedido prévio (preflight), que este servidor nunca
-# autoriza. A outra metade é exigir Content-Type: application/json, que um
+# da defesa contra CSRF: um <form> de outro sítio consegue enviar um POST que o
+# browser acompanha do cookie de sessão, mas NÃO consegue pôr um cabeçalho
+# personalizado — isso exigiria CORS com pedido prévio (preflight), que este
+# servidor nunca autoriza. A outra metade é exigir Content-Type: application/json, que um
 # formulário simples também não consegue produzir.
 CABECALHO_PEDIDO = "X-Painel-Pedido"
 

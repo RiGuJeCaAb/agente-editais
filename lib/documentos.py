@@ -251,43 +251,14 @@ def _ocr_imagem(img):
             return ""
 
 
-def ler_documento(path, workdir):
-    """Lê um documento devolvendo páginas, texto E se o texto veio de OCR.
-
-    É uma variante de to_pages_and_text() que expõe a informação extra de ter
-    usado OCR, para quem chama poder ajustar a confiança dos metadados (texto de
-    OCR é fiável mas menos que texto nativo de um PDF).
-
-    Args:
-        path (str): caminho do documento.
-        workdir (str): pasta de trabalho.
-
-    Returns:
-        dict: {"pages": list[Image], "text": str, "ocr": bool}
-    """
-    ext = os.path.splitext(path)[1].lower()
-    if ext in PDF_EXT:
-        imgs, text = _pdf_to_images(path)
-        if len(text.strip()) < 20 and imgs:
-            ocr_text = _ocr_imagem(imgs[0])
-            return {"pages": imgs, "text": ocr_text, "ocr": True}
-        return {"pages": imgs, "text": text, "ocr": False}
-    if ext in IMG_EXT:
-        img = Image.open(path).convert("RGB")
-        return {"pages": [img], "text": _ocr_imagem(img), "ocr": True}
-    if ext in WORD_EXT:
-        pdf = _word_to_pdf(path, workdir)
-        imgs, text = _pdf_to_images(pdf)
-        return {"pages": imgs, "text": text, "ocr": False}
-    raise ValueError(f"Formato não suportado: {ext}")
-
-
 def to_pages_and_text(path, workdir):
     """Converte QUALQUER documento suportado nas suas páginas-imagem + texto.
 
-    É o ponto de entrada usado pelo agente. Encaminha cada tipo de ficheiro para
-    o tratamento certo e uniformiza a saída, para o resto do sistema não ter de
-    saber se a origem era PDF, imagem ou Word.
+    Encaminha cada tipo de ficheiro para o tratamento certo e uniformiza a saída.
+    Já não é o caminho do agente, que lê página a página (`ler_metadados` e
+    `paginas_uma_a_uma`, mais abaixo) para não ter o documento inteiro em
+    memória. Fica porque os testes do streaming o usam como referência: as duas
+    leituras têm de dar as mesmas páginas e o mesmo texto.
 
     Extração de texto em duas camadas:
       1. Direta — para PDFs com texto pesquisável (rápida, exata).
@@ -485,24 +456,6 @@ def ler_metadados(path, workdir):
         with Image.open(path) as im:
             return {"text": _ocr_imagem(im.convert("RGB")), "ocr": True, "paginas": 1}
     raise ValueError(f"Formato não suportado: {ext}")
-
-
-def to_image_and_text(path, workdir):
-    """Atalho de compatibilidade: devolve apenas a 1ª página + texto.
-
-    Mantido para código antigo que só esperava uma página. O fluxo atual usa
-    to_pages_and_text (multipágina), mas esta função continua a servir chamadas
-    pontuais que só querem espreitar a capa de um documento.
-
-    Args:
-        path (str): caminho do documento.
-        workdir (str): pasta de trabalho.
-
-    Returns:
-        tuple[PIL.Image.Image, str]: (primeira página, texto extraído).
-    """
-    pages, text = to_pages_and_text(path, workdir)
-    return pages[0], text
 
 
 # ===========================================================================

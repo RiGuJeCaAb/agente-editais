@@ -441,92 +441,9 @@ def _guardar_em_memoria(i, img):
 
 
 # ===========================================================================
-# 2) Deteção da(s) folha(s) — usada quando recompomos imagens já montadas
+# 2) Logótipo gravado, montado a partir do símbolo e do texto
 # ===========================================================================
-def extract_sheet_mask(a):
-    """Deteta a(s) peça(s) central(is) (folha branca OU cartaz colorido) numa imagem.
 
-    Ideia central: a peça é "tudo o que NÃO é o fundo verde texturado". Em vez de
-    procurar branco (falharia com cartazes coloridos), procuramos onde o fundo
-    verde NÃO domina e tratamos cada mancha resultante como um retângulo sólido —
-    porque folhas e cartazes são retângulos, e assim logótipos verdes no interior
-    (que "furariam" a máscara) não abrem buracos.
-
-    Args:
-        a (numpy.ndarray): imagem RGB (int) de forma (h, w, 3).
-
-    Returns:
-        numpy.ndarray: máscara booleana (h, w) — True onde há folha/cartaz.
-    """
-    h, w = a.shape[:2]
-    r, g, b = a[:, :, 0], a[:, :, 1], a[:, :, 2]
-    mn = a.min(axis=2); mx = a.max(axis=2); sat = mx - mn
-
-    # "É fundo?" = verde domina (g é o maior canal com margem) e é escuro.
-    green_dom = (g >= r) & (g >= b) & (g - np.minimum(r, b) > 8)
-    dark = mx < 170
-    is_bg = green_dom & dark
-    # Densidade local de fundo: uniform_filter faz a média numa janela 35x35, o que
-    # transforma "este píxel é fundo?" em "esta VIZINHANÇA é fundo?". As folhas dão
-    # zonas de baixa densidade de fundo; as riscas finas do verde dão densidade alta.
-    bg_dens = ndimage.uniform_filter(is_bg.astype(np.float32), size=35)
-    fg = bg_dens < 0.35
-    # Morfologia: fechar tapa pequenos buracos internos, abrir remove salpicos
-    # soltos, e fill_holes garante manchas cheias antes de as etiquetar.
-    fg = ndimage.binary_closing(fg, structure=np.ones((9, 9)), iterations=2)
-    fg = ndimage.binary_opening(fg, structure=np.ones((9, 9)), iterations=1)
-    fg = ndimage.binary_fill_holes(fg)
-
-    # Etiqueta as manchas separadas (cada folha é uma "ilha").
-    lbl, n = ndimage.label(fg)
-    if n == 0:
-        return fg
-    sizes = ndimage.sum(np.ones_like(lbl), lbl, range(1, n + 1))
-    total = h * w
-    # Mantém só as manchas com área relevante (>=6% do ecrã): descarta ruído e
-    # aceita várias folhas (algumas imagens antigas têm 2 ou 3 lado a lado).
-    keep = [i + 1 for i, s in enumerate(sizes) if s / total >= 0.06]
-    if not keep:
-        keep = [int(np.argmax(sizes)) + 1]
-    main = np.isin(lbl, keep)
-
-    # Rede de segurança: se a deteção por "não-fundo" falhou (mancha demasiado
-    # pequena), tenta o método clássico de folha branca (alta luminância + baixa
-    # saturação). Cobre casos-limite de digitalizações muito claras.
-    if main.mean() < 0.10:
-        white = ((mn > 200) & (sat < 30)).astype(np.float32)
-        dens = ndimage.uniform_filter(white, size=25)
-        solid = ndimage.binary_fill_holes(dens > 0.6)
-        lbl2, n2 = ndimage.label(solid)
-        if n2 > 0:
-            s2 = ndimage.sum(np.ones_like(lbl2), lbl2, range(1, n2 + 1))
-            keep2 = [i + 1 for i, s in enumerate(s2) if s / total >= 0.06]
-            if keep2:
-                main = np.isin(lbl2, keep2)
-
-    # Converte cada mancha no seu retângulo delimitador cheio: as folhas são
-    # retangulares, e assim elementos internos (logótipos verdes) não abrem buracos.
-    filled = np.zeros_like(main)
-    l3, n3 = ndimage.label(main)
-    for i in range(1, n3 + 1):
-        comp = l3 == i
-        ys, xs = np.where(comp)
-        y0, y1, x0, x1 = ys.min(), ys.max(), xs.min(), xs.max()
-        bh, bw = y1 - y0 + 1, x1 - x0 + 1
-        if bh * bw < 0.04 * h * w:      # ignora retângulos minúsculos
-            continue
-        # Se a mancha preenche bem a sua caixa (>55%), é mesmo um retângulo →
-        # preenche a caixa toda. Senão, mantém a forma original (fill_holes).
-        if comp.sum() / (bh * bw) > 0.55:
-            filled[y0:y1 + 1, x0:x1 + 1] = True
-        else:
-            filled |= ndimage.binary_fill_holes(comp)
-    return filled
-
-
-# ===========================================================================
-# 3) Logótipo dourado com gravação (relevo 3D)
-# ===========================================================================
 def _alpha_from(path):
     """Extrai o canal de opacidade (alfa) do logótipo a partir de um PNG do símbolo.
 
@@ -690,7 +607,7 @@ def build_logo(sym_path, txt_path, out_h=160, gap_ratio=0.34, ss=4):
 
 
 # ===========================================================================
-# 4) Composição final
+# 3) Composição final
 # ===========================================================================
 def _fit_sheet(page_img, target_w=SHEET_W, target_h=SHEET_H):
     """Encaixa uma página na caixa-folha uniforme SEM cortar nada.
@@ -1006,55 +923,6 @@ def compose_sheets(pages, seed=7, logo_im=None,
     img = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
     _paste_logo(img, m, logo_im, logo_width_frac, logo_margin_frac)
     return img
-
-
-def compose_from_image(src_img, seed=7, logo_im=None,
-                       logo_width_frac=LOGO_LARGURA_FRAC,
-                       logo_margin_frac=LOGO_MARGEM_FRAC):
-    """Recompõe uma imagem 16:9 JÁ montada (deteta as folhas e troca o fundo).
-
-    Serve para reaproveitar exportações antigas do expositor: extrai as folhas
-    existentes, gera um fundo metálico novo e volta a assentá-las com sombra.
-
-    Args:
-        src_img (PIL.Image.Image): imagem 16:9 com folha(s) embebida(s).
-        seed (int): semente do novo fundo.
-        logo_im (PIL.Image.Image | None): logótipo RGBA ou None.
-        logo_width_frac (float), logo_margin_frac (float): dimensão/margem do logo.
-
-    Returns:
-        PIL.Image.Image: composição refeita com o fundo e o tratamento atuais.
-    """
-    a = np.array(src_img.convert('RGB')).astype(int)
-    H, W = a.shape[:2]
-    bg = metallic_green_bg(W, H, seed=seed)
-    m = extract_sheet_mask(a)
-    out = _place_sheets_from_existing(a, m.astype(float), bg)
-    img = Image.fromarray(np.clip(out, 0, 255).astype(np.uint8))
-    _paste_logo(img, m, logo_im, logo_width_frac, logo_margin_frac)
-    return img
-
-
-def _place_sheets_from_existing(a, m, bg):
-    """Reassenta folhas já presentes numa imagem sobre um fundo novo, com sombra.
-
-    Args:
-        a (numpy.ndarray): imagem original RGB (int).
-        m (numpy.ndarray): máscara float (h,w) das folhas.
-        bg (numpy.ndarray): fundo novo RGB (uint8).
-
-    Returns:
-        numpy.ndarray: composição float (h,w,3) pronta a converter em imagem.
-    """
-    sh_near = np.roll(np.roll(_desfocar(m, 18), 14, 0), 10, 1)
-    sh_far = np.roll(np.roll(_desfocar(m, 55), 60, 0), 42, 1)
-    shadow = np.clip(sh_near * 0.55 + sh_far * 0.45, 0, 1) * (1 - m) * 0.62
-    out = bg.astype(float) * (1 - shadow[..., None])
-    # 'soft' é a máscara ligeiramente desfocada, usada como fator de mistura para
-    # as bordas da folha não ficarem serrilhadas contra o fundo.
-    soft = ndimage.gaussian_filter(m, 0.8)[..., None]
-    out = out * (1 - soft) + a.astype(float) * soft
-    return out
 
 
 def _paste_logo(img, mask, logo_im, width_frac, margin_frac):

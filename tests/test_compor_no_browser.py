@@ -514,3 +514,78 @@ def test_retirar_um_documento_de_varios_ecras_arquiva_os_todos(posto_misto):
         assert sorted(z.namelist()) == sorted(r["ficheiros_png"])
     assert folhas_na_pasta(posto_misto["cfg"]) == []
     assert conferencia.conferir(posto_misto["cfg"], posto_misto["reg"])["png_orfaos"] == []
+
+
+# --- o que o agente em serviço diz, e onde fica escrito ---------------------
+
+def test_um_rascunho_novo_fica_no_diario(posto, tmp_path):
+    """O aviso de cada rascunho criado vai para o diário, e não só para o stdout.
+
+    Era um print(). Num posto em serviço ninguém lê o stdout, e o diário é o
+    que resta para reconstituir o que entrou e quando.
+    """
+    import diario
+
+    ficheiro = tmp_path / "agente.log"
+    diario.configurar(str(ficheiro))
+    try:
+        agente.varrer_para_registo(posto["cfg"], posto["reg"], posto["logo"])
+        gravado = ficheiro.read_text(encoding="utf-8")
+    finally:
+        diario.repor()
+    assert "RASCUNHO #" in gravado and "edital.pdf" in gravado
+
+
+def test_um_erro_no_ciclo_de_vigia_fica_no_diario(posto, monkeypatch, tmp_path):
+    """Uma volta da vigia que rebenta deixa o erro, com o traceback, no diário.
+
+    Ia só para o stdout. A mesma volta aplica as retiradas automáticas, e uma
+    que falhasse num posto em serviço não deixava rasto em lado nenhum.
+    """
+    import threading
+
+    import diario
+
+    alvos = []
+
+    class ThreadQueGuarda:
+        def __init__(self, target=None, **k):
+            alvos.append(target)
+
+        def start(self):
+            pass
+
+    class PainelFalso:
+        def __init__(self, *a, **k):
+            pass
+
+        def iniciar(self, **k):
+            pass
+
+    class FimDaVolta(Exception):
+        pass
+
+    def rebenta(*a, **k):
+        raise RuntimeError("disco cheio a meio da varredura")
+
+    def acaba(_segundos):
+        raise FimDaVolta
+
+    monkeypatch.setattr(threading, "Thread", ThreadQueGuarda)
+    monkeypatch.setattr(agente.painel_mod, "PainelServer", PainelFalso)
+    monkeypatch.setattr(agente, "varrer_para_registo", rebenta)
+    monkeypatch.setattr(agente.time, "sleep", acaba)
+
+    ficheiro = tmp_path / "agente.log"
+    agente.iniciar_painel(posto["cfg"])
+    vigiar = next(a for a in alvos if a.__name__ == "vigiar")
+    diario.configurar(str(ficheiro))
+    try:
+        with pytest.raises(FimDaVolta):
+            vigiar()
+        gravado = ficheiro.read_text(encoding="utf-8")
+    finally:
+        diario.repor()
+    assert "erro no ciclo de vigia" in gravado
+    assert "disco cheio a meio da varredura" in gravado
+    assert "Traceback" in gravado

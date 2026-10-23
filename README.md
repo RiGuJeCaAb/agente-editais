@@ -220,7 +220,9 @@ corre o agente. Opções, da mais simples à mais robusta:
   ```bash
   cd saida && python -m http.server 8080
   ```
-  TV aponta para `http://IP-DA-MAQUINA:8080/`.
+  TV aponta para `http://IP-DA-MAQUINA:8080/`. Se o Windows recusar a porta
+  (`WinError 10013`), outro serviço já a tem — o controlador UniFi, por exemplo,
+  usa a 8080. Escolhe outra, como a 8099, e não tires a 8080 a quem a usa.
 
 - **Produção** (recomendado): servir `saida/` com **nginx** ou **IIS** como site
   estático, em HTTP(S) na porta 80/443. A página busca o `slides.json` de 15 em
@@ -334,7 +336,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 768 testes (mais 66 de browser: pytest -m navegador)
+pytest          # 772 testes (mais 66 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```

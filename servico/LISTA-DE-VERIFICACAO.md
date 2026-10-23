@@ -217,7 +217,9 @@ partilhada nem por pen.
       ```
       cd saida && python -m http.server 8080
       ```
-      A TV aponta para `http://IP-DA-MAQUINA:8080/`.
+      A TV aponta para `http://IP-DA-MAQUINA:8080/`. Se a porta for recusada
+      (`WinError 10013`), outro serviço já a tem — o controlador UniFi usa a
+      8080. Escolhe outra, como a 8099.
 
 - [ ] **Para ficar**, servir `saida/` com **nginx** (Linux) ou **IIS**
       (Windows), como site estático na porta 80. O `http.server` do Python é

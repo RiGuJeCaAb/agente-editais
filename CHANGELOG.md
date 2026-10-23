@@ -2471,3 +2471,73 @@ tipo o tira, e que um formulário aberto antes da publicação não apaga a data
 que ela calculou. Os testes que leem o `painel.html` como texto não o provam,
 porque não correm o JavaScript. O de apresentação passou a exigir o
 `display:flex` dentro da regra, e não apenas o nome do seletor.
+
+## 0.25.3 — Arrumação: o que ficou para trás
+
+Uma passagem por tudo à procura do que ficou de versões anteriores. A maior
+parte é código que ninguém chama, comentários que descrevem o que já não
+existe e uma chave de configuração que prometia o que não fazia. Duas linhas
+eram mais do que ruído, e estão no fim.
+
+### Código que ninguém chamava
+
+Encontrado com o `vulture` e confirmado à mão, um a um, contra o código e os
+testes. Sai tudo, 216 linhas:
+
+- `tratamento.compose_from_image`, com as duas funções que só ela usava,
+  `extract_sheet_mask` e `_place_sheets_from_existing`. Serviam, dizia a
+  docstring, para reaproveitar exportações antigas do expositor, trocando o
+  fundo de imagens 4K já montadas. Nada as chamava.
+- `documentos.ler_documento` e `documentos.to_image_and_text`, dois atalhos
+  da leitura antiga do documento inteiro. O agente lê página a página.
+- `certidao._pt_data` e o método `_Folha.imagem`, que o timbre de duas peças
+  (`par_de_imagens`) substituiu.
+- `registo.ESTADOS_INATIVOS`, uma constante sem leitores.
+
+O `documentos.to_pages_and_text` fica, porque os testes do streaming o usam como
+referência. A docstring dizia que era «o ponto de entrada usado pelo agente», e
+passa a dizer porque ainda existe. No `tratamento.py` a secção do logótipo
+tinha o título de uma deteção de folhas que já lá não estava, e a numeração
+saltava do 2 para o 4.
+
+### Uma chave que prometia o que não fazia
+
+O `usar_registo_entrada` estava no `config.exemplo.json` e nos valores por
+omissão, com um comentário a dizer que, a `false`, os documentos voltavam a ser
+publicados sem validação. Nenhum código o lia. Sai dos dois sítios, e quem o
+tiver a `false` no seu `config.json` passa a ver um aviso no diário, como já
+acontecia com a `painel_senha`. Os dois avisos foram para uma função à parte,
+para se poderem testar sem um `config.json` verdadeiro.
+
+### Comentários sobre o que já não existe
+
+- A defesa contra CSRF, no `painel.py` e no `painel.html`, falava das
+  «credenciais Basic em cache». O Basic Auth saiu na Onda 2. O que o browser
+  envia sozinho é o cookie de sessão; o raciocínio é o mesmo.
+- A docstring do `load_config` explicava o aviso do config.json estragado com
+  a «senha vazia» de um login que já não é assim.
+- O `.gitignore` dizia que o `config.json` «contém a senha do painel», e tinha
+  a linha `diario/` duas vezes.
+
+### A porta 8080
+
+O README e a lista de verificação sugerem `python -m http.server 8080` para
+servir a pasta `saida/`. No posto da Câmara essa porta é do controlador UniFi,
+e o Windows recusa-a com `WinError 10013`. Os dois passam a dizê-lo, com a
+8099 como alternativa.
+
+### Duas linhas que eram mais do que ruído
+
+O ciclo de vigia apanhava qualquer erro com um `print()`. Num posto em serviço
+ninguém lê o stdout, e é essa volta que aplica as retiradas automáticas: uma
+que falhasse não deixava rasto. Passa para o diário, com o traceback. O aviso
+de cada rascunho novo era também um `print()`, e vai pelo mesmo caminho. O
+diário escreve na consola quando há uma, por isso quem corre o agente à mão
+continua a ver as duas.
+
+### Testes
+
+Quatro novos (772 no total). Três falham contra o código anterior: os dois
+`print()` que passam a ficar no diário e o aviso da chave desligada. O quarto
+fixa que a chave ligada, ou ausente, não faz barulho a cada arranque. Contra o
+código anterior também falha, mas só porque a função não existia, e diz isso.

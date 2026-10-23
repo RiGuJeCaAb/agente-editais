@@ -845,8 +845,9 @@
     return campos;
   }
   // Cabeçalhos de escrita. O X-Painel-Pedido é o que distingue um pedido nascido
-  // desta página de um POST forjado por outro sítio com as credenciais Basic em
-  // cache — um <form> de terceiros não consegue pôr cabeçalhos personalizados.
+  // desta página de um POST forjado por outro sítio, que o browser acompanha do
+  // cookie de sessão — um <form> de terceiros não consegue pôr cabeçalhos
+  // personalizados.
   const CAB_ESCRITA={'Content-Type':'application/json','X-Painel-Pedido':'1'};
   async function guardar(id){
     const r=await fetch('/api/editar',{method:'POST',headers:CAB_ESCRITA,
