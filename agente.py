@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.25.0"
+VERSAO = "0.25.1"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -1548,8 +1548,8 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
     Mudança de arquitetura face à versão anterior: os slides deixam de ser
     embebidos no HTML. Passam a viver num ficheiro à parte, 'slides.json', que a
     página busca periodicamente (polling). Assim, editais novos entram no carrossel
-    SEM recarregar a página nem interromper a rotação — o HTML é escrito uma vez e
-    só o JSON muda. O 'v' (versão) é um carimbo temporal que a página usa para
+    SEM recarregar a página nem interromper a rotação — a página não volta a pedir
+    o HTML, só o JSON. O 'v' (versão) é um carimbo temporal que a página usa para
     detetar se houve alteração sem comparar a lista toda.
 
     Args:
@@ -1573,10 +1573,15 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
     # regenera sozinho no ciclo seguinte.
     arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0)
 
-    # index.html — escrito uma vez; já não leva os slides lá dentro. Só precisa de
-    # saber o título inicial, o intervalo por defeito e as frações do desenho.
-    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"),
-                            pagina_da_tv(cfg))
+    # index.html — reescrito a CADA republicação, e também no arranque, antes de
+    # o painel abrir (ver iniciar_painel). Este comentário dizia «escrito uma
+    # vez», e era falso: não há condição nenhuma à volta da escrita. Importa
+    # saber porquê não é «uma vez», porque decide o que fazer depois de atualizar
+    # o agente: reiniciá-lo chega para o ficheiro ficar novo, mas a TELEVISÃO não
+    # o volta a pedir sozinha — só vai buscar o slides.json — e tem de ser
+    # recarregada uma vez. Já não leva os slides lá dentro: só o título inicial,
+    # o intervalo por defeito e as frações do desenho.
+    escrever_pagina_da_tv(cfg)
 
     # O logótipo passou a ser uma imagem servida à parte, porque quem o assenta
     # agora é a televisão. Antes vinha gravado dentro de cada PNG composto.
@@ -1588,6 +1593,21 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
             logo_im.save(caminho, "PNG")
         except OSError as ex:
             _agente.warning(f"não foi possível escrever o logótipo da TV: {ex}")
+
+
+def escrever_pagina_da_tv(cfg):
+    """Escreve o index.html da televisão, sem tocar nos slides.
+
+    À parte de _escrever_pagina_tv porque o arranque precisa só disto, e já:
+    a publicação do arranque corre em fundo, e uma TV recarregada nessa janela
+    — ou depois de essa publicação falhar — recebia a página da versão
+    anterior. É barato, é um modelo de texto; o pesado fica para a publicação.
+
+    Args:
+        cfg (dict): configuração.
+    """
+    _escrever_texto_atomico(os.path.join(cfg["saida"], "index.html"),
+                            pagina_da_tv(cfg))
 
 
 def _escrever_texto_atomico(caminho, texto):
@@ -1660,6 +1680,20 @@ def iniciar_painel(cfg):
     Args:
         cfg (dict): configuração.
     """
+    # A página da TV escreve-se JÁ, antes de tudo o resto e sem esperar pela
+    # publicação em fundo. Sem isto, uma TV recarregada depois de atualizar o
+    # agente apanhava a página velha até essa publicação acabar — e para sempre,
+    # se ela falhasse. Assim, quando o painel responde, a página nova já lá está.
+    # Nada aqui pode impedir o painel de abrir, que é precisamente de onde se vê
+    # o que se passa: nem um disco que não deixa escrever, nem um config.json com
+    # «"segundos_por_ecra": "trinta"», que o int() da página recusa. Esse erro
+    # rebentava antes dentro da thread de publicação, com o painel já no ar, e
+    # passar a escrita para aqui não pode piorar isso.
+    try:
+        escrever_pagina_da_tv(cfg)
+    except Exception as ex:
+        _tv.warning(f"não foi possível escrever a página da TV no arranque: {ex}")
+
     reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
 
     # Traz os editais do modelo antigo, se os houver. Corre antes de tudo o

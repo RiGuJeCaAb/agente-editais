@@ -170,6 +170,122 @@ def test_um_edital_sem_numero_atribuido_nao_ganha_um_no_slides_json(posto):
     assert d["slides"][0]["rotulo"], "o rótulo do tipo não pode faltar"
 
 
+def test_uma_pagina_da_tv_velha_e_substituida_ao_publicar(posto):
+    """O index.html é reescrito a cada publicação — e não «uma vez».
+
+    Um comentário e o README diziam «escrito uma vez», e era falso. Mas a
+    diferença não é de estilo: se alguém um dia acreditar no comentário e puser
+    um «só se não existir» à volta da escrita, a televisão NUNCA MAIS recebe
+    código novo. Cada atualização do agente ficaria a meio — o painel novo, a
+    página do átrio velha — e sem um único erro em lado nenhum.
+
+    Simula-se o posto depois de um git pull: na pasta de saída está a página de
+    uma versão anterior, e a publicação seguinte tem de a substituir.
+
+    Passa contra o código anterior DE PROPÓSITO, e o AGENTS.md pede que isso se
+    diga: não prova uma correção, fixa um comportamento que não pode mudar. Foi
+    visto a falhar contra a escrita guardada por «só se não existir», que é a
+    regressão que existe para apanhar.
+    """
+    saida = posto["cfg"]["saida"]
+    velha = "<!doctype html><title>página de uma versão anterior</title>"
+    with open(os.path.join(saida, "index.html"), "w", encoding="utf-8") as f:
+        f.write(velha)
+    publicar(posto)
+    with open(os.path.join(saida, "index.html"), encoding="utf-8") as f:
+        atual = f.read()
+    assert atual != velha, "a página velha ficou: a TV nunca recebe código novo"
+    assert atual == agente.pagina_da_tv(posto["cfg"])
+    # A igualdade acima passaria com uma página vazia, se o gerador a devolvesse
+    # vazia. Confere-se à parte o que faz dela a página do átrio: o palco onde
+    # os slides entram e o pedido do slides.json que os traz.
+    assert '<div id="palco">' in atual, "a página escrita não tem o palco"
+    assert "fetch('slides.json" in atual, "a página escrita não pede os slides"
+
+
+def test_o_arranque_escreve_a_pagina_da_tv_antes_de_o_painel_abrir(posto, monkeypatch):
+    """Quando o painel responde depois de um reinício, a página da TV já é nova.
+
+    A publicação do arranque corre numa thread, para a composição não atrasar o
+    painel, e o painel abria logo. Uma televisão recarregada nessa janela, que é
+    o que o README manda fazer depois de atualizar o agente, recebia a página da
+    versão anterior; se essa publicação falhasse, recebia-a até à próxima.
+    Achado do Sourcery na revisão da PR #25.
+
+    Simula-se a janela no pior caso: as threads de fundo não chegam a correr, e
+    o painel falso regista o que estava na pasta no instante em que abriria.
+    Contra o código anterior, encontra a página velha.
+    """
+    import threading
+
+    cfg = posto["cfg"]
+    caminho = os.path.join(cfg["saida"], "index.html")
+    velha = "<!doctype html><title>página de uma versão anterior</title>"
+    with open(caminho, "w", encoding="utf-8") as f:
+        f.write(velha)
+
+    class ThreadQueNaoCorre:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            pass
+
+    visto = {}
+
+    class PainelFalso:
+        def __init__(self, *a, **k):
+            pass
+
+        def iniciar(self, **k):
+            with open(caminho, encoding="utf-8") as f:
+                visto["pagina"] = f.read()
+
+    monkeypatch.setattr(threading, "Thread", ThreadQueNaoCorre)
+    monkeypatch.setattr(agente.painel_mod, "PainelServer", PainelFalso)
+    agente.iniciar_painel(cfg)
+
+    assert visto["pagina"] != velha, \
+        "o painel abriu com a página velha: a TV recarregada fica com ela"
+    assert visto["pagina"] == agente.pagina_da_tv(cfg)
+
+
+def test_uma_configuracao_estragada_nao_impede_o_painel_de_abrir(posto, monkeypatch):
+    """Um config.json com o intervalo por extenso não fecha a porta ao painel.
+
+    A página da TV faz int(cfg["segundos_por_ecra"]), e não há validação antes.
+    Enquanto a escrita vivia só na thread de publicação, «"trinta"» rebentava lá
+    dentro e o painel abria na mesma. Quando a escrita passou para o início do
+    arranque, só se apanhava OSError, e o mesmo erro deixava o posto sem painel.
+    Apanhado pelo revisor da casa na PR #25; visto a falhar com o except estreito.
+    """
+    import threading
+
+    cfg = dict(posto["cfg"], segundos_por_ecra="trinta")
+
+    class ThreadQueNaoCorre:
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            pass
+
+    abriu = []
+
+    class PainelFalso:
+        def __init__(self, *a, **k):
+            pass
+
+        def iniciar(self, **k):
+            abriu.append(True)
+
+    monkeypatch.setattr(threading, "Thread", ThreadQueNaoCorre)
+    monkeypatch.setattr(agente.painel_mod, "PainelServer", PainelFalso)
+    agente.iniciar_painel(cfg)
+
+    assert abriu, "o painel não abriu por causa de um valor do config.json"
+
+
 def test_a_pagina_da_tv_leva_as_fracoes_do_desenho_e_nao_as_medidas_do_palco(posto):
     """Levava o TAMANHO do palco, porque encolhia um retângulo de 3840×2160 até
     ele caber. Num ecrã que não fosse 16:9 isso punha o desenho inteiro numa

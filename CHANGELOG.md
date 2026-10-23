@@ -2333,3 +2333,69 @@ A correção do redesenho **nasceu sem teste**: tirei-a do código à espera de 
 vermelho e tudo passou. É a sexta vez nesta sessão. Com o teste certo dá
 «nenhum ecrã ficou à vista: a televisão ficou em branco» e «o contador diz «»
 com dois editais no ecrã».
+
+---
+
+## 0.25.1 — Dois textos que diziam o que não era
+
+Duas pontas soltas que ficaram anotadas no fim da 0.25.0, e uma correção que a
+revisão da primeira trouxe. Não há funcionalidade nova. Por isso levam o terceiro
+número, pela regra que esta mesma versão escreve.
+
+### O index.html não é escrito «uma vez»
+
+Um comentário no `agente.py`, a docstring da mesma função e o README, em dois
+sítios, diziam que o `index.html` da televisão era escrito uma vez. É falso: não
+há condição nenhuma à volta da escrita, e o ficheiro é reescrito a cada
+publicação, incluindo a do arranque.
+
+O erro parece de estilo, mas tem consequências práticas. Decide o que fazer
+depois de atualizar o agente. **Reiniciar o agente chega para o ficheiro ficar
+novo, mas a televisão não o volta a pedir sozinha.** Só vai buscar o
+`slides.json`, e é por isso que o carrossel corre sem piscar. O código novo da
+própria página só entra se se recarregar a TV uma vez. O README passa a dizê-lo.
+
+Fica um teste para garantir isto. Se alguém acreditasse no comentário antigo e
+pusesse um «só se não existir» à volta da escrita, a televisão **nunca mais
+receberia código novo**. Cada atualização do agente ficaria a meio, com o painel
+novo e a página do átrio velha, sem um único erro em lado nenhum. O teste passa
+contra o código anterior de propósito, e diz isso, como o `AGENTS.md` pede. Foi
+visto a falhar contra a escrita guardada, que é a regressão que existe para
+apanhar.
+
+### A regra da versão, escrita como se usa
+
+O `AGENTS.md` dizia «alteração que não muda o que a aplicação faz leva o
+terceiro número; tudo o resto leva o segundo». A frase dá para duas leituras, e
+a divergência custou uma ronda de revisão na PR #23. À letra, qualquer correção
+levaria o segundo número, porque corrigir um defeito é mudar o que a aplicação
+fazia. A prática da casa sempre foi outra: a 0.23.1, com sete correções ao
+português da certidão, e a 0.24.1, com o logótipo no sítio errado, levaram o
+terceiro.
+
+Passa a estar escrita como se usa. Funcionalidade nova leva o segundo número.
+Correção, documentação, testes e arrumação levam o terceiro. A
+`ferramentas/versao_subiu.py` citava a frase antiga na mensagem de erro e foi
+atualizada também, para que as duas não voltem a divergir.
+
+### A página da TV escreve-se no arranque, antes de tudo
+
+Achado do Sourcery na revisão desta versão. O README passava a mandar recarregar
+a televisão depois de atualizar o agente, mas a página nova só era escrita pela
+publicação do arranque, que corre em fundo para a composição não atrasar o
+painel. Uma TV recarregada nessa janela recebia a página da versão anterior. Se
+essa publicação falhasse, recebia-a até à publicação seguinte.
+
+O `index.html` escreve-se agora logo no início do arranque, antes da migração e
+antes de o painel abrir. É barato, porque é só um modelo de texto. Quando o
+painel responde, a página nova já lá está. A escrita passou para uma função só,
+`escrever_pagina_da_tv`, que o arranque e a publicação chamam, para os dois
+caminhos não divergirem. Um erro nessa escrita fica no diário e não impede o
+painel de abrir: nem um disco que não deixa escrever, nem um `config.json` com o
+intervalo por extenso, que a primeira versão desta correção, por só apanhar erros
+de disco, deixava fechar a porta ao painel. Apanhou-o o revisor da casa, e tem
+teste. O teste simula o pior caso, em que a publicação em
+fundo não chega a correr, e foi visto a falhar contra o código anterior.
+
+O README dizia só Ctrl+F5, e uma televisão operada com o comando não tem
+teclado. Passa a dizer também como recarregar sem ele.

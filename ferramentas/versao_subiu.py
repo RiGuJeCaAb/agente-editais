@@ -10,9 +10,9 @@ Fica na integração contínua pela mesma razão que a verificação dos assunto
 precisa do intervalo de commits, que quem corre o pytest à mão nem sempre tem.
 
 O que NÃO faz: decidir se devia ser o segundo número ou o terceiro. A regra
-diz «alteração que não muda o que a aplicação faz leva o terceiro», e saber se
-uma alteração muda o que a aplicação faz não é coisa que uma máquina conclua
-de um diff. Isso continua a ser de quem revê.
+diz que funcionalidade nova leva o segundo e correção, documentação, testes e
+arrumação levam o terceiro, e saber se um diff é uma coisa ou outra não é algo
+que uma máquina conclua. Isso continua a ser de quem revê.
 
 Uso: python ferramentas/versao_subiu.py <base> <cabeca>
 """
@@ -61,9 +61,9 @@ def main(argv: list[str]) -> int:
     if agora <= antes:
         print(f"A versão não subiu: {escrita(antes)} na base e "
               f"{escrita(agora)} aqui.")
-        print("«Cada peça leva uma versão» — o AGENTS.md. Alteração que não "
-              "muda o que a aplicação faz leva o terceiro número; tudo o resto "
-              "leva o segundo.")
+        print("«Cada peça leva uma versão» — o AGENTS.md. Funcionalidade nova "
+              "leva o segundo número; correção, documentação, testes e "
+              "arrumação levam o terceiro.")
         return 1
     print(f"  ok  {escrita(antes)} -> {escrita(agora)}")
     return 0
