@@ -2512,8 +2512,14 @@ para se poderem testar sem um `config.json` verdadeiro.
 ### Comentários sobre o que já não existe
 
 - A defesa contra CSRF, no `painel.py` e no `painel.html`, falava das
-  «credenciais Basic em cache». O Basic Auth saiu na Onda 2. O que o browser
-  envia sozinho é o cookie de sessão; o raciocínio é o mesmo.
+  «credenciais Basic em cache». O Basic Auth saiu na Onda 2. O cookie de sessão
+  que o substituiu é `SameSite=Strict` e não vai num pedido de outro domínio —
+  mas o `SameSite` ignora a porta, e uma página de outro serviço na mesma
+  máquina leva-o. É esse o caso que o cabeçalho próprio continua a fechar, e é
+  isso que os comentários passam a dizer.
+- A docstring do módulo `documentos.py` dizia que a data de retirada vive no
+  `retiradas.txt`, que é o modelo antigo; vive no registo, proposta pelo tipo.
+  A do `ler_metadados` citava uma das funções que esta versão apaga.
 - A docstring do `load_config` explicava o aviso do config.json estragado com
   a «senha vazia» de um login que já não é assim.
 - O `.gitignore` dizia que o `config.json` «contém a senha do painel», e tinha

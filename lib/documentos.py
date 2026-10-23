@@ -2,8 +2,9 @@
 documentos.py — Conversão de documentos para imagem e extração de metadados.
 
 Este módulo é a "porta de entrada" do agente: pega em qualquer documento que
-apareça na pasta de entrada e devolve (a) as suas páginas já como imagens e
-(b) os metadados (assunto, número do edital, data de publicação) lidos do texto.
+apareça na pasta de entrada e devolve (a) as suas páginas como imagens, uma de
+cada vez (`paginas_uma_a_uma`), e (b) os metadados (assunto, número do edital,
+data de publicação) lidos do texto (`ler_metadados`).
 
 Formatos suportados:
   - PDF              — via PyMuPDF (fitz);
@@ -13,8 +14,9 @@ Formatos suportados:
                        com fidelidade visual suficiente para afixação.
 
 Nota de conceção: a *data de retirada* (saída de exposição) NÃO é extraída daqui.
-É uma decisão administrativa que não consta do documento e vive no ficheiro
-'retiradas.txt' (ver agente.py). Este módulo só lê o que o documento realmente diz.
+É uma decisão administrativa que não consta do documento: vive no registo de
+entrada, proposta pelo tipo do documento (ver lib/prazos.py) e decidida no
+painel. Este módulo só lê o que o documento realmente diz.
 
 Dependências: pymupdf, pillow. Para Word é ainda preciso o 'soffice' (LibreOffice)
 acessível no PATH do sistema.
