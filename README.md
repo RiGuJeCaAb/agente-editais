@@ -334,7 +334,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 765 testes (mais 61 de browser: pytest -m navegador)
+pytest          # 768 testes (mais 66 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -970,9 +970,16 @@ do tipo do documento: o mínimo legal quando existe, o prazo sugerido quando nã
 há mínimo. Para uma deliberação de órgão autárquico são cinco dias, pelo artigo
 56.º do Anexo I da Lei n.º 75/2013.
 
-E o painel mostra a data proposta **antes** de se publicar, no campo da retirada,
-com uma linha a dizer de onde veio. Quem estiver ao teclado altera-a se o caso
-pedir outra coisa — e aí a decisão é da pessoa, como sempre foi.
+E o painel **mostra** a data proposta antes de se publicar, por baixo do campo da
+retirada, com um botão que a aceita. O campo em si fica **vazio**, de propósito:
+assim, deixá-lo em branco é o estado natural, e enchê-lo é um ato de quem está
+ao teclado.
+
+Até à 0.25.1 o painel pré-preenchia o campo, e era um defeito. Quem
+abrisse o registo para corrigir o assunto e carregasse em Guardar enviava a
+proposta como se a tivesse escrito — a partir daí a publicação já não a
+recalculava da afixação real, e se a data de publicação declarada fosse anterior
+à afixação, **o edital saía do ecrã antes do prazo legal**.
 
 ### Os três limites, e a razão de cada um
 
@@ -1199,10 +1206,12 @@ faixa fica nos 11,5 % e este teto nunca chega a morder.
 ### A página da televisão passou a ser testada num browser
 
 Até aqui nenhum teste a abria: verificava-se o HTML por pesquisa de texto, e foi
-assim que este defeito passou sem uma única linha vermelha. Há agora 61 testes
-que a abrem num Chromium, medem o que lá está desenhado e comparam com o
-`trat.desenho_no_ecra()` — incluindo o ecrã largo com um logótipo alto e o caso
-do `logotipo.png` em falta. Correm num trabalho próprio da integração contínua:
+assim que este defeito passou sem uma única linha vermelha. Há agora 66 testes
+que correm num Chromium. Os da televisão abrem-na, medem o que lá está desenhado
+e comparam com o `trat.desenho_no_ecra()` — incluindo o ecrã largo com um
+logótipo alto e o caso do `logotipo.png` em falta. Desde a 0.25.2 há também cinco
+que abrem o painel e conferem o que um Guardar envia na data de retirada. Correm
+num trabalho próprio da integração contínua:
 
 ```bash
 pip install playwright && playwright install chromium

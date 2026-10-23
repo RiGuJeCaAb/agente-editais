@@ -14,6 +14,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "lib"))
 
+import pytest  # noqa: E402
+
 import painel as pnl  # noqa: E402
 import prazos as pr  # noqa: E402
 import registo as reg_mod  # noqa: E402
@@ -111,3 +113,51 @@ def test_tipo_sem_prazo_declarado_nao_ganha_data(registo):
     r = _publicar(registo, tipo=pr.TIPO_POR_OMISSAO,
                   afixado_em="2026-06-29T10:00:00")
     assert r["data_retirada"] is None
+
+
+# --- os dois achados da revisão automática sobre esta própria peça ----------
+
+def test_o_painel_nao_enche_o_campo_com_a_proposta():
+    """A proposta mostra-se; não se escreve no campo por ela.
+
+    A primeira versão desta peça pré-preenchia o campo da retirada com a data
+    proposta. Parecia cómodo e era um defeito: quem abrisse o registo para
+    corrigir o assunto e carregasse em Guardar enviava a proposta como se a
+    tivesse escrito. A partir daí a publicação já não a recalculava da afixação
+    real — e se a data de publicação declarada fosse anterior à afixação, o
+    edital saía do ecrã antes do prazo legal.
+
+    Agora o campo fica vazio e há um botão que o enche. Encher passa a ser um
+    ato de quem está ao teclado, que é o que distingue uma decisão de um efeito
+    secundário.
+    """
+    html = (Path(__file__).resolve().parents[1] / "lib" / "painel.html").read_text(
+        encoding="utf-8")
+    assert "r.data_retirada||r.retirada_proposta" not in html, (
+        "o campo da retirada voltou a vir pré-preenchido com a proposta")
+    assert "btn-proposta" in html, "sumiu o botão que aceita a proposta"
+
+
+def test_prazo_mal_escrito_nao_deixa_a_afixacao_carimbada(registo):
+    """Se o cálculo do prazo rebentar, a transição não deixa rasto nenhum.
+
+    Um município pode escrever o prazo por extenso no config.json. O `int(dias)`
+    rebenta, e se o carimbo da afixação já estivesse posto a tentativa falhada
+    deixava lá uma data — que a repetição seguinte reutilizava como relógio
+    legal, porque o carimbo só se põe quando está vazio.
+    """
+    pr.carregar_tipos({"tipos_de_documento": {
+        "estragado": {"rotulo": "Prazo por extenso", "dias_minimos": "cinco"}}})
+    try:
+        r = registo.criar_rascunho(ficheiro_origem="e.pdf", hash_ficheiro="h",
+                                   num_paginas=1, meta=dict(META_BOA))
+        registo.editar(r["id"], {"tipo": "estragado"}, utilizador="ana")
+        registo.mover_estado(r["id"], reg_mod.VALIDADO, utilizador="ana")
+        with pytest.raises(ValueError):
+            registo.mover_estado(r["id"], reg_mod.PUBLICADO, utilizador="ana")
+        depois = registo.por_id(r["id"])
+        assert depois["afixado_em"] is None, "ficou o carimbo de uma tentativa falhada"
+        assert depois["estado"] == reg_mod.VALIDADO
+    finally:
+        # TIPOS é global do módulo: repõe-se, senão contamina os testes seguintes.
+        pr.carregar_tipos({})

@@ -2399,3 +2399,75 @@ fundo não chega a correr, e foi visto a falhar contra o código anterior.
 
 O README dizia só Ctrl+F5, e uma televisão operada com o comando não tem
 teclado. Passa a dizer também como recarregar sem ele.
+
+## 0.25.2 — A proposta de retirada deixa de se gravar sozinha
+
+Esta correção estava escrita desde 29 de setembro e nunca chegou ao `main`. Foi
+para o ramo da PR #15 dezasseis minutos depois de a PR ser fundida, e ficou lá
+parada. O defeito que corrige continuava vivo até esta versão.
+
+### O campo pré-preenchido enviava a proposta como se fosse uma decisão
+
+O painel enchia o campo da retirada com a data que o tipo do documento propõe.
+Parecia cómodo, e era um defeito. **Quem está ao teclado não tinha de decidir
+nada para a gravar.** Bastava abrir o registo para corrigir o assunto e carregar
+em Guardar: o `camposDe()` lia o campo, que vinha cheio, e mandava a proposta
+como se alguém a tivesse escrito. A publicação deixava de a recalcular a partir
+da afixação real, e o histórico registava uma edição comum em vez de dizer de
+onde a data veio.
+
+A consequência é a classe número um do `AGENTS.md`: se a data de publicação
+declarada for anterior à afixação, **o edital sai do ecrã antes do prazo legal**.
+
+O campo passa a vir **vazio**, e a proposta aparece por baixo com um botão que a
+aceita. Deixar em branco é o estado natural; encher é um ato deliberado.
+
+### O cálculo rebentava depois de carimbar a afixação
+
+Um município pode escrever o prazo por extenso no `config.json`. O `int(dias)`
+rebenta, e o carimbo da afixação já estava posto. A tentativa falhada deixava lá
+uma data, que a repetição seguinte reutilizava como relógio legal, porque o
+carimbo só se põe quando está vazio. O cálculo passa a correr **antes** de se
+tocar em seja o que for: se rebentar, a transição repete-se limpa.
+
+### E um defeito visual no formulário de edição
+
+```
+Afixado em2026-09-29 às 11:38
+Afixado porricardo.abreu
+```
+
+As regras do `.meta` estavam escritas para `.ficha`, e o bloco da afixação é
+desenhado dentro de `.ficha-edicao`, que em CSS é outro nome e não um prefixo.
+Sem o `display:flex`, o rótulo colava-se ao valor. Não é parente da retirada;
+vai aqui por estar no mesmo ficheiro e por ter sido visto no ecrã na mesma
+altura. Fica um ficheiro novo, `tests/test_painel_apresentacao.py`, para as
+guardas desta natureza, em que o comportamento está certo e o que falha é o que
+se vê.
+
+### Dois achados do Sourcery sobre esta mesma correção
+
+**A proposta ficava velha depois de mudar o tipo.** A proposta vem do
+servidor, calculada para o tipo e a data de publicação com que o registo
+chegou. Quem mudasse o tipo e carregasse em «Usar esta data» gravava o prazo
+do tipo antigo. Ao mudar o tipo ou a data de publicação, o botão sai e a nota
+diz como obter a proposta certa. A conta não se refaz no browser: os dias e a
+aritmética das datas continuam a viver só no servidor.
+
+**Um campo em branco era uma ordem de apagar.** O painel mandava a data de
+retirada em todos os Guardar. Com o formulário aberto numa sessão e o edital
+publicado noutra, um Guardar atrasado apagava a data que a publicação acabara
+de calcular, e o edital ficava no ecrã para sempre. A data só vai no pedido
+quando quem está ao teclado lhe mexeu.
+
+### Testes
+
+**Oito novos, e todos falham contra o código anterior.** Três correm no
+`pytest` normal (768 no total). Os outros cinco abrem o painel num Chromium,
+num ficheiro novo, `tests/test_painel_no_browser.py` (66 testes de browser no
+total). São os únicos que provam o que interessa: o que um Guardar envia nos
+dois formulários onde o campo existe, que o botão enche o campo, que mudar o
+tipo o tira, e que um formulário aberto antes da publicação não apaga a data
+que ela calculou. Os testes que leem o `painel.html` como texto não o provam,
+porque não correm o JavaScript. O de apresentação passou a exigir o
+`display:flex` dentro da regra, e não apenas o nome do seletor.
