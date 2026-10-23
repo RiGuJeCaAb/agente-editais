@@ -1,0 +1,29 @@
+# Cópia de segurança do agente de editais. Corre pelo copia-de-seguranca.timer.
+#
+#   sudo cp servico/copia-de-seguranca.service servico/copia-de-seguranca.timer \
+#        /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now copia-de-seguranca.timer
+#
+# Para correr já, e ver se funciona:
+#   sudo systemctl start copia-de-seguranca.service
+#   journalctl -u copia-de-seguranca -n 20
+
+[Unit]
+Description=Cópia de segurança do agente de editais
+# A partilha de destino tem de estar montada antes. O RequiresMountsFor faz o
+# systemd montá-la (pelo /etc/fstab) e não correr a cópia se falhar.
+RequiresMountsFor=/mnt/copias
+# Depois de uma noite com a VM desligada, o Persistent= do timer corre a cópia
+# logo no arranque, e o agente podia arrancar a meio dela e escrever no registo
+# enquanto se copiava. Com o Before=, quando os dois arrancam juntos, o agente
+# espera que a cópia acabe. É também por isto que o script arranca o agente com
+# --no-block.
+Before=agente-editais.service
+
+[Service]
+Type=oneshot
+Environment=RAIZ=/opt/agente-editais
+Environment=DESTINO=/mnt/copias/agente-editais
+Environment=DIAS=60
+ExecStart=/opt/agente-editais/servico/copia-de-seguranca.sh
