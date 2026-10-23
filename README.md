@@ -338,7 +338,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 775 testes (mais 66 de browser: pytest -m navegador)
+pytest          # 780 testes (mais 66 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1404,7 +1404,11 @@ fosse o edital.
 O agente passa a esperar que o ficheiro esteja **15 segundos sem mudar** antes
 de lhe tocar. A chave é `entrada_assentamento` no `config.json`; `0` desliga a
 espera. Um ficheiro ainda a chegar fica para a volta seguinte, e o atraso,
-para quem carrega, é de meio minuto no pior caso.
+para quem carrega, fica abaixo de um minuto.
+
+O tempo conta-se pelo relógio da VM, que marca cada escrita, e não pela data
+que o posto pôs no ficheiro. Um posto com o relógio adiantado deixava essa data
+no futuro, e o edital nunca saía da entrada.
 
 ### O que a unidade systemd passa a fixar
 

@@ -2574,10 +2574,15 @@ a meio. O PyMuPDF repara PDFs truncados sem erro, e lia-se metade do documento.
 A vigia passa a deixar para a volta seguinte o ficheiro modificado há menos de
 `entrada_assentamento` segundos (15 por omissão; `0` desliga).
 
-Assenta numa suposição que não se mediu com um posto verdadeiro: que a data de
-alteração avança enquanto o Explorador do Windows copia para a partilha. Se o
-Windows a fixasse na data do original logo ao abrir o ficheiro, a espera não
-protegia nada. O `HYPER-V.md` traz a verificação na lista final, com o comando.
+A idade conta-se pelo `st_ctime`, e não pelo `st_mtime`. A primeira versão
+desta PR lia o mtime, e a revisão apanhou o defeito: o mtime é o que o cliente
+quiser. Uma cópia que preserve a data do original, vinda de um posto com o
+relógio adiantado, deixava-o no futuro. A idade ficava negativa, e o edital
+nunca saía da entrada, sem um erro. O ctime é posto pelo relógio da VM a cada
+escrita, e nenhum cliente o escolhe. Isso resolve também a dúvida sobre se o
+Explorador do Windows fixa a data do original logo ao abrir o ficheiro: fixe ou
+não, o ctime avança. No Windows, onde o `st_ctime` é a data de criação, fica o
+mtime, e uma idade negativa conta como assente.
 
 Os testes que compõem um posto inteiro desligam a espera: os ficheiros deles
 acabam de ser escritos, e com ela nenhum chegava a rascunho.
@@ -2608,8 +2613,38 @@ acabam de ser escritos, e com ela nenhum chegava a rascunho.
   VM continua na cópia.
 
 O script foi exercitado com um `systemctl` falso: sem marcador, com a raiz
-errada, com o agente já parado antes (fica parado), sem `rsync` (recusa antes
-de parar o agente) e com cópias antigas a podar. O `shellcheck` não dá avisos.
+errada, só com o jornal e sem o registo (recusa), com o agente já parado antes
+(fica parado), sem `rsync` (recusa antes de parar o agente), com o `rsync` a
+falhar a meio (o arquivo a meio é apagado e o agente volta) e com cópias
+antigas a podar. O `shellcheck` não dá avisos.
+
+### O que a revisão apanhou
+
+- **A televisão recebia 403.** O `index.html` e o `slides.json` gravam-se por
+  temporário e troca, e o `mkstemp` cria o temporário em `0600`. Na VM quem os
+  serve é o nginx, com outro utilizador, e não os conseguia ler. Num posto
+  Windows, com o `http.server` do próprio utilizador, nunca se via. Passam a
+  sair em `0644`, mudado no temporário antes da troca; o registo e as contas
+  continuam em `0600`, e um teste fixa isso.
+- **Um ficheiro que muda enquanto é lido não vai para o arquivo.** Uma cópia
+  que parasse mais do que o assentamento e retomasse durante a leitura
+  deixava no arquivo imutável uma versão diferente da que deu o assunto. O
+  agente compara o tamanho e as horas do ficheiro do início da leitura com as
+  de antes de arquivar, e se mudaram fica para a volta seguinte. Uma paragem
+  longa sem retoma continua a passar como ficheiro inteiro: é a validação no
+  painel, com as páginas à vista, que a apanha.
+- **Um `entrada_assentamento` mal escrito** («15s») parava a entrada inteira.
+  Vale o de omissão.
+- **Na partilha**, os ficheiros passam de `0660` a `0640` e a pasta ganha o bit
+  «sticky» (`3770`): ninguém do grupo escreve por cima nem apaga o documento de
+  uma colega, e o agente, dono da pasta, continua a movê-los. A ligação passa a
+  ser cifrada (`server smb encrypt = required`).
+- **Nas cópias de segurança:** o arquivo do estado escreve-se com um nome
+  provisório e só ganha o definitivo quando tudo correu bem; o nome leva os
+  segundos; o `rsync` passa de `-a` a `-rt`, porque uma partilha Windows não
+  guarda dono nem permissões POSIX; a cópia exige o `registo_entrada.json`; e
+  a unidade fica `Before=agente-editais.service`, para uma cópia em atraso,
+  corrida no arranque da VM, não ter o agente a escrever a meio.
 
 ### O painel continua fechado à rede
 
@@ -2619,7 +2654,10 @@ Fase 2.
 
 ### Testes
 
-Três novos (775 no total). Dois falham contra o código anterior: o ficheiro a
-meio da cópia, que era lido logo, e o histórico, que dizia `sistema`. O
-terceiro fixa que um ficheiro assente é lido, e passa dos dois lados de
-propósito: é o que garante que a espera não engole documentos.
+Oito novos (780 no total). Seis falham contra o código anterior: o ficheiro a
+meio da cópia, o histórico que dizia `sistema`, a data no futuro, o
+assentamento mal escrito, o ficheiro que muda durante a leitura e a página da
+televisão em `0600`. O do histórico finge que o agente é outro utilizador, para
+apanhar uma versão que gravasse o utilizador do agente e não o dono do
+ficheiro. Dois passam dos dois lados de propósito: o ficheiro assente que é
+lido, para a espera não engolir documentos, e o registo que continua em `0600`.

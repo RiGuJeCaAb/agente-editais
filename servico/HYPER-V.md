@@ -138,7 +138,7 @@ cd /opt/agente-editais
 sudo -u editais python3 -m venv .venv
 sudo -u editais .venv/bin/pip install -r requirements.txt
 sudo -u editais mkdir -p entrada saida previas originais arquivo fundos trabalho diario
-sudo chmod 2770 entrada
+sudo chmod 3770 entrada
 ```
 
 Se a VM não chegar ao GitHub, copia a pasta do repositório por `scp` em vez do
@@ -148,9 +148,11 @@ Se a VM não chegar ao GitHub, copia a pasta do repositório por `scp` em vez do
 unidade declara-as em `ReadWritePaths`, e o systemd recusa arrancar quando
 uma delas não existe.
 
-O `2770` na entrada é o que a partilha vai precisar: o dono (`editais`) e o
-grupo (`editais`) escrevem, e o bit de grupo faz tudo o que lá for criado
-herdar o grupo `editais`.
+O `3770` na entrada é o que a partilha vai precisar: o dono (`editais`) e o
+grupo (`editais`) escrevem, o bit de grupo faz tudo o que lá for criado
+herdar o grupo `editais`, e o bit «sticky» deixa apagar ou mudar o nome de um
+ficheiro só ao dono dele e ao agente. Sem esse, quem carrega podia apagar os
+documentos das colegas antes de a vigia passar.
 
 O Debian 13 traz o Python 3.13. O `pyproject.toml` pede 3.10 ou mais recente, e
 a integração contínua corre em 3.10 e 3.12. A 3.13 não está na matriz.
@@ -249,7 +251,11 @@ O `smb.conf.exemplo` explica-o linha a linha. Em resumo:
   da conta do domínio que o copiou. Com `force user`, todos seriam do mesmo
   utilizador.
 - **`force group = editais`.** Os ficheiros ficam do grupo do agente, com
-  permissão `0660`, e ele lê-os e move-os sem mudar o dono.
+  permissão `0640`: ele lê-os e move-os sem mudar o dono, e as outras pessoas
+  do grupo não escrevem por cima. Com o bit «sticky» da pasta, também não os
+  apagam.
+- **`server smb encrypt = required`.** Os documentos atravessam a rede antes de
+  serem públicos, e vão cifrados. Um posto sem SMB3 é recusado.
 - O agente lê o dono no momento em que cria o rascunho, e é esse nome que fica
   no histórico do edital: «Documento recebido e lido», por `ana.abreu`.
 
@@ -260,8 +266,10 @@ segundos. Um ficheiro a meio já tem nome e tamanho, e o PyMuPDF repara PDFs
 truncados sem se queixar: lia-se metade de um edital como se fosse o edital.
 
 O agente espera que o ficheiro esteja **15 segundos sem mudar** antes de lhe
-tocar (`entrada_assentamento` no `config.json`). Uma cópia lenta fica para a
-volta seguinte; nada se perde por isso.
+tocar (`entrada_assentamento` no `config.json`). Conta pela hora da VM, e não
+pela data que o posto pôs no ficheiro: um posto com o relógio errado não prende
+um edital na entrada. Uma cópia lenta fica para a volta seguinte; nada se perde
+por isso.
 
 ---
 
@@ -499,17 +507,18 @@ diferencial que ninguém vigia, e a VM fica mais lenta a cada escrita.
       de quem copiou**, e não `editais` nem `sistema`.
 - [ ] O `diario/agente.log` tem a linha `RASCUNHO #... (de <nome>)`.
 - [ ] Uma pessoa fora do `<GRUPO-AD>` não consegue abrir a partilha.
-- [ ] **A espera pela cópia funciona com o Explorador do Windows.** Não foi
-      medida com um posto verdadeiro, e assenta numa suposição: que a data de
-      alteração avança enquanto a cópia corre. Copia para a partilha um `.zip`
-      de algumas centenas de MB (a vigia ignora os `.zip`) e, durante a cópia,
-      na VM:
+- [ ] Uma pessoa do grupo não consegue apagar nem alterar um ficheiro que uma
+      colega lá pôs (copia um `.zip`, que a vigia ignora, e experimenta com
+      outra conta).
+- [ ] `curl -sI http://<IP-DA-VM>/slides.json` dá `200`, e não `403`.
+- [ ] **A espera pela cópia vê a cópia a correr.** Copia para a partilha um
+      `.zip` de algumas centenas de MB (a vigia ignora os `.zip`) e, durante a
+      cópia, na VM:
       ```bash
-      watch -n1 stat -c '%y %s' '/opt/agente-editais/entrada/<ficheiro>.zip'
+      watch -n1 stat -c '%z %s' '/opt/agente-editais/entrada/<ficheiro>.zip'
       ```
-      Tens de ver a hora a acompanhar o relógio enquanto o tamanho cresce. Se
-      mostrar desde o início a data do ficheiro original, a espera não protege
-      nada: avisa, que é preciso outra regra. No fim, apaga o `.zip`.
+      O `%z` é a hora que o agente lê. Tens de a ver acompanhar o relógio
+      enquanto o tamanho cresce. No fim, apaga o `.zip`.
 - [ ] Validado e publicado, o edital aparece na televisão sem lhe tocar.
 - [ ] A certidão traz a hora certa: a de Lisboa, e não uma hora a menos.
 - [ ] Na manhã seguinte há um `estado-*.tar.gz` novo na partilha de cópias.

@@ -41,18 +41,33 @@ for programa in tar rsync; do
     fi
 done
 
-carimbo=$(date +%Y%m%d-%H%M)
+# Com os segundos: duas cópias no mesmo minuto, uma à mão e outra do timer,
+# escreviam no mesmo nome, e a segunda podia apagar a primeira a meio.
+carimbo=$(date +%Y%m%d-%H%M%S)
+final="$DESTINO/estado-$carimbo.tar.gz"
+parcial="$DESTINO/.estado-$carimbo.tar.gz.parcial"
 parado=0
 
 # O agente volta a arrancar aconteça o que acontecer à cópia: um tar que falhe
 # não pode deixar o painel parado até alguém reparar de manhã.
+#
+# O --no-block é por causa do Before= da copia-de-seguranca.service: o arranque
+# do agente espera que esta unidade acabe, e um start que bloqueasse aqui
+# dentro ficava à espera de si próprio. Assim o arranque fica pedido e acontece
+# quando a cópia termina. Corrido à mão, fora do systemd, arranca logo.
 retomar() {
     if [[ $parado -eq 1 ]]; then
-        systemctl start "$SERVICO" || echo "ERRO: o $SERVICO não voltou a arrancar" >&2
+        systemctl start --no-block "$SERVICO" \
+            || echo "ERRO: o $SERVICO não voltou a arrancar" >&2
         parado=0
     fi
 }
-trap retomar EXIT
+# Um arquivo a meio, de uma cópia que falhou, não fica com cara de cópia boa.
+limpar() {
+    rm -f "$parcial"
+    retomar
+}
+trap limpar EXIT
 
 # Pára-se o agente durante a cópia. O registo e o jornal de auditoria gravam-se
 # em dois passos, e uma cópia apanhada entre os dois guardava-os em desacordo.
@@ -63,28 +78,35 @@ if systemctl is-active --quiet "$SERVICO"; then
 fi
 
 cd "$RAIZ"
-# O config.json junta-se depois da verificação, e só se existir: escrito na
-# lista, o nullglob não o tira mesmo que falte (não tem asterisco), e a lista
-# nunca ficava vazia — a RAIZ errada passava como cópia de um config.json só.
-estado=(registo_entrada.json* registo_auditoria.jsonl* utilizadores.json*)
-if [[ ${#estado[@]} -eq 0 ]]; then
-    echo "ERRO: não há estado em $RAIZ — a RAIZ está certa?" >&2
+# O registo de entrada é o que tem de lá estar. Um jornal ou um ficheiro de
+# contas sozinhos passavam por cópia feita, e repor essa cópia dava um posto
+# sem um único edital — numa RAIZ errada, ou num estado já estragado.
+if [[ ! -s registo_entrada.json ]]; then
+    echo "ERRO: não há registo_entrada.json em $RAIZ — a RAIZ está certa?" >&2
     exit 1
 fi
+estado=(registo_entrada.json* registo_auditoria.jsonl* utilizadores.json*)
 [[ -f config.json ]] && estado+=(config.json)
-tar -czf "$DESTINO/estado-$carimbo.tar.gz" "${estado[@]}"
+tar -czf "$parcial" "${estado[@]}"
 
 # Os arquivos só crescem: copia-se o que é novo, e nunca se apaga no destino o
 # que tenha desaparecido na origem. Um arquivo apagado por engano na VM continua
 # a existir na cópia.
+#
+# -rt e não -a: o destino é uma partilha Windows montada por CIFS, onde o dono,
+# o grupo e as permissões POSIX não se guardam, e o -a, que tenta mudá-los,
+# pode fazer falhar a cópia. Na reposição o chown -R volta a pô-los.
 for pasta in originais arquivo previas; do
     if [[ -d "$RAIZ/$pasta" ]]; then
         mkdir -p "$DESTINO/$pasta"
-        rsync -a "$RAIZ/$pasta/" "$DESTINO/$pasta/"
+        rsync -rt "$RAIZ/$pasta/" "$DESTINO/$pasta/"
     fi
 done
+
+# Só aqui, com tudo copiado, o arquivo do estado ganha o nome definitivo.
+mv "$parcial" "$final"
 
 retomar
 
 find "$DESTINO" -maxdepth 1 -name 'estado-*.tar.gz' -mtime +"$DIAS" -delete
-echo "cópia feita: $DESTINO/estado-$carimbo.tar.gz"
+echo "cópia feita: $final"

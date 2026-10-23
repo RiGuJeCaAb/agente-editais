@@ -54,12 +54,24 @@
    # utilizador e o histórico diria sempre o mesmo nome.
    #
    # O force group é o que deixa o agente (utilizador editais, grupo editais)
-   # ler e mover os ficheiros de toda a gente, sem mudar o dono.
+   # ler os ficheiros de toda a gente, sem mudar o dono. Movê-los para a
+   # subpasta tratados é pela pasta, que é dele, e não precisa de mais nada.
+   #
+   # 0640 e não 0660: o grupo LÊ, mas não escreve. Com 0660, outra pessoa do
+   # mesmo grupo podia escrever por cima do ficheiro de uma colega antes de a
+   # vigia passar, e o histórico ficava com o nome da colega e o documento da
+   # outra. O apagar já está fechado pelo bit «sticky» da pasta (chmod 3770,
+   # no HYPER-V.md): só o dono do ficheiro, ou o agente, dono da pasta.
    force group = editais
-   create mask = 0660
-   force create mode = 0660
+   create mask = 0640
+   force create mode = 0640
    directory mask = 2770
    force directory mode = 2770
+
+   # Os documentos passam pela rede antes de serem públicos, e alguns nunca
+   # chegam a sê-lo. Cifrados sempre; um cliente sem SMB3 é recusado, e
+   # qualquer Windows desde o 8 o tem.
+   server smb encrypt = required
 
    # A subpasta para onde o agente move o que já leu não é de quem carrega:
    # escondê-la evita que alguém a apague a pensar que é lixo.
