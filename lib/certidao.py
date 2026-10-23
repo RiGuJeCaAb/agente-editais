@@ -137,16 +137,6 @@ def _pt(instante: str | None) -> str:
     return d.strftime("%d/%m/%Y às %H:%M")
 
 
-def _pt_data(valor: str | None) -> str:
-    """Formata uma data ISO como DD/MM/AAAA."""
-    if not valor:
-        return "—"
-    try:
-        return date.fromisoformat(str(valor)[:10]).strftime("%d/%m/%Y")
-    except ValueError:
-        return str(valor)
-
-
 # Comprimentos, em dígitos hexadecimais, dos resumos que o projeto produz: o
 # SHA-256 do arquivo imutável e o SHA-1 que o caminho de entrada usa para
 # deduplicação. Qualquer outra coisa no campo não é um resumo de ficheiro.
@@ -676,28 +666,6 @@ class _Folha:
                 pagina.draw_rect(
                     fitz.Rect(recuo, recuo, LARGURA - recuo, ALTURA - recuo),
                     color=VERDE, width=traco)
-
-    def imagem(self, caminho, *, largura_desejada=120, espaco_depois=10):
-        """Assenta uma imagem centrada no topo, se o ficheiro existir.
-
-        Falhar a abrir o logótipo não pode impedir a emissão de uma certidão: o
-        documento vale pelo que afirma, não pelo brasão. Sem o ficheiro, a
-        certidão sai sem ele e o resto fica igual.
-        """
-        if not caminho:
-            return
-        try:
-            with fitz.open(caminho) as img:
-                prop = img[0].rect.height / img[0].rect.width
-        except Exception:
-            return
-        alt = largura_desejada * prop
-        self._nova_pagina_se_preciso(alt + espaco_depois)
-        x0 = (LARGURA - largura_desejada) / 2
-        self.pagina.insert_image(
-            fitz.Rect(x0, self.y, x0 + largura_desejada, self.y + alt),
-            filename=caminho, keep_proportion=True)
-        self.y += alt + espaco_depois
 
     def par_de_imagens(self, caminhos, *, altura=ALTURA_DO_TIMBRE,
                        intervalo=INTERVALO_DO_TIMBRE, espaco_depois=10):

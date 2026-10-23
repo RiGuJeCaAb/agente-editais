@@ -1,4 +1,4 @@
-# Configuração local (contém a senha do painel) — nunca versionar.
+# Configuração local do posto (morada, timbre, portas) — nunca versionar.
 config.json
 
 # Dados de execução: estado, registos e trilho de auditoria são do posto, não do código.
@@ -27,7 +27,6 @@ previas/
 trabalho/
 fundos/
 originais/
-diario/
 arquivo/*
 !arquivo/_ARQUIVO.txt
 

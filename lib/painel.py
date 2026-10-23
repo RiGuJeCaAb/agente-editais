@@ -43,11 +43,14 @@ import registo as reg_mod
 import utilizadores as utl
 
 # Cabeçalho próprio que o painel envia em todos os pedidos de escrita. É metade
-# da defesa contra CSRF: um <form> de outro sítio consegue enviar um POST com as
-# credenciais Basic em cache, mas NÃO consegue pôr um cabeçalho personalizado —
-# isso exigiria CORS com pedido prévio (preflight), que este servidor nunca
-# autoriza. A outra metade é exigir Content-Type: application/json, que um
-# formulário simples também não consegue produzir.
+# da defesa contra CSRF. O cookie de sessão é SameSite=Strict e não vai num
+# pedido nascido noutro domínio — mas o SameSite ignora a porta, e uma página de
+# outro serviço na mesma máquina (o controlador UniFi na 8080, o servidor
+# estático da televisão) conta como o mesmo sítio e leva-o. O que um <form>
+# dessa página NÃO consegue é pôr um cabeçalho personalizado — isso exigiria
+# CORS com pedido prévio (preflight), que este servidor nunca autoriza. A outra
+# metade é exigir Content-Type: application/json, que um formulário simples
+# também não consegue produzir.
 CABECALHO_PEDIDO = "X-Painel-Pedido"
 
 # Nome do cookie de sessão. O prefixo do nome é deliberado: identifica o serviço
@@ -304,9 +307,12 @@ class PainelServer:
                 """Valida que um pedido de escrita vem mesmo do painel, e não de outro sítio.
 
                 Isto é a correção do problema mais sério que a análise encontrou.
-                O Basic Auth fica em cache no browser e é enviado em pedidos
-                iniciados por QUALQUER página. Como o servidor lia o corpo e fazia
-                json.loads independentemente do Content-Type, um <form> alojado
+                O painel usava então Basic Auth, que fica em cache no browser e é
+                enviado em pedidos iniciados por QUALQUER página. Hoje o cookie de
+                sessão é SameSite=Strict, mas isso não fecha tudo: o SameSite
+                ignora a porta, e uma página de outro serviço na mesma máquina
+                leva o cookie. Como o servidor lia o corpo e fazia json.loads
+                independentemente do Content-Type, um <form> alojado
                 noutro sítio conseguia publicar ou retirar editais em nome de quem
                 tivesse o painel aberto. Foi reproduzido com um POST de
                 Content-Type text/plain e Origin de outro domínio, que retirou um

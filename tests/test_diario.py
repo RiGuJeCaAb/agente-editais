@@ -113,3 +113,38 @@ def test_nao_contamina_o_registo_da_raiz(tmp_path, capsys):
     """
     diario.configurar(None)
     assert logging.getLogger("editais").propagate is False
+
+
+# --- chaves do config.json que deixaram de fazer alguma coisa ---------------
+
+def test_a_chave_da_publicacao_automatica_desligada_e_avisada(tmp_path):
+    """Quem pôs `usar_registo_entrada` a false julga que os editais vão direto ao ecrã.
+
+    A chave esteve no exemplo e nos valores por omissão, com um comentário a
+    prometer a publicação automática se ficasse a false. Nenhum código a lia: o
+    posto continuava a pedir validação no painel, e o config.json dizia o
+    contrário sem ninguém avisar.
+    """
+    import agente
+
+    ficheiro = tmp_path / "agente.log"
+    diario.configurar(str(ficheiro))
+    agente._avisar_chaves_obsoletas({"usar_registo_entrada": False})
+    gravado = ficheiro.read_text(encoding="utf-8")
+    assert "usar_registo_entrada" in gravado and "WARNING" in gravado
+
+
+def test_a_chave_ligada_ou_ausente_nao_faz_barulho(tmp_path):
+    """Ligada é o que o posto já faz; avisar a cada arranque seria ruído.
+
+    Não prova uma correção, e o AGENTS.md pede que isso se diga: fixa que o
+    aviso não dispara para os config.json copiados do exemplo antigo, que a
+    tinham a true. Contra o código anterior só falha porque a função não existia.
+    """
+    import agente
+
+    ficheiro = tmp_path / "agente.log"
+    diario.configurar(str(ficheiro))
+    agente._avisar_chaves_obsoletas({"usar_registo_entrada": True})
+    agente._avisar_chaves_obsoletas({})
+    assert "usar_registo_entrada" not in ficheiro.read_text(encoding="utf-8")

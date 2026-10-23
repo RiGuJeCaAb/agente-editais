@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.25.2"
+VERSAO = "0.25.3"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -114,10 +114,6 @@ CONFIG = {
     "manter_zips": 3,
     "titulo_tv": "Editais \u00b7 C\u00e2mara Municipal de Moimenta da Beira",
     # --- Painel de gestão ---
-    # Fluxo com validação humana: quando True, os documentos entram como RASCUNHO
-    # e só vão para o ecrã depois de validados/publicados no painel. Quando False,
-    # mantém o comportamento antigo (publicação automática) — útil para migração.
-    "usar_registo_entrada": True,
     "painel_host": "127.0.0.1",     # "0.0.0.0" para expor à rede (dentro da VLAN)
     "painel_porta": 8770,
     # --- Identificação para a certidão de afixação ---
@@ -145,8 +141,8 @@ def load_config():
     Ao contrário de uma leitura ingénua, esta função NÃO falha em silêncio: se o
     config.json existir mas tiver erro de sintaxe (aspas curvas de um editor de
     texto, vírgula a mais, etc.), avisa em alto e bom som e explica a causa
-    provável — em vez de arrancar sorrateiramente com a config por defeito (senha
-    vazia), que deixava o utilizador sem perceber porque o login falhava.
+    provável — em vez de arrancar sorrateiramente com a config por defeito, que
+    deixava quem a escreveu sem perceber porque nada do que lá pôs tinha efeito.
 
     Returns:
         dict: configuração efetiva a usar nesta execução.
@@ -180,6 +176,25 @@ def load_config():
               "originais", "trabalho"):
         os.makedirs(cfg[k], exist_ok=True)
 
+    _avisar_chaves_obsoletas(cfg)
+
+    # Carrega a tabela de tipos de documento (os de origem, mais os do município).
+    pr.carregar_tipos(cfg)
+    _agente.debug(f"agente de editais {VERSAO} | registo em {cfg['diario']}")
+    return cfg
+
+# Avisa das chaves do config.json que já não fazem nada mas que quem as pôs
+# julga que fazem.
+def _avisar_chaves_obsoletas(cfg):
+    """Avisa, no diário, das chaves que deixaram de ter efeito.
+
+    Ignorá-las em silêncio é o pior dos dois mundos: o ficheiro diz uma coisa e
+    o posto faz outra. Separado de load_config para se poder testar sem um
+    config.json verdadeiro na raiz.
+
+    Args:
+        cfg (dict): configuração já fundida com o config.json.
+    """
     # A senha partilhada foi retirada na Onda 2. Se ainda estiver no config,
     # avisa-se em vez de a ignorar em silêncio — quem a lá tem julga que está a
     # proteger o painel com ela.
@@ -190,10 +205,17 @@ def load_config():
             "de afixação poder dizer quem afixou cada edital. Crie contas com: "
             "python agente.py --criar-utilizador NOME --administrador")
 
-    # Carrega a tabela de tipos de documento (os de origem, mais os do município).
-    pr.carregar_tipos(cfg)
-    _agente.debug(f"agente de editais {VERSAO} | registo em {cfg['diario']}")
-    return cfg
+    # A publicação automática, sem validação no painel, deixou de existir, mas a
+    # chave que a ligava ficou no exemplo e nos valores por omissão. Quem a
+    # tiver posto a false julga que os documentos vão direto ao ecrã; não vão.
+    # Avisa-se em vez de a ignorar em silêncio, como com a senha.
+    if cfg.get("usar_registo_entrada") is False:
+        _config.warning(
+            "A chave 'usar_registo_entrada' do config.json já não é usada e pode "
+            "ser retirada. A publicação automática deixou de existir: todos os "
+            "documentos entram como rascunho e só vão ao ecrã depois de "
+            "validados e publicados no painel.")
+
 
 def file_hash(path):
     """Calcula o SHA-1 do conteúdo de um ficheiro (lido em blocos de 64 KB).
@@ -326,8 +348,10 @@ def _varrer_para_registo(cfg, reg):
             _tirar_da_entrada(cfg, path, nome)
             ocr_nota = " [via OCR]" if info["ocr"] else ""
             duv = ", ".join(r["campos_duvidosos"]) or "nenhum"
-            print(f"[RASCUNHO #{r['id']}] {nome}{ocr_nota}: {info['paginas']} pág | "
-                  f"assunto: {meta['assunto'] or '(n/d)'} | a confirmar: {duv}")
+            # Pelo diário, e não por print: em serviço ninguém lê o stdout, e o
+            # diário também escreve na consola quando há uma.
+            _agente.info(f"RASCUNHO #{r['id']} {nome}{ocr_nota}: {info['paginas']} pág | "
+                         f"assunto: {meta['assunto'] or '(n/d)'} | a confirmar: {duv}")
             novos += 1
         except Exception as ex:
             _agente.error(f"{nome}: {ex}")
@@ -1729,8 +1753,12 @@ def iniciar_painel(cfg):
                 # Deita fora os testemunhos de sessões já sem validade, para a
                 # memória não crescer com cada entrada que nunca é fechada.
                 contas.limpar_sessoes_expiradas()
-            except Exception as ex:
-                print(f"[ERRO vigia] {ex}")
+            except Exception:
+                # Ia só para o stdout, que num posto em serviço não fica em lado
+                # nenhum. Esta volta também aplica as retiradas automáticas: uma
+                # que falhasse não deixava rasto no diário. Com o traceback, que
+                # sem ele não se sabe onde foi.
+                _agente.exception("erro no ciclo de vigia")
             time.sleep(int(cfg["intervalo_watch"]))
 
     def aquecer_fundos():
