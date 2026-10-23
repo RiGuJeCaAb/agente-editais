@@ -27,3 +27,10 @@ def test_o_bloco_de_afixacao_tem_estilo_no_formulario_de_edicao():
     for regra in (".ficha-edicao .meta{", ".ficha-edicao .meta .l{",
                   ".ficha-edicao .meta b{"):
         assert regra in css, f"falta a regra «{regra}» — a afixação volta a colar-se"
+    # Não basta o seletor existir: o que separa o rótulo do valor é o flex, e
+    # uma regra com o nome certo e o corpo errado passava a pesquisa acima.
+    for regra in (".ficha-edicao .meta{", ".ficha-edicao .meta .l{"):
+        inicio = css.index(regra) + len(regra)
+        corpo = css[inicio:css.index("}", inicio)]
+        assert "display:flex" in corpo, (
+            f"a regra «{regra}» existe mas já não é flex — a afixação cola-se")

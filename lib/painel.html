@@ -812,14 +812,37 @@
         el.dispatchEvent(new Event('change'));
       });
     });
+    // A proposta foi calculada pelo servidor para o tipo e a data de publicação
+    // com que o registo chegou. Mudar um deles torna-a velha, e aceitá-la
+    // gravava o prazo de outro tipo de documento. Não se refaz a conta aqui: os
+    // dias e a aritmética das datas vivem só no servidor. Tira-se o botão, e a
+    // nota diz como obter a proposta certa.
+    ['f-tipo','f-data_publicacao'].forEach(id=>{
+      const el=document.getElementById(id);
+      if(el) el.addEventListener('change',()=>{
+        document.querySelectorAll('.nota-proposta').forEach(n=>{
+          n.textContent='A proposta deixou de valer para os dados alterados. '
+            +'Guarde para a recalcular, ou deixe em branco: a publicação '
+            +'calcula a data a partir da afixação real.';
+        });
+      });
+    });
     actualizarPrazos();
   }
 
   function camposDe(){
     const g=id=>document.getElementById(id);
-    return {assunto:g('f-assunto')?.value.trim(),numero:g('f-numero')?.value.trim(),
+    const campos={assunto:g('f-assunto')?.value.trim(),numero:g('f-numero')?.value.trim(),
       tipo:g('f-tipo')?.value||undefined,
-      data_publicacao:g('f-data_publicacao')?.value||null,data_retirada:g('f-data_retirada')?.value||null};
+      data_publicacao:g('f-data_publicacao')?.value||null};
+    // A data de retirada só vai no pedido se quem está ao teclado lhe mexeu.
+    // Mandá-la sempre fazia de um campo em branco uma ordem de apagar: com o
+    // formulário aberto aqui e o edital publicado noutra sessão, um Guardar
+    // apagava a data que a publicação acabara de calcular, e o edital ficava
+    // no ecrã para sempre. O defaultValue é o que veio do servidor.
+    const ret=g('f-data_retirada');
+    if(ret && ret.value!==ret.defaultValue) campos.data_retirada=ret.value||null;
+    return campos;
   }
   // Cabeçalhos de escrita. O X-Painel-Pedido é o que distingue um pedido nascido
   // desta página de um POST forjado por outro sítio com as credenciais Basic em

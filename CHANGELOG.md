@@ -2445,12 +2445,29 @@ altura. Fica um ficheiro novo, `tests/test_painel_apresentacao.py`, para as
 guardas desta natureza, em que o comportamento está certo e o que falha é o que
 se vê.
 
+### Dois achados do Sourcery sobre esta mesma correção
+
+**A proposta ficava velha depois de mudar o tipo.** A proposta vem do
+servidor, calculada para o tipo e a data de publicação com que o registo
+chegou. Quem mudasse o tipo e carregasse em «Usar esta data» gravava o prazo
+do tipo antigo. Ao mudar o tipo ou a data de publicação, o botão sai e a nota
+diz como obter a proposta certa. A conta não se refaz no browser: os dias e a
+aritmética das datas continuam a viver só no servidor.
+
+**Um campo em branco era uma ordem de apagar.** O painel mandava a data de
+retirada em todos os Guardar. Com o formulário aberto numa sessão e o edital
+publicado noutra, um Guardar atrasado apagava a data que a publicação acabara
+de calcular, e o edital ficava no ecrã para sempre. A data só vai no pedido
+quando quem está ao teclado lhe mexeu.
+
 ### Testes
 
-**Cinco novos, e os cinco falham contra o código anterior.** Três correm no
-`pytest` normal (768 no total). Os outros dois abrem o painel num Chromium, num
-ficheiro novo, `tests/test_painel_no_browser.py` (63 testes de browser no
-total). São os únicos que provam o que interessa: que um Guardar feito para
-corrigir o assunto deixa a data de retirada em branco, e que o botão a enche.
-Os testes que leem o `painel.html` como texto não o provam, porque não correm
-o JavaScript.
+**Oito novos, e todos falham contra o código anterior.** Três correm no
+`pytest` normal (768 no total). Os outros cinco abrem o painel num Chromium,
+num ficheiro novo, `tests/test_painel_no_browser.py` (66 testes de browser no
+total). São os únicos que provam o que interessa: o que um Guardar envia nos
+dois formulários onde o campo existe, que o botão enche o campo, que mudar o
+tipo o tira, e que um formulário aberto antes da publicação não apaga a data
+que ela calculou. Os testes que leem o `painel.html` como texto não o provam,
+porque não correm o JavaScript. O de apresentação passou a exigir o
+`display:flex` dentro da regra, e não apenas o nome do seletor.

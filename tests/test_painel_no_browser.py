@@ -77,8 +77,13 @@ def painel(tmp_path):
 
 
 @pytest.fixture
-def pagina(painel):
-    """O painel aberto no ecrã de validação, já com a sessão iniciada."""
+def abrir(painel):
+    """Abre o painel numa secção, com a sessão iniciada, e devolve a página.
+
+    Em «validar» cai no formulário do rascunho. Em «geral» clica na ficha do
+    registo, que é o caminho para o formulário de edição de um edital já
+    validado ou publicado: é o outro sítio onde o campo da retirada aparece.
+    """
     executavel = os.environ.get("CHROMIUM_PARA_TESTES") or None
     with sync_playwright() as p:
         b = p.chromium.launch(executable_path=executavel)
@@ -93,12 +98,32 @@ def pagina(painel):
                                          "X-Painel-Pedido": "1",
                                          "Origin": base})
         assert resp.status == 200, resp.text()
-        pg = ctx.new_page()
-        pg.goto(base + "/")
-        pg.click('[data-sec="validar"]')
-        pg.wait_for_selector("#f-data_retirada")
-        yield pg
+
+        def _abrir(seccao):
+            pg = ctx.new_page()
+            pg.goto(base + "/")
+            pg.click(f'[data-sec="{seccao}"]')
+            if seccao == "geral":
+                pg.click(f'.ficha[data-id="{painel["rid"]}"]')
+            pg.wait_for_selector("#f-data_retirada")
+            return pg
+
+        yield _abrir
         b.close()
+
+
+@pytest.fixture
+def pagina(abrir):
+    """O formulário de validação do rascunho."""
+    return abrir("validar")
+
+
+@pytest.fixture
+def validado(painel):
+    """O mesmo registo, já validado: abre-se pelo formulário de edição."""
+    painel["reg"].mover_estado(painel["rid"], reg_mod.VALIDADO,
+                               utilizador="ana.abreu")
+    return painel
 
 
 def _guardar(pg):
@@ -136,3 +161,54 @@ def test_aceitar_a_proposta_e_um_ato_de_quem_esta_ao_teclado(painel, pagina):
     _guardar(pagina)
 
     assert painel["reg"].por_id(painel["rid"])["data_retirada"] == painel["proposta"]
+
+
+# --- os achados da revisão automática sobre esta própria peça ---------------
+
+def test_o_formulario_de_edicao_tambem_nao_grava_a_proposta(validado, abrir):
+    """O mesmo caminho, no outro formulário onde o campo existe.
+
+    Os dois testes de cima abrem a validação. O formulário de edição de um
+    edital validado tinha o mesmo pré-preenchimento, e ficava sem guarda.
+    """
+    pg = abrir("geral")
+    assert pg.locator("#f-data_retirada").input_value() == ""
+    pg.fill("#f-assunto", "ASSUNTO CORRIGIDO NO FORMULÁRIO DE EDIÇÃO")
+    _guardar(pg)
+    assert not validado["reg"].por_id(validado["rid"]).get("data_retirada")
+
+
+def test_mudar_o_tipo_tira_a_proposta_que_deixou_de_valer(painel, pagina):
+    """Depois de mudar o tipo, não há botão que aceite o prazo do tipo antigo.
+
+    A proposta vem calculada do servidor para o tipo com que o registo chegou.
+    Com o botão ainda lá, aceitar gravava os cinco dias da deliberação num
+    documento que passou a ser outra coisa.
+    """
+    assert pagina.locator(".btn-proposta").count() == 1
+    pagina.select_option("#f-tipo", "aviso")
+    assert pagina.locator(".btn-proposta").count() == 0
+    assert "deixou de valer" in pagina.locator(".nota-proposta").inner_text()
+
+
+def test_um_guardar_atrasado_nao_apaga_a_data_da_publicacao(validado, abrir):
+    """Um formulário aberto antes da publicação não apaga o prazo que ela pôs.
+
+    O formulário abre-se com a data em branco. Entretanto o edital é publicado
+    noutra sessão, e a publicação calcula a data de retirada. Quem tinha o
+    formulário aberto corrige o assunto e guarda. Se o campo em branco fosse no
+    pedido, apagava essa data, e o edital nunca mais saía do ecrã sozinho.
+    """
+    pg = abrir("geral")
+    reg, rid = validado["reg"], validado["rid"]
+    reg.mover_estado(rid, reg_mod.PUBLICADO, utilizador="rui.santos")
+    calculada = reg.por_id(rid)["data_retirada"]
+    assert calculada, "a publicação devia ter calculado a data"
+
+    pg.fill("#f-assunto", "ASSUNTO CORRIGIDO DEPOIS DE PUBLICADO")
+    _guardar(pg)
+
+    r = reg.por_id(rid)
+    assert r["assunto"] == "ASSUNTO CORRIGIDO DEPOIS DE PUBLICADO"
+    assert r["data_retirada"] == calculada, (
+        "o Guardar de um formulário aberto antes da publicação apagou o prazo")
