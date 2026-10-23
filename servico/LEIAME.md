@@ -7,6 +7,19 @@ efetivamente se instala.
 da máquina à televisão, com o que tens de ver a cada passo para saber que
 correu bem.
 
+`HYPER-V.md` é a mesma coisa para uma VM Debian no Hyper-V da Câmara, membro do
+domínio: a pasta de entrada partilhada na rede, o registo de quem colocou cada
+documento, a televisão servida por nginx e as cópias de segurança para fora da
+VM. Inclui a migração do estado de um posto Windows.
+
+| Ficheiro | Para quê |
+|---|---|
+| `agente-editais.service` | o agente como serviço systemd |
+| `nginx-editais.conf` | a televisão: a pasta `saida/` como site estático |
+| `smb.conf.exemplo` | a partilha `entrada`, com a VM membro do AD |
+| `copia-de-seguranca.sh` | a cópia do estado para fora da máquina |
+| `copia-de-seguranca.service`, `.timer` | a mesma cópia, todas as noites |
+
 ## Linux (systemd) — recomendado
 
 `agente-editais.service` está pronto a copiar. Ajuste `User`, `Group` e os

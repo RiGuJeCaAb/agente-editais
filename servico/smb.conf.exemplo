@@ -1,0 +1,67 @@
+# Partilha da pasta de entrada, com a VM membro do domínio Active Directory.
+#
+# Substitui o /etc/samba/smb.conf da VM. Os valores entre <> são da Câmara e
+# NÃO se adivinham — pede-os à informática ou tira-os de um posto do domínio:
+#
+#   <DOMINIO>        nome NetBIOS do domínio, em maiúsculas (ex.: o que aparece
+#                    antes da barra em DOMINIO\utilizador)
+#   <DOMINIO.DNS>    nome DNS do domínio, em maiúsculas (o «realm» Kerberos)
+#   <GRUPO-AD>       grupo do AD com quem pode carregar documentos. Cria-se um
+#                    grupo próprio para isto, em vez de abrir a toda a gente.
+#
+# O passo-a-passo da adesão ao domínio está em servico/HYPER-V.md, secção 4.
+
+[global]
+   workgroup = <DOMINIO>
+   realm = <DOMINIO.DNS>
+   security = ADS
+   kerberos method = secrets and keytab
+
+   # Os nomes ficam «ana.abreu» e não «<DOMINIO>\ana.abreu». É este nome que o
+   # agente lê do dono do ficheiro e grava no histórico do edital.
+   winbind use default domain = yes
+   winbind refresh tickets = yes
+   template shell = /usr/sbin/nologin
+
+   # Mapeamento de contas do domínio para números de utilizador Linux. O rid
+   # dá sempre o mesmo número à mesma conta, em qualquer máquina e depois de
+   # qualquer reinstalação — e é por esse número que o ficheiro guarda o dono.
+   idmap config * : backend = tdb
+   idmap config * : range = 3000-7999
+   idmap config <DOMINIO> : backend = rid
+   idmap config <DOMINIO> : range = 10000-999999
+
+   # Só SMB2 para cima. O SMB1 está desligado de origem nos Windows atuais e
+   # não há posto da Câmara que precise dele.
+   server min protocol = SMB2_10
+
+   # Esta máquina não é servidor de impressão.
+   load printers = no
+   printing = bsd
+   printcap name = /dev/null
+   disable spoolss = yes
+
+[entrada]
+   comment = Editais a publicar
+   path = /opt/agente-editais/entrada
+   read only = no
+   browseable = yes
+   valid users = @"<GRUPO-AD>"
+
+   # O que faz o registo de quem colocou o documento funcionar: NÃO há aqui
+   # «force user». Cada ficheiro fica com o dono da conta que o copiou, e é esse
+   # dono que o agente lê. Com force user, todos os ficheiros seriam do mesmo
+   # utilizador e o histórico diria sempre o mesmo nome.
+   #
+   # O force group é o que deixa o agente (utilizador editais, grupo editais)
+   # ler e mover os ficheiros de toda a gente, sem mudar o dono.
+   force group = editais
+   create mask = 0660
+   force create mode = 0660
+   directory mask = 2770
+   force directory mode = 2770
+
+   # A subpasta para onde o agente move o que já leu não é de quem carrega:
+   # escondê-la evita que alguém a apague a pensar que é lixo.
+   veto files = /tratados/
+   delete veto files = no

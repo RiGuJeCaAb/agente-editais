@@ -1,0 +1,15 @@
+# Corre a cópia de segurança todas as noites.
+#
+# Às 03:17 e não às 03:00: a essa hora não há ninguém no painel, e um minuto
+# fora da hora certa evita calhar em cima de outras tarefas marcadas para lá.
+# O Persistent=true corre a cópia que faltou se a VM estava desligada à hora.
+
+[Unit]
+Description=Cópia de segurança noturna do agente de editais
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target

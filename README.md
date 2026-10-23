@@ -287,6 +287,8 @@ publicação, quando uma pessoa a autoriza.
   ```
 - **Windows**: o painel como serviço via NSSM, apontado a
   `python agente.py --painel`.
+- **VM Debian no Hyper-V**, membro do domínio, com a entrada partilhada na
+  rede: `servico/HYPER-V.md`, do servidor até à televisão (secção 26).
 
 O endpoint `/saude` responde sem sessão e serve para o supervisor saber se o
 painel está de pé.
@@ -336,7 +338,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 772 testes (mais 66 de browser: pytest -m navegador)
+pytest          # 775 testes (mais 66 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1361,3 +1363,59 @@ Fica a nota para quem decidir: **ambiente sonoro no átrio é uma decisão sobre
 própria — e a página dos editais fica limpa do assunto. Separar as duas coisas
 é o que permite discutir cada uma pelo que ela é.
 
+---
+
+## 26. A VM no Hyper-V, e quem colocou cada documento — NOVO
+
+O agente passa a ter casa própria: uma VM Debian pequena no Hyper-V da Câmara,
+membro do domínio, com a pasta de entrada partilhada na rede. O guia está em
+`servico/HYPER-V.md`, da VM à televisão, com a migração do posto Windows e as
+cópias de segurança. A configuração que se instala está ao lado dele em
+`servico/`: o Samba, o nginx e a cópia noturna.
+
+### Quem colocou o documento fica no histórico
+
+Com a entrada aberta à rede, a primeira pergunta sobre um edital passa a ser
+quem o pôs lá. O histórico do rascunho já tinha o campo, e dizia sempre
+`sistema`.
+
+Agora diz o **dono do ficheiro**. Numa partilha Samba com a VM no domínio e sem
+`force user`, cada ficheiro fica com o dono da conta que o copiou, e o agente
+traduz esse dono para o nome no momento em que cria o rascunho: «Documento
+recebido e lido», por `ana.abreu`. A linha do diário também o diz,
+`RASCUNHO #12 edital.pdf (de ana.abreu)`.
+
+Não é uma prova contra quem queira enganar: diz que conta copiou o ficheiro, e
+quem tem a senha dessa conta tem o nome. É o mesmo que vale para o resto do
+que se faz no domínio, e é muito mais do que «sistema».
+
+Fora de uma partilha, o nome é o do utilizador que pôs o ficheiro na pasta, e
+num posto Windows continua a ser `sistema`, como até aqui: o dono de um
+ficheiro NTFS lê-se por outra interface, e não se escreveu esse caminho para um
+posto que vai deixar de ser o da produção.
+
+### A cópia que ainda está a chegar
+
+A vigia passa pela pasta de 30 em 30 segundos. Um PDF grande copiado pela rede
+chega aos bocados, e um ficheiro a meio já tem nome e tamanho. O PyMuPDF
+repara PDFs truncados sem se queixar, e lia-se metade de um edital como se
+fosse o edital.
+
+O agente passa a esperar que o ficheiro esteja **15 segundos sem mudar** antes
+de lhe tocar. A chave é `entrada_assentamento` no `config.json`; `0` desliga a
+espera. Um ficheiro ainda a chegar fica para a volta seguinte, e o atraso,
+para quem carrega, é de meio minuto no pior caso.
+
+### O que a unidade systemd passa a fixar
+
+- **O fuso horário**, `TZ=Europe/Lisbon`. A hora de afixação da certidão é a
+  hora local da máquina, e uma VM instalada em UTC acertava no inverno e
+  errava uma hora no verão.
+- **Uma pasta pessoal para o LibreOffice**, dentro de `trabalho/`. A unidade
+  esconde o `/home`, e sem pasta pessoal o LibreOffice recusa arrancar: nenhum
+  documento Word seria convertido.
+
+### O que fica para depois
+
+A Fase 2 abre o painel à rede, por HTTPS. Até lá chega-se a ele por um túnel
+SSH, e o guia diz porquê. A Fase 3 põe o painel a entrar com a conta do Entra.

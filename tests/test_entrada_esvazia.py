@@ -85,3 +85,45 @@ def test_dois_ficheiros_com_o_mesmo_nome_nao_se_apagam(posto):
     agente.varrer_para_registo(posto["cfg"], posto["reg"], None)
     assert len(os.listdir(posto["cfg"]["tratados"])) == 2
     assert len(posto["reg"].todos()) == 2
+
+
+# --- a pasta de entrada partilhada pela rede --------------------------------
+
+def test_um_ficheiro_a_meio_da_copia_espera_pela_volta_seguinte(posto):
+    """Um ficheiro alterado há instantes não é lido: pode estar a meio da cópia.
+
+    Com a entrada partilhada por Samba, a vigia pode passar enquanto um posto
+    Windows ainda copia o documento. O PyMuPDF repara PDFs partidos, e um PDF
+    cortado abria com páginas a menos e entrava assim no arquivo imutável.
+    """
+    cfg = dict(posto["cfg"], entrada_assentamento=60)
+    assert agente.varrer_para_registo(cfg, posto["reg"], None) == 0
+    assert posto["reg"].todos() == []
+    assert "edital.pdf" in os.listdir(cfg["entrada"]), "saiu da entrada sem ser lido"
+
+
+def test_um_ficheiro_assente_e_lido(posto):
+    """Passado o tempo de assentamento, o mesmo ficheiro entra normalmente.
+
+    Passa contra o código anterior de propósito, e o AGENTS.md pede que se
+    diga: fixa que a espera não engole o documento para sempre.
+    """
+    cfg = dict(posto["cfg"], entrada_assentamento=60)
+    caminho = os.path.join(cfg["entrada"], "edital.pdf")
+    ha_dois_minutos = os.path.getmtime(caminho) - 120
+    os.utime(caminho, (ha_dois_minutos, ha_dois_minutos))
+    assert agente.varrer_para_registo(cfg, posto["reg"], None) == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="o dono do ficheiro lê-se pelo pwd, que é POSIX")
+def test_o_historico_diz_quem_colocou_o_documento(posto):
+    """O evento que abre o histórico é de quem pôs o ficheiro na pasta.
+
+    Gravava-se «sistema» para toda a gente. Numa partilha Samba ligada ao
+    domínio, o dono do ficheiro é a conta com que a pessoa abriu a pasta.
+    """
+    import pwd
+
+    agente.varrer_para_registo(posto["cfg"], posto["reg"], None)
+    primeiro = posto["reg"].todos()[0]["historico"][0]
+    assert primeiro["utilizador"] == pwd.getpwuid(os.getuid()).pw_name

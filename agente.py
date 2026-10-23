@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.25.3"
+VERSAO = "0.26.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -110,6 +110,13 @@ CONFIG = {
     "logo_sym": os.path.join(BASE, "assets", "sym_ok.png"),
     "logo_txt": os.path.join(BASE, "assets", "txt_ok.png"),
     "intervalo_watch": 30,
+    # Segundos que um ficheiro tem de estar sem ser alterado antes de a vigia o
+    # ler. Com a pasta de entrada partilhada pela rede, um documento pode estar
+    # a meio da cópia quando a vigia passa, e o PyMuPDF repara PDFs partidos: um
+    # PDF cortado abria com páginas a menos e entrava assim no arquivo imutável.
+    # Uma cópia que termina fica com a data de alteração do fim da escrita, ou
+    # com a do original, se o Windows a preservar; nos dois casos passa aqui.
+    "entrada_assentamento": 15,
     "segundos_por_ecra": 30,
     "manter_zips": 3,
     "titulo_tv": "Editais \u00b7 C\u00e2mara Municipal de Moimenta da Beira",
@@ -318,6 +325,12 @@ def _varrer_para_registo(cfg, reg):
             continue
         if os.path.splitext(nome)[1].lower() not in doc.SUPPORTED:
             continue
+        # Antes do hash, que num ficheiro a meio da cópia seria o de um pedaço.
+        # A espera é por volta e não um sleep: a vigia volta daqui a
+        # intervalo_watch segundos e lê-o então, já inteiro.
+        if not _assentou(path, cfg.get("entrada_assentamento", 0)):
+            _agente.debug(f"{nome}: ainda a chegar, fica para a volta seguinte")
+            continue
         h = file_hash(path)
         if reg.hash_existe(h):        # já registado antes → ignora
             continue
@@ -335,8 +348,14 @@ def _varrer_para_registo(cfg, reg):
             # exatamente esse o estado que este arquivo existe para impedir.
             sha256, _caminho = orig.arquivar(cfg["originais"], path)
             meta = dict(meta, sha256=sha256)
+            # Quem pôs o documento na pasta. Lido aqui, antes de o ficheiro sair
+            # da entrada, e do dono do ficheiro — que numa partilha Samba ligada
+            # ao domínio é a conta com que a pessoa abriu a pasta, e não algo que
+            # ela própria escreva.
+            quem = _quem_colocou(path)
             r = reg.criar_rascunho(ficheiro_origem=nome, hash_ficheiro=h,
-                                   num_paginas=info["paginas"], meta=meta)
+                                   num_paginas=info["paginas"], meta=meta,
+                                   utilizador=quem)
             # Gera pré-visualizações LEVES (a página crua, sem o tratamento verde/4K)
             # para o painel poder mostrar o documento já no rascunho — é quando o
             # funcionário mais precisa de o ver, para confirmar assunto/número/data.
@@ -350,12 +369,70 @@ def _varrer_para_registo(cfg, reg):
             duv = ", ".join(r["campos_duvidosos"]) or "nenhum"
             # Pelo diário, e não por print: em serviço ninguém lê o stdout, e o
             # diário também escreve na consola quando há uma.
-            _agente.info(f"RASCUNHO #{r['id']} {nome}{ocr_nota}: {info['paginas']} pág | "
+            _agente.info(f"RASCUNHO #{r['id']} {nome}{ocr_nota} (de {quem}): "
+                         f"{info['paginas']} pág | "
                          f"assunto: {meta['assunto'] or '(n/d)'} | a confirmar: {duv}")
             novos += 1
         except Exception as ex:
             _agente.error(f"{nome}: {ex}")
     return novos
+
+
+# Diz se um ficheiro da pasta de entrada já acabou de chegar.
+def _assentou(caminho, segundos):
+    """Verdadeiro se o ficheiro não é alterado há pelo menos `segundos`.
+
+    Não há forma portável de saber se outro processo ainda está a escrever —
+    menos ainda quando quem escreve é o servidor Samba em nome de um posto
+    Windows. A data da última alteração é a aproximação que existe: enquanto a
+    cópia corre, está sempre a ser empurrada para agora.
+
+    Args:
+        caminho (str): ficheiro na pasta de entrada.
+        segundos (int | float): tempo mínimo sem alterações; 0 desliga a espera.
+
+    Returns:
+        bool: True se pode ser lido já.
+    """
+    if not segundos:
+        return True
+    try:
+        return time.time() - os.path.getmtime(caminho) >= float(segundos)
+    except OSError:
+        # Desapareceu entre o listdir e aqui: a volta seguinte decide.
+        return False
+
+
+# Diz que conta pôs um ficheiro na pasta de entrada, pelo dono do ficheiro.
+def _quem_colocou(caminho):
+    """Devolve o nome da conta dona do ficheiro, ou "sistema" se não se souber.
+
+    Numa partilha Samba ligada ao Active Directory, e sem `force user`, o dono é
+    a conta do domínio com que a pessoa abriu a pasta. Vai para o evento de
+    auditoria que abre o histórico do edital — «documento recebido e lido», e
+    por quem.
+
+    No Windows o módulo pwd não existe e o dono NTFS precisaria de outra API;
+    fica "sistema", que é o que se gravava antes para toda a gente.
+
+    Args:
+        caminho (str): ficheiro na pasta de entrada.
+
+    Returns:
+        str: nome da conta, "uid N" se o número não tiver nome, ou "sistema".
+    """
+    try:
+        import pwd
+    except ImportError:
+        return "sistema"
+    try:
+        uid = os.stat(caminho).st_uid
+    except OSError:
+        return "sistema"
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return f"uid {uid}"
 
 
 def _procurar_na_entrada(cfg, nome):

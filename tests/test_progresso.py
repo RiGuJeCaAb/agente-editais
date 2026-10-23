@@ -136,6 +136,10 @@ def posto(tmp_path):
         os.makedirs(cfg[nome], exist_ok=True)
     cfg["tratados"] = os.path.join(cfg["entrada"], "tratados")
     os.makedirs(cfg["tratados"], exist_ok=True)
+    # O documento é criado mesmo agora, e a vigia espera que um ficheiro
+    # assente antes de o ler. Aqui não há cópia pela rede a terminar: desliga-se,
+    # e os testes da espera ligam-na de propósito.
+    cfg["entrada_assentamento"] = 0
 
     d = fitz.open()
     for i in (1, 2):
