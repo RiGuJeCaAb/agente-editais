@@ -2694,6 +2694,24 @@ Uma paragem pedida nos primeiros instantes do arranque, antes de o servidor do
 painel existir, fica guardada: o servidor, quando abre, vê-a e volta sem servir.
 Sem isso, o agente ficava no ar até o systemd o matar, cinco minutos depois.
 
+### O que a revisão do #30 apanhou
+
+- **Um edital publicado podia ficar fora da televisão.** No painel, publicar é
+  mudar o estado e recompor a página. A mudança contava e a publicação era
+  recusada se a paragem chegasse entre as duas: o edital ficava publicado no
+  registo, com certidão, e fora do ecrã. As duas passam a ser uma peça só; com
+  o agente a parar, o painel recusa a mudança inteira e diz «O agente está a
+  parar».
+- **O mesmo na retirada automática.** A vigia gravava a retirada fora do
+  porteiro e a publicação era recusada: o registo dizia o edital desafixado e a
+  televisão continuava a mostrá-lo. Ficam juntas.
+- **A migração do modelo antigo** corre já com os sinais tratados, como uma
+  peça.
+- **O servidor pára mesmo que o que vem antes rebente**, e **fechar o registo
+  tem limite** (30 s): uma escrita encravada num disco que não responde
+  segurava o lock para sempre e o servidor nunca chegava a parar.
+- O servidor fecha o socket ao parar.
+
 ### A unidade systemd
 
 - `TimeoutStopSec=300`. Com os 90 s de omissão, o systemd matava o agente a
@@ -2712,6 +2730,10 @@ matava o agente a meio do documento.
 - A cópia de segurança passa a parar também um agente que ainda está a
   arrancar. O `is-active` diz `activating` nesse instante, e o teste simples
   deixava a cópia correr ao lado dele.
+- E espera por um agente que alguém está a parar (`deactivating`), que com a
+  paragem com ordem pode levar minutos a acabar o documento em curso e ainda
+  escreve. No fim não o volta a arrancar: quem o parou queria-o parado.
+  Também da revisão do #30.
 - O `HYPER-V.md` diz que a pasta `entrada/` não vai na cópia, e o que isso
   quer dizer para um documento que lá esteja à hora da cópia.
 
@@ -2741,7 +2763,8 @@ vezes:
 
 ### Testes
 
-Onze novos (791 no total), em `tests/test_paragem.py`. Contra o código anterior
+Dezasseis novos (796 no total): quinze em `tests/test_paragem.py` e um em
+`tests/test_compor_no_browser.py`, o da retirada automática. Contra o código anterior
 falham todos, porque o módulo não existia. O que interessa é o do documento a
 meio: a paragem tem de esperar por ele, ele tem de acabar inteiro (rascunho e
 ficheiro fora da entrada) e o seguinte não pode começar. Os do sinal chamam o

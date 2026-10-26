@@ -160,7 +160,7 @@ class RegistoEntrada:
         if mudou:
             self._guardar()
 
-    def fechar(self):
+    def fechar(self, limite=None):
         """Espera pela escrita em curso e não deixa começar outra.
 
         Para a paragem do agente: o jornal de auditoria e o registo gravam-se em
@@ -169,8 +169,16 @@ class RegistoEntrada:
         isso tomá-lo é esperar que a que está a decorrer acabe. Não se devolve:
         o processo sai a seguir, e quem tentar escrever entretanto fica à
         espera em vez de gravar metade.
+
+        Args:
+            limite (float | None): segundos de espera, no máximo; None espera
+                o que for preciso.
+
+        Returns:
+            bool: False se o limite passou com uma escrita ainda em curso, e o
+            registo ficou por fechar.
         """
-        self._lock.acquire()
+        return self._lock.acquire(timeout=-1 if limite is None else limite)
 
     def _carregar(self):
         """Lê o JSON do disco, ou devolve uma estrutura vazia se ainda não existe.

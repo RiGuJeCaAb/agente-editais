@@ -602,3 +602,63 @@ def test_um_erro_no_ciclo_de_vigia_fica_no_diario(posto, monkeypatch, tmp_path):
     assert "erro no ciclo de vigia" in gravado
     assert "disco cheio a meio da varredura" in gravado
     assert "Traceback" in gravado
+
+
+def test_a_retirada_automatica_e_a_publicacao_acabam_juntas(posto, monkeypatch):
+    """Uma paragem pedida a meio de uma retirada automática não fica com metade.
+
+    A retirada gravava-se fora do porteiro da paragem, e a publicação que a
+    mostra era recusada: o registo dizia o edital desafixado, e a televisão
+    continuava a mostrá-lo até ao arranque seguinte. Apanhado pela revisão do
+    #30.
+    """
+    import threading
+
+    import registo as reg_mod
+
+    alvos = []
+
+    class ThreadQueGuarda:
+        def __init__(self, target=None, **k):
+            alvos.append(target)
+
+        def start(self):
+            pass
+
+    class PainelFalso:
+        def __init__(self, *a, **k):
+            pass
+
+        def iniciar(self, **k):
+            pass
+
+    paragens = []
+
+    class ParagemQueGuarda(agente.par.Paragem):
+        def __init__(self):
+            super().__init__()
+            paragens.append(self)
+
+    passou = []
+    publicou = []
+
+    def retirar_com_a_paragem_a_chegar(self, utilizador="sistema"):
+        # A paragem chega com a retirada a meio: não pode passar à frente dela.
+        passou.append(paragens[0].pedir_e_esperar(0.2))
+        return True
+
+    monkeypatch.setattr(threading, "Thread", ThreadQueGuarda)
+    monkeypatch.setattr(agente.painel_mod, "PainelServer", PainelFalso)
+    monkeypatch.setattr(agente.par, "Paragem", ParagemQueGuarda)
+    monkeypatch.setattr(agente, "varrer_para_registo", lambda *a, **k: 0)
+    monkeypatch.setattr(reg_mod.RegistoEntrada, "aplicar_retiradas_automaticas",
+                        retirar_com_a_paragem_a_chegar)
+    monkeypatch.setattr(agente, "publicar_registos",
+                        lambda *a, **k: publicou.append(1) or 0)
+
+    agente.iniciar_painel(posto["cfg"])
+    vigiar = next(a for a in alvos if a.__name__ == "vigiar")
+    vigiar()   # uma volta: com a paragem pedida, a espera volta logo e o ciclo acaba
+
+    assert passou == [False], "a paragem passou à frente da retirada a meio"
+    assert publicou == [1], "a retirada ficou gravada e a televisão por atualizar"

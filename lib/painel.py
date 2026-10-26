@@ -126,7 +126,8 @@ class PainelServer:
 
     def __init__(self, registo: reg_mod.RegistoEntrada, cfg: dict,
                  republicar_callback=None, painel_html_path=None,
-                 contas: utl.Utilizadores | None = None, saude_callback=None):
+                 contas: utl.Utilizadores | None = None, saude_callback=None,
+                 paragem=None):
         """
         Args:
             registo (RegistoEntrada): o gestor do registo de entrada.
@@ -138,12 +139,16 @@ class PainelServer:
                 arranca — não há forma de saber quem está a afixar o quê.
             saude_callback (callable|None): devolve o dicionário de estado do
                 agente para a rota /saude.
+            paragem (Paragem|None): o porteiro do trabalho que não pode ficar a
+                meio. Uma mudança de estado e a publicação que ela pede passam
+                por ele como uma peça só.
         """
         self.registo = registo
         self.cfg = cfg
         self.contas = contas
         self.saude: Callable[[], dict] = saude_callback or (lambda: {})
         self.republicar = republicar_callback or (lambda: None)
+        self.paragem = paragem
         self.painel_html_path = painel_html_path
         self._httpd = None
         # A paragem pode ser pedida antes de o servidor existir: o sinal chega a
@@ -197,6 +202,7 @@ class PainelServer:
             # Pedido antes de o serve_forever começar também serve: ele vê o
             # pedido à entrada do ciclo e volta logo.
             httpd.shutdown()
+            httpd.server_close()
 
     def iniciar(self, host="127.0.0.1", porta=8770, bloquear=True):
         """Arranca o servidor HTTP do painel.
@@ -598,16 +604,29 @@ class PainelServer:
 
     # ---- estado e certidão ------------------------------------------------
     def _mudar_estado(self, handler, dados, sessao):
-        """Move um edital de estado e, se isso mexe no ecrã, republica a TV."""
-        estado = dados.get("estado")
-        res = self.registo.mover_estado(dados.get("id"), estado,
-                                        utilizador=sessao["nome"],
-                                        nota=dados.get("nota", ""))
-        if res["ok"] and estado in (reg_mod.PUBLICADO, reg_mod.RETIRADO):
-            self.republicar()
-        if res["ok"]:
-            _painel.info(f"{sessao['nome']}: registo #{dados.get('id')} -> {estado}")
-        return handler._json(res)
+        """Move um edital de estado e, se isso mexe no ecrã, republica a TV.
+
+        As duas coisas são uma peça só para a paragem do agente. Com o agente a
+        parar, a mudança é recusada inteira e quem está ao teclado sabe-o; se
+        contasse e a publicação fosse recusada, o edital ficava publicado no
+        registo, com certidão, e fora da televisão.
+        """
+        if self.paragem is not None and not self.paragem.entrar():
+            return handler._json({"ok": False, "erro": "O agente está a parar. "
+                                  "Volta a tentar quando tiver arrancado."}, 503)
+        try:
+            estado = dados.get("estado")
+            res = self.registo.mover_estado(dados.get("id"), estado,
+                                            utilizador=sessao["nome"],
+                                            nota=dados.get("nota", ""))
+            if res["ok"] and estado in (reg_mod.PUBLICADO, reg_mod.RETIRADO):
+                self.republicar()
+            if res["ok"]:
+                _painel.info(f"{sessao['nome']}: registo #{dados.get('id')} -> {estado}")
+            return handler._json(res)
+        finally:
+            if self.paragem is not None:
+                self.paragem.sair()
 
     def _servir_certidao(self, handler, rota, sessao):
         """Gera e envia a certidão de afixação de um edital, em PDF.

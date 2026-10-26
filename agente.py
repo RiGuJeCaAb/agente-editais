@@ -1861,13 +1861,6 @@ def iniciar_painel(cfg):
         _tv.warning(f"não foi possível escrever a página da TV no arranque: {ex}")
 
     reg = reg_mod.RegistoEntrada(cfg["registo_entrada"])
-
-    # Traz os editais do modelo antigo, se os houver. Corre antes de tudo o
-    # resto e uma vez só: a seguir os ficheiros de origem são renomeados.
-    if migracao.precisa_de_migrar(cfg):
-        _agente.info("Encontrados editais no modelo antigo. A migrar…")
-        migracao.migrar(cfg, reg)
-
     contas = utl.Utilizadores(cfg["utilizadores"])
     logo_im = carregar_logo(cfg)
     estado_do_agente = {"arranque": datetime.now().isoformat(timespec="seconds"),
@@ -1876,19 +1869,24 @@ def iniciar_painel(cfg):
 
     paragem = par.Paragem()
 
-    # Callback que o painel invoca após publicar/retirar: recompõe a TV.
-    #
-    # Pedida a paragem, não começa: a publicação do arranque seguinte refaz a
-    # página a partir do registo, que é a verdade. Começada, acaba antes de o
-    # agente sair, para o slides.json e o registo não ficarem em desacordo.
+    # Recompõe a TV. Sem porteiro: só se chama de dentro de uma peça já aberta
+    # — a do painel, que muda o estado e publica de uma vez, ou a da vigia, que
+    # aplica as retiradas e publica. Uma mudança de estado que contasse e uma
+    # publicação recusada pela paragem deixavam um edital gravado como
+    # publicado, com certidão, e fora da televisão.
+    def publicar_agora():
+        n = publicar_registos(cfg, reg, logo_im)
+        estado_do_agente["ultima_publicacao"] = datetime.now().isoformat(timespec="seconds")
+        estado_do_agente["ecras_no_ar"] = n
+        _tv.info(f"atualizada: {n} ecr\u00e3(s) no ar")
+
+    # A publicação do arranque, que é uma peça sozinha. Pedida a paragem, não
+    # começa: a do arranque seguinte refaz a página a partir do registo.
     def republicar():
         if not paragem.entrar():
             return
         try:
-            n = publicar_registos(cfg, reg, logo_im)
-            estado_do_agente["ultima_publicacao"] = datetime.now().isoformat(timespec="seconds")
-            estado_do_agente["ecras_no_ar"] = n
-            _tv.info(f"atualizada: {n} ecr\u00e3(s) no ar")
+            publicar_agora()
         finally:
             paragem.sair()
 
@@ -1901,8 +1899,15 @@ def iniciar_painel(cfg):
                 if n:
                     _agente.info(f"ENTRADA {n} novo(s) documento(s) em rascunho")
                 # Aplica retiradas automáticas mesmo sem novos documentos.
-                if reg.aplicar_retiradas_automaticas():
-                    republicar()
+                # A retirada e a publicação que a mostra são uma peça só: uma
+                # retirada gravada com a publicação recusada deixava no ecrã um
+                # edital já desafixado no registo.
+                if paragem.entrar():
+                    try:
+                        if reg.aplicar_retiradas_automaticas():
+                            publicar_agora()
+                    finally:
+                        paragem.sair()
                 # Deita fora os testemunhos de sessões já sem validade, para a
                 # memória não crescer com cada entrada que nunca é fechada.
                 contas.limpar_sessoes_expiradas()
@@ -1941,8 +1946,8 @@ def iniciar_painel(cfg):
 
     html_path = os.path.join(BASE, "lib", "painel.html")
     servidor = painel_mod.PainelServer(
-        reg, cfg, republicar_callback=republicar, painel_html_path=html_path,
-        contas=contas,
+        reg, cfg, republicar_callback=publicar_agora, painel_html_path=html_path,
+        contas=contas, paragem=paragem,
         saude_callback=lambda: estado_de_saude(cfg, reg, estado_do_agente))
 
     # Os tratadores dos sinais antes de qualquer thread de trabalho: um SIGTERM
@@ -1950,6 +1955,17 @@ def iniciar_painel(cfg):
     # documento, que é o que a paragem com ordem existe para evitar. Antes
     # daqui não há trabalho nenhum, e morrer de imediato não estraga nada.
     with _sinais_de_paragem(paragem, reg, servidor, ESPERA_NA_PARAGEM):
+        # Traz os editais do modelo antigo, se os houver. Corre antes de tudo o
+        # resto e uma vez só: a seguir os ficheiros de origem são renomeados.
+        # Já com os sinais tratados, e como uma peça: um SIGTERM a meio deixava
+        # metade migrada, e o arranque seguinte não a voltava a ver.
+        if migracao.precisa_de_migrar(cfg) and paragem.entrar():
+            try:
+                _agente.info("Encontrados editais no modelo antigo. A migrar…")
+                migracao.migrar(cfg, reg)
+            finally:
+                paragem.sair()
+
         threading.Thread(target=aquecer_fundos, daemon=True).start()
         threading.Thread(target=vigiar, daemon=True).start()
 
@@ -1970,6 +1986,11 @@ def iniciar_painel(cfg):
 # dizer no diário que ficou trabalho a meio. Um documento grande com OCR leva
 # dezenas de segundos; quatro minutos chegam para ele e para uma publicação.
 ESPERA_NA_PARAGEM = 240
+
+# Segundos de espera pela gravação do registo que esteja a decorrer, depois do
+# trabalho. Uma gravação são milissegundos; isto só conta com o disco encravado.
+# 240 + 30 fica abaixo dos 300 da unidade.
+ESPERA_PELO_REGISTO = 30
 
 
 # Liga a paragem com ordem aos sinais enquanto o painel corre, e repõe-nos no fim.
@@ -2056,11 +2077,20 @@ def _parar_com_ordem(paragem, reg, servidor, limite):
         servidor (PainelServer): o servidor a parar.
         limite (float): segundos de espera pelo trabalho em curso.
     """
-    if not paragem.pedir_e_esperar(limite):
-        _agente.warning(f"passaram {limite:.0f} s e ainda havia trabalho em curso: "
-                        "sai assim mesmo, e a issue #29 diz o que pode ter ficado")
-    reg.fechar()
-    servidor.parar()
+    # O servidor pára aconteça o que acontecer antes. Se o fechar() rebentasse,
+    # a thread morria, o serve_forever nunca voltava e os sinais seguintes eram
+    # ignorados: o agente ficava no ar até o systemd o matar.
+    try:
+        if not paragem.pedir_e_esperar(limite):
+            _agente.warning(f"passaram {limite:.0f} s e ainda havia trabalho em curso: "
+                            "sai assim mesmo, e a issue #29 diz o que pode ter ficado")
+        # Com limite: uma escrita encravada num disco que não responde segurava
+        # o lock para sempre, e o servidor nunca chegava a parar.
+        if not reg.fechar(ESPERA_PELO_REGISTO):
+            _agente.warning(f"o registo continuava a gravar ao fim de "
+                            f"{ESPERA_PELO_REGISTO} s: sai assim mesmo")
+    finally:
+        servidor.parar()
 
 
 def estado_de_saude(cfg, reg, estado):

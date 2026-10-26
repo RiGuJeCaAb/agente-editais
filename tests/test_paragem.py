@@ -161,8 +161,9 @@ class _Testemunha:
         self.ordem = []
         self.parado = threading.Event()
 
-    def fechar(self):
+    def fechar(self, limite=None):
         self.ordem.append("registo fechado")
+        return True
 
     def parar(self):
         self.ordem.append("servidor parado")
@@ -247,3 +248,113 @@ def test_uma_paragem_pedida_antes_de_o_servidor_existir_nao_se_perde(tmp_path):
     t.join(5)
     assert not t.is_alive(), "o servidor abriu e ficou a servir depois da paragem"
     assert voltou
+
+
+def test_o_servidor_para_mesmo_que_fechar_o_registo_rebente():
+    """Se o fechar() levantasse, o servidor ficava a servir até o systemd matar
+    o processo, cinco minutos depois, e os sinais seguintes eram ignorados."""
+
+    class RegistoQueRebenta:
+        def fechar(self, limite=None):
+            raise OSError("disco")
+
+    testemunha = _Testemunha()
+    with pytest.raises(OSError):
+        agente._parar_com_ordem(par.Paragem(), RegistoQueRebenta(), testemunha, 1)
+    assert testemunha.ordem == ["servidor parado"]
+
+
+def test_o_registo_encravado_nao_impede_o_servidor_de_parar(posto, monkeypatch):
+    """Uma escrita presa num disco que não responde segurava o lock para sempre,
+    e o servidor nunca chegava a parar. Com limite, a paragem segue."""
+    reg = posto["reg"]
+    preso = threading.Event()
+    solta = threading.Event()
+
+    def escrita_encravada():
+        with reg._lock:
+            preso.set()
+            solta.wait(5)
+
+    threading.Thread(target=escrita_encravada, daemon=True).start()
+    assert preso.wait(5)
+    assert reg.fechar(0.1) is False
+    testemunha = _Testemunha()
+    monkeypatch.setattr(agente, "ESPERA_PELO_REGISTO", 0.1)
+    try:
+        agente._parar_com_ordem(par.Paragem(), reg, testemunha, 1)
+    finally:
+        solta.set()
+    assert testemunha.ordem == ["servidor parado"]
+
+
+# --- o painel ----------------------------------------------------------------
+
+class _Pedido:
+    """Faz de pedido HTTP: guarda a resposta que o painel daria."""
+
+    def _json(self, obj, code=200):
+        self.resposta = (code, obj)
+        return self.resposta
+
+
+def _validado(reg):
+    r = reg.criar_rascunho(ficheiro_origem="a.pdf", hash_ficheiro="h1", num_paginas=1,
+                           meta={"assunto": "Obras", "data_publicacao": "2026-10-26"})
+    assert reg.mover_estado(r["id"], reg_mod.VALIDADO, utilizador="ana")["ok"]
+    return r["id"]
+
+
+def test_com_o_agente_a_parar_o_painel_recusa_publicar_e_nao_grava_nada(posto):
+    """O defeito que a revisão marcou a vermelho: a mudança de estado contava, a
+    publicação era recusada, e o edital ficava publicado no registo — com
+    certidão — e fora da televisão. Recusa-se a mudança inteira, e diz-se."""
+    import painel as painel_mod
+
+    reg = posto["reg"]
+    rid = _validado(reg)
+    p = par.Paragem()
+    p.pedir_e_esperar(1)
+    publicou = []
+    servidor = painel_mod.PainelServer(reg, posto["cfg"], paragem=p,
+                                       republicar_callback=lambda: publicou.append(1))
+    codigo, corpo = servidor._mudar_estado(
+        _Pedido(), {"id": rid, "estado": reg_mod.PUBLICADO}, {"nome": "ana"})
+    assert codigo == 503 and not corpo["ok"]
+    assert reg.por_id(rid)["estado"] == reg_mod.VALIDADO
+    assert publicou == []
+
+
+def test_a_publicacao_pedida_no_painel_acaba_mesmo_que_a_paragem_chegue_a_meio(posto):
+    """Publicar no painel é mudar o estado e recompor a TV, e a paragem espera
+    pelas duas: um pedido de paragem a meio não deixa a segunda por fazer."""
+    import painel as painel_mod
+
+    reg = posto["reg"]
+    rid = _validado(reg)
+    p = par.Paragem()
+    a_publicar = threading.Event()
+    pode_acabar = threading.Event()
+    publicou = []
+
+    def publicar_devagar():
+        a_publicar.set()
+        assert pode_acabar.wait(5)
+        publicou.append(1)
+
+    servidor = painel_mod.PainelServer(reg, posto["cfg"], paragem=p,
+                                       republicar_callback=publicar_devagar)
+    pedido = threading.Thread(target=servidor._mudar_estado, args=(
+        _Pedido(), {"id": rid, "estado": reg_mod.PUBLICADO}, {"nome": "ana"}))
+    pedido.start()
+    assert a_publicar.wait(5)
+    resultado = []
+    quem_para = threading.Thread(target=lambda: resultado.append(p.pedir_e_esperar(5)))
+    quem_para.start()
+    quem_para.join(0.3)
+    assert quem_para.is_alive(), "a paragem não esperou pela publicação"
+    pode_acabar.set()
+    quem_para.join(5)
+    pedido.join(5)
+    assert resultado == [True] and publicou == [1]
+    assert reg.por_id(rid)["estado"] == reg_mod.PUBLICADO

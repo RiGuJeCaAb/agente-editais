@@ -78,6 +78,14 @@ trap limpar EXIT
 # Também se pára um agente ainda a arrancar: o is-active diz «activating» e não
 # «active» nesse instante, e com o teste simples a cópia corria ao lado de um
 # agente que estava prestes a escrever.
+#
+# Um agente a meio de parar («deactivating»: alguém fez stop e ele está a acabar
+# o documento em curso, até 300 s) ainda escreve. Espera-se que acabe, e não se
+# volta a arrancar no fim: quem o parou queria-o parado. O TimeoutStopSec da
+# unidade põe o limite a esta espera.
+while [[ $(systemctl is-active "$SERVICO" || true) == deactivating ]]; do
+    sleep 2
+done
 situacao=$(systemctl is-active "$SERVICO" || true)
 if [[ $situacao == active || $situacao == activating || $situacao == reloading ]]; then
     systemctl stop "$SERVICO"
