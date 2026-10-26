@@ -51,7 +51,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.25.3"
+VERSAO = "0.26.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -110,6 +110,13 @@ CONFIG = {
     "logo_sym": os.path.join(BASE, "assets", "sym_ok.png"),
     "logo_txt": os.path.join(BASE, "assets", "txt_ok.png"),
     "intervalo_watch": 30,
+    # Segundos que um ficheiro tem de estar sem ser alterado antes de a vigia o
+    # ler. Com a pasta de entrada partilhada pela rede, um documento pode estar
+    # a meio da cópia quando a vigia passa, e o PyMuPDF repara PDFs partidos: um
+    # PDF cortado abria com páginas a menos e entrava assim no arquivo imutável.
+    # Conta a hora em que ESTA máquina viu a última escrita, e não a data que o
+    # cliente pôs no ficheiro: ver _assentou().
+    "entrada_assentamento": 15,
     "segundos_por_ecra": 30,
     "manter_zips": 3,
     "titulo_tv": "Editais \u00b7 C\u00e2mara Municipal de Moimenta da Beira",
@@ -318,6 +325,13 @@ def _varrer_para_registo(cfg, reg):
             continue
         if os.path.splitext(nome)[1].lower() not in doc.SUPPORTED:
             continue
+        # Antes do hash, que num ficheiro a meio da cópia seria o de um pedaço.
+        # A espera é por volta e não um sleep: a vigia volta daqui a
+        # intervalo_watch segundos e lê-o então, já inteiro.
+        if not _assentou(path, cfg.get("entrada_assentamento", 0)):
+            _agente.debug(f"{nome}: ainda a chegar, fica para a volta seguinte")
+            continue
+        marca = _marca(path)
         h = file_hash(path)
         if reg.hash_existe(h):        # já registado antes → ignora
             continue
@@ -333,10 +347,24 @@ def _varrer_para_registo(cfg, reg):
             # A ordem importa: se falhasse ao contrário, ficaria um edital no
             # registo a apontar para um documento que nunca foi guardado, e é
             # exatamente esse o estado que este arquivo existe para impedir.
+            #
+            # E só se o ficheiro for o mesmo que se leu. Uma cópia pela rede que
+            # parou mais do que o assentamento e retomou durante a leitura
+            # deixava no arquivo imutável uma versão diferente da que deu o
+            # assunto e as páginas. Fica para a volta seguinte, que o lê inteiro.
+            if _marca(path) != marca:
+                _agente.info(f"{nome}: mudou enquanto era lido, fica para a volta seguinte")
+                continue
             sha256, _caminho = orig.arquivar(cfg["originais"], path)
             meta = dict(meta, sha256=sha256)
+            # Quem pôs o documento na pasta. Lido aqui, antes de o ficheiro sair
+            # da entrada, e do dono do ficheiro — que numa partilha Samba ligada
+            # ao domínio é a conta com que a pessoa abriu a pasta, e não algo que
+            # ela própria escreva.
+            quem = _quem_colocou(path)
             r = reg.criar_rascunho(ficheiro_origem=nome, hash_ficheiro=h,
-                                   num_paginas=info["paginas"], meta=meta)
+                                   num_paginas=info["paginas"], meta=meta,
+                                   utilizador=quem)
             # Gera pré-visualizações LEVES (a página crua, sem o tratamento verde/4K)
             # para o painel poder mostrar o documento já no rascunho — é quando o
             # funcionário mais precisa de o ver, para confirmar assunto/número/data.
@@ -350,12 +378,105 @@ def _varrer_para_registo(cfg, reg):
             duv = ", ".join(r["campos_duvidosos"]) or "nenhum"
             # Pelo diário, e não por print: em serviço ninguém lê o stdout, e o
             # diário também escreve na consola quando há uma.
-            _agente.info(f"RASCUNHO #{r['id']} {nome}{ocr_nota}: {info['paginas']} pág | "
+            _agente.info(f"RASCUNHO #{r['id']} {nome}{ocr_nota} (de {quem}): "
+                         f"{info['paginas']} pág | "
                          f"assunto: {meta['assunto'] or '(n/d)'} | a confirmar: {duv}")
             novos += 1
         except Exception as ex:
             _agente.error(f"{nome}: {ex}")
     return novos
+
+
+# Diz se um ficheiro da pasta de entrada já acabou de chegar.
+def _assentou(caminho, segundos):
+    """Verdadeiro se o ficheiro não é alterado há pelo menos `segundos`.
+
+    Não há forma portável de saber se outro processo ainda está a escrever —
+    menos ainda quando quem escreve é o servidor Samba em nome de um posto
+    Windows. A hora da última alteração é a aproximação que existe: enquanto a
+    cópia corre, está sempre a ser empurrada para agora.
+
+    Fora do Windows conta o `st_ctime`, e não o `st_mtime`. O mtime é o que o
+    cliente quiser: o Windows pode copiar o do original, e um posto com o
+    relógio adiantado põe-no no futuro, onde a idade fica negativa e o ficheiro
+    nunca assentava — um edital parado na entrada, sem um erro. O ctime é posto
+    pelo relógio desta máquina a cada escrita, e nenhum cliente o escolhe. No
+    Windows o st_ctime é a data de criação, e fica o mtime.
+
+    Uma idade negativa que ainda assim apareça (o relógio da máquina recuou)
+    conta como assente: ler cedo de mais é um risco, ficar à espera de uma data
+    que pode estar a anos de distância é a certeza do defeito.
+
+    Args:
+        caminho (str): ficheiro na pasta de entrada.
+        segundos (int | float): tempo mínimo sem alterações; 0 desliga a espera.
+
+    Returns:
+        bool: True se pode ser lido já.
+    """
+    if not segundos:
+        return True
+    try:
+        limite = float(segundos)
+    except (TypeError, ValueError):
+        # Um «15s» no config.json não pode parar a entrada inteira: a exceção
+        # saía do ciclo e nenhum documento chegava a rascunho. Vale o de omissão.
+        limite = float(CONFIG["entrada_assentamento"])
+    try:
+        st = os.stat(caminho)
+    except OSError:
+        # Desapareceu entre o listdir e aqui: a volta seguinte decide.
+        return False
+    ultima = st.st_mtime if os.name == "nt" else st.st_ctime
+    idade = time.time() - ultima
+    return idade < 0 or idade >= limite
+
+
+# Tira a impressão digital barata de um ficheiro, para saber se mudou.
+def _marca(caminho):
+    """Tamanho e horas de alteração do ficheiro, ou None se já lá não estiver.
+
+    Compara-se a do início da leitura com a de antes do arquivo: se diferirem,
+    alguém escreveu no ficheiro entretanto. Não substitui o resumo, que é o que
+    identifica o documento; serve para não ter de o calcular duas vezes.
+    """
+    try:
+        st = os.stat(caminho)
+    except OSError:
+        return None
+    return (st.st_size, st.st_mtime_ns, st.st_ctime_ns)
+
+
+# Diz que conta pôs um ficheiro na pasta de entrada, pelo dono do ficheiro.
+def _quem_colocou(caminho):
+    """Devolve o nome da conta dona do ficheiro, ou "sistema" se não se souber.
+
+    Numa partilha Samba ligada ao Active Directory, e sem `force user`, o dono é
+    a conta do domínio com que a pessoa abriu a pasta. Vai para o evento de
+    auditoria que abre o histórico do edital — «documento recebido e lido», e
+    por quem.
+
+    No Windows o módulo pwd não existe e o dono NTFS precisaria de outra API;
+    fica "sistema", que é o que se gravava antes para toda a gente.
+
+    Args:
+        caminho (str): ficheiro na pasta de entrada.
+
+    Returns:
+        str: nome da conta, "uid N" se o número não tiver nome, ou "sistema".
+    """
+    try:
+        import pwd
+    except ImportError:
+        return "sistema"
+    try:
+        uid = os.stat(caminho).st_uid
+    except OSError:
+        return "sistema"
+    try:
+        return pwd.getpwuid(uid).pw_name
+    except KeyError:
+        return f"uid {uid}"
 
 
 def _procurar_na_entrada(cfg, nome):
@@ -1595,7 +1716,11 @@ def _escrever_pagina_tv(cfg, slides, logo_im=None):
     # JSON truncado. O fetch falhava, a página mostrava "sem ligação" e o operador
     # via um erro que não existia. Sem gerações — é um ficheiro derivado, que se
     # regenera sozinho no ciclo seguinte.
-    arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0)
+    #
+    # O 0644 é para o nginx da VM, que corre com outro utilizador: com o 0600
+    # que o temporário traz, a televisão recebia 403 a cada pedido.
+    arm.gravar_json(os.path.join(cfg["saida"], "slides.json"), payload, geracoes=0,
+                    modo=0o644)
 
     # index.html — reescrito a CADA republicação, e também no arranque, antes de
     # o painel abrir (ver iniciar_painel). Este comentário dizia «escrito uma
@@ -1640,6 +1765,9 @@ def _escrever_texto_atomico(caminho, texto):
     O index.html é reescrito a cada republicação enquanto a TV o pode estar a
     carregar. Vale a mesma regra do slides.json: ou tem a versão anterior inteira,
     ou a nova inteira.
+
+    Fica legível por todos (0644), como o slides.json: quem o serve à televisão
+    é o nginx, com outro utilizador, e o mkstemp cria o temporário em 0600.
     """
     import tempfile
     pasta = os.path.dirname(os.path.abspath(caminho))
@@ -1650,6 +1778,7 @@ def _escrever_texto_atomico(caminho, texto):
             f.write(texto)
             f.flush()
             os.fsync(f.fileno())
+        os.chmod(tmp, 0o644)
         os.replace(tmp, caminho)
     except BaseException:
         try:

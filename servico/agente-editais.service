@@ -22,6 +22,17 @@ Group=editais
 WorkingDirectory=/opt/agente-editais
 ExecStart=/opt/agente-editais/.venv/bin/python /opt/agente-editais/agente.py --painel
 
+# A hora de afixação que vai para a certidão é a hora LOCAL da máquina. Uma VM ou
+# um servidor instalado em UTC acertava no inverno e errava uma hora no verão,
+# sem um aviso. Fica explícito aqui, para não depender de quem instalou o sistema.
+Environment=TZ=Europe/Lisbon
+
+# O LibreOffice, que converte os documentos Word, precisa de uma pasta pessoal
+# onde escrever o perfil. O ProtectHome=true esconde o /home, e com ele o
+# arranque falha com «User installation could not be completed» (medido: código
+# 77) — nenhum .docx seria convertido. A pasta de trabalho já é escrevível.
+Environment=HOME=/opt/agente-editais/trabalho
+
 # Reiniciar sempre, com espera entre tentativas. O agente é um serviço de
 # apresentação: se morrer às três da manhã, ninguém o vai levantar à mão, e a
 # televisão fica a mostrar editais velhos sem que ninguém perceba porquê.

@@ -101,7 +101,8 @@ def _rodar_geracoes(caminho: str, geracoes: int) -> None:
         pass
 
 
-def gravar_json(caminho: str, dados: Any, geracoes: int = GERACOES_POR_OMISSAO) -> None:
+def gravar_json(caminho: str, dados: Any, geracoes: int = GERACOES_POR_OMISSAO,
+                modo: int | None = None) -> None:
     """Grava 'dados' como JSON de forma atómica, rodando as gerações anteriores.
 
     Substitui o `open(caminho, "w") + json.dump` que estava espalhado pelo projeto.
@@ -112,6 +113,10 @@ def gravar_json(caminho: str, dados: Any, geracoes: int = GERACOES_POR_OMISSAO) 
         caminho: destino final.
         dados: estrutura serializável em JSON.
         geracoes: quantas cópias anteriores manter (0 desliga as cópias).
+        modo: permissões do ficheiro final. Sem ele fica o 0600 do mkstemp,
+            que é o certo para o registo e as contas; o slides.json da
+            televisão precisa de ser lido pelo servidor web, que é outro
+            utilizador.
     """
     pasta = os.path.dirname(os.path.abspath(caminho))
     os.makedirs(pasta, exist_ok=True)
@@ -124,6 +129,10 @@ def gravar_json(caminho: str, dados: Any, geracoes: int = GERACOES_POR_OMISSAO) 
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(dados, f, ensure_ascii=False, indent=2)
             _forcar_ao_disco(f)
+        # No temporário e antes da troca: mudado depois, havia um instante em
+        # que o ficheiro novo já estava no lugar e o servidor web não o lia.
+        if modo is not None:
+            os.chmod(tmp, modo)
         os.replace(tmp, caminho)
         _forcar_pasta(caminho)
     except BaseException:

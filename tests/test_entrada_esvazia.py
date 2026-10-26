@@ -85,3 +85,106 @@ def test_dois_ficheiros_com_o_mesmo_nome_nao_se_apagam(posto):
     agente.varrer_para_registo(posto["cfg"], posto["reg"], None)
     assert len(os.listdir(posto["cfg"]["tratados"])) == 2
     assert len(posto["reg"].todos()) == 2
+
+
+# --- a pasta de entrada partilhada pela rede --------------------------------
+
+def test_um_ficheiro_a_meio_da_copia_espera_pela_volta_seguinte(posto):
+    """Um ficheiro alterado há instantes não é lido: pode estar a meio da cópia.
+
+    Com a entrada partilhada por Samba, a vigia pode passar enquanto um posto
+    Windows ainda copia o documento. O PyMuPDF repara PDFs partidos, e um PDF
+    cortado abria com páginas a menos e entrava assim no arquivo imutável.
+    """
+    cfg = dict(posto["cfg"], entrada_assentamento=60)
+    assert agente.varrer_para_registo(cfg, posto["reg"], None) == 0
+    assert posto["reg"].todos() == []
+    assert "edital.pdf" in os.listdir(cfg["entrada"]), "saiu da entrada sem ser lido"
+    # O que interessa mesmo: um pedaço de PDF no arquivo imutável já não sai.
+    assert not any(fs for _r, _d, fs in os.walk(cfg["originais"])), "arquivou um pedaço"
+
+
+def test_um_ficheiro_assente_e_lido(posto, monkeypatch):
+    """Passado o tempo de assentamento, o mesmo ficheiro entra normalmente.
+
+    Passa contra o código anterior de propósito, e o AGENTS.md pede que se
+    diga: fixa que a espera não engole o documento para sempre. O tempo anda
+    pelo relógio e não pela data do ficheiro, que é a que o cliente escolhe.
+    """
+    cfg = dict(posto["cfg"], entrada_assentamento=60)
+    agora = agente.time.time()
+    monkeypatch.setattr(agente.time, "time", lambda: agora + 120)
+    assert agente.varrer_para_registo(cfg, posto["reg"], None) == 1
+
+
+def test_um_ficheiro_com_data_no_futuro_tambem_assenta(posto, monkeypatch):
+    """A data que o cliente pôs no ficheiro não o prende na entrada.
+
+    Um posto com o relógio adiantado, numa cópia que preserva a data do
+    original, deixava o ficheiro com o mtime no futuro. A idade ficava negativa
+    e o edital nunca entrava, sem um erro. Falha contra a versão que lia o
+    mtime.
+    """
+    cfg = dict(posto["cfg"], entrada_assentamento=60)
+    caminho = os.path.join(cfg["entrada"], "edital.pdf")
+    daqui_a_um_ano = agente.time.time() + 365 * 86400
+    os.utime(caminho, (daqui_a_um_ano, daqui_a_um_ano))
+    agora = agente.time.time()
+    monkeypatch.setattr(agente.time, "time", lambda: agora + 120)
+    assert agente.varrer_para_registo(cfg, posto["reg"], None) == 1
+
+
+@pytest.mark.skipif(os.name == "nt", reason="o dono do ficheiro lê-se pelo pwd, que é POSIX")
+def test_o_historico_diz_quem_colocou_o_documento(posto, monkeypatch):
+    """O evento que abre o histórico é de quem pôs o ficheiro na pasta.
+
+    Gravava-se «sistema» para toda a gente. Numa partilha Samba ligada ao
+    domínio, o dono do ficheiro é a conta com que a pessoa abriu a pasta.
+    """
+    import pwd
+
+    dono = os.stat(os.path.join(posto["cfg"]["entrada"], "edital.pdf")).st_uid
+    # O processo finge ser outro utilizador. O ficheiro foi criado por este
+    # processo, e sem isto uma versão que gravasse o utilizador do AGENTE, e não
+    # o dono do ficheiro, passava igual — que é exatamente o erro a apanhar,
+    # porque na VM o agente é sempre «editais».
+    monkeypatch.setattr(agente.os, "getuid", lambda: dono + 1)
+    monkeypatch.setattr(agente.os, "geteuid", lambda: dono + 1)
+    agente.varrer_para_registo(posto["cfg"], posto["reg"], None)
+    primeiro = posto["reg"].todos()[0]["historico"][0]
+    assert primeiro["utilizador"] == pwd.getpwuid(dono).pw_name
+
+
+def test_um_assentamento_mal_escrito_nao_para_a_entrada(posto, monkeypatch):
+    """Um «15s» no config.json vale o de omissão, e a entrada continua a andar.
+
+    O float() rebentava fora da proteção de cada ficheiro, e a volta inteira
+    caía: nenhum documento chegava a rascunho até alguém corrigir a chave.
+    """
+    cfg = dict(posto["cfg"], entrada_assentamento="15s")
+    agora = agente.time.time()
+    monkeypatch.setattr(agente.time, "time", lambda: agora + 120)
+    assert agente.varrer_para_registo(cfg, posto["reg"], None) == 1
+
+
+def test_um_ficheiro_que_muda_durante_a_leitura_nao_e_arquivado(posto, monkeypatch):
+    """Se a cópia retoma enquanto o agente lê, o arquivo não fica com outra versão.
+
+    Uma cópia pela rede pode parar mais do que o assentamento e retomar. O
+    assunto e as páginas viriam de uma versão e o arquivo imutável guardava
+    outra.
+    """
+    caminho = os.path.join(posto["cfg"]["entrada"], "edital.pdf")
+    ler = agente.doc.ler_metadados
+
+    def ler_e_a_copia_retoma(*args, **kwargs):
+        info = ler(*args, **kwargs)
+        with open(caminho, "ab") as f:
+            f.write(b"%% resto da copia\n")
+        return info
+
+    monkeypatch.setattr(agente.doc, "ler_metadados", ler_e_a_copia_retoma)
+    assert agente.varrer_para_registo(posto["cfg"], posto["reg"], None) == 0
+    assert posto["reg"].todos() == []
+    assert not any(fs for _r, _d, fs in os.walk(posto["cfg"]["originais"]))
+    assert "edital.pdf" in os.listdir(posto["cfg"]["entrada"])

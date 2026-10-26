@@ -2547,3 +2547,117 @@ Quatro novos (772 no total). Três falham contra o código anterior: os dois
 `print()` que passam a ficar no diário e o aviso da chave desligada. O quarto
 fixa que a chave ligada, ou ausente, não faz barulho a cada arranque. Contra o
 código anterior também falha, mas só porque a função não existia, e diz isso.
+
+## 0.26.0 — A VM no Hyper-V, e quem colocou cada documento
+
+O agente passa a ter um guia e a configuração para correr numa VM Debian no
+Hyper-V da Câmara, membro do domínio, com a pasta de entrada partilhada na
+rede. Duas mudanças no código vieram com isso, e são o que justifica o segundo
+número: o histórico passa a dizer quem colocou o documento, e a vigia deixa de
+ler ficheiros que ainda estão a chegar.
+
+### Quem colocou o documento
+
+O evento que abre o histórico de cada edital, «Documento recebido e lido», era
+sempre de `sistema`. Passa a ser do dono do ficheiro na pasta de entrada, lido
+no instante em que se cria o rascunho. Numa partilha Samba com a VM no domínio
+e sem `force user`, o dono é a conta do AD que copiou o ficheiro. A linha do
+diário diz o mesmo: `RASCUNHO #12 edital.pdf (de ana.abreu)`.
+
+Sem o módulo `pwd`, no Windows, continua `sistema`. Um número de utilizador sem
+nome fica `uid N`, e não se inventa um nome para ele.
+
+### Ficheiros a meio da cópia
+
+Um PDF grande, copiado pela rede, chega aos bocados, e a vigia passava por ele
+a meio. O PyMuPDF repara PDFs truncados sem erro, e lia-se metade do documento.
+A vigia passa a deixar para a volta seguinte o ficheiro modificado há menos de
+`entrada_assentamento` segundos (15 por omissão; `0` desliga).
+
+A idade conta-se pelo `st_ctime`, e não pelo `st_mtime`. A primeira versão
+desta PR lia o mtime, e a revisão apanhou o defeito: o mtime é o que o cliente
+quiser. Uma cópia que preserve a data do original, vinda de um posto com o
+relógio adiantado, deixava-o no futuro. A idade ficava negativa, e o edital
+nunca saía da entrada, sem um erro. O ctime é posto pelo relógio da VM a cada
+escrita, e nenhum cliente o escolhe. Isso resolve também a dúvida sobre se o
+Explorador do Windows fixa a data do original logo ao abrir o ficheiro: fixe ou
+não, o ctime avança. No Windows, onde o `st_ctime` é a data de criação, fica o
+mtime, e uma idade negativa conta como assente.
+
+Os testes que compõem um posto inteiro desligam a espera: os ficheiros deles
+acabam de ser escritos, e com ela nenhum chegava a rascunho.
+
+### A unidade systemd
+
+- `TZ=Europe/Lisbon`. A hora da certidão é a hora local, e uma VM em UTC
+  errava uma hora no verão.
+- `HOME` dentro de `trabalho/`. Com o `/home` escondido pelo `ProtectHome`, o
+  LibreOffice recusava arrancar («User installation could not be completed»,
+  código 77, medido), e nenhum `.docx` era convertido. A conversão com a pasta
+  pessoal escrevível não foi medida aqui: o ambiente de teste não a deixou
+  acabar dentro do tempo. Fica para a verificação na VM.
+
+### Ficheiros novos em `servico/`
+
+- `HYPER-V.md`: da criação da VM à televisão, com o domínio, a firewall, as
+  cópias de segurança, a migração do posto Windows e as atualizações.
+- `smb.conf.exemplo`: a partilha `entrada`, com a VM membro do AD. Sem
+  `force user`, com `force group = editais`, e a subpasta `tratados` escondida.
+- `nginx-editais.conf`: a pasta `saida/` como site estático para a televisão,
+  sem os ZIP nem os temporários da gravação atómica.
+- `copia-de-seguranca.sh`, `.service` e `.timer`: a cópia noturna do estado
+  para uma partilha fora da VM, com o agente parado durante a cópia e arrancado
+  de novo mesmo que ela falhe. Recusa copiar se o destino não tiver o ficheiro
+  `.destino-de-copias`, que é o que distingue a partilha montada de uma pasta
+  vazia dentro da VM. Os arquivos copiam-se sem `--delete`: o que se apagar na
+  VM continua na cópia.
+
+O script foi exercitado com um `systemctl` falso: sem marcador, com a raiz
+errada, só com o jornal e sem o registo (recusa), com o agente já parado antes
+(fica parado), sem `rsync` (recusa antes de parar o agente), com o `rsync` a
+falhar a meio (o arquivo a meio é apagado e o agente volta) e com cópias
+antigas a podar. O `shellcheck` não dá avisos.
+
+### O que a revisão apanhou
+
+- **A televisão recebia 403.** O `index.html` e o `slides.json` gravam-se por
+  temporário e troca, e o `mkstemp` cria o temporário em `0600`. Na VM quem os
+  serve é o nginx, com outro utilizador, e não os conseguia ler. Num posto
+  Windows, com o `http.server` do próprio utilizador, nunca se via. Passam a
+  sair em `0644`, mudado no temporário antes da troca; o registo e as contas
+  continuam em `0600`, e um teste fixa isso.
+- **Um ficheiro que muda enquanto é lido não vai para o arquivo.** Uma cópia
+  que parasse mais do que o assentamento e retomasse durante a leitura
+  deixava no arquivo imutável uma versão diferente da que deu o assunto. O
+  agente compara o tamanho e as horas do ficheiro do início da leitura com as
+  de antes de arquivar, e se mudaram fica para a volta seguinte. Uma paragem
+  longa sem retoma continua a passar como ficheiro inteiro: é a validação no
+  painel, com as páginas à vista, que a apanha.
+- **Um `entrada_assentamento` mal escrito** («15s») parava a entrada inteira.
+  Vale o de omissão.
+- **Na partilha**, os ficheiros passam de `0660` a `0640` e a pasta ganha o bit
+  «sticky» (`3770`): ninguém do grupo escreve por cima nem apaga o documento de
+  uma colega, e o agente, dono da pasta, continua a movê-los. A ligação passa a
+  ser cifrada (`server smb encrypt = required`).
+- **Nas cópias de segurança:** o arquivo do estado escreve-se com um nome
+  provisório e só ganha o definitivo quando tudo correu bem; o nome leva os
+  segundos; o `rsync` passa de `-a` a `-rt`, porque uma partilha Windows não
+  guarda dono nem permissões POSIX; a cópia exige o `registo_entrada.json`; e
+  a unidade fica `Before=agente-editais.service`, para uma cópia em atraso,
+  corrida no arranque da VM, não ter o agente a escrever a meio.
+
+### O painel continua fechado à rede
+
+Nesta fase o painel fica em `127.0.0.1` e chega-se a ele por túnel SSH. Sem
+HTTPS a senha e a sessão atravessavam a rede em claro. Abrir o painel é a
+Fase 2.
+
+### Testes
+
+Oito novos (780 no total). Seis falham contra o código anterior: o ficheiro a
+meio da cópia, o histórico que dizia `sistema`, a data no futuro, o
+assentamento mal escrito, o ficheiro que muda durante a leitura e a página da
+televisão em `0600`. O do histórico finge que o agente é outro utilizador, para
+apanhar uma versão que gravasse o utilizador do agente e não o dono do
+ficheiro. Dois passam dos dois lados de propósito: o ficheiro assente que é
+lido, para a espera não engolir documentos, e o registo que continua em `0600`.
