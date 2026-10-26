@@ -72,7 +72,14 @@ trap limpar EXIT
 # Pára-se o agente durante a cópia. O registo e o jornal de auditoria gravam-se
 # em dois passos, e uma cópia apanhada entre os dois guardava-os em desacordo.
 # A televisão não dá por isso: quem a serve é o nginx, não o agente.
-if systemctl is-active --quiet "$SERVICO"; then
+#
+# O stop espera que o agente acabe o documento em curso (issue #29), até 300 s.
+#
+# Também se pára um agente ainda a arrancar: o is-active diz «activating» e não
+# «active» nesse instante, e com o teste simples a cópia corria ao lado de um
+# agente que estava prestes a escrever.
+situacao=$(systemctl is-active "$SERVICO" || true)
+if [[ $situacao == active || $situacao == activating || $situacao == reloading ]]; then
     systemctl stop "$SERVICO"
     parado=1
 fi

@@ -290,6 +290,11 @@ publicação, quando uma pessoa a autoriza.
 - **VM Debian no Hyper-V**, membro do domínio, com a entrada partilhada na
   rede: `servico/HYPER-V.md`, do servidor até à televisão (secção 26).
 
+Parar o serviço (`systemctl stop`, ou Ctrl+C na consola) já não corta nada a
+meio: o agente acaba o documento ou a publicação em curso, até quatro minutos,
+e só então sai. O diário diz «a acabar o trabalho em curso antes de sair» e,
+no fim, «parado».
+
 O endpoint `/saude` responde sem sessão e serve para o supervisor saber se o
 painel está de pé.
 
@@ -338,7 +343,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 780 testes (mais 66 de browser: pytest -m navegador)
+pytest          # 791 testes (mais 66 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```

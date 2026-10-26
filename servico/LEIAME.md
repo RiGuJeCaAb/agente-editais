@@ -45,8 +45,14 @@ Não há unidade equivalente. Use o **NSSM** (Non-Sucking Service Manager):
 nssm install AgenteEditais "C:\agente-editais\.venv\Scripts\python.exe" "C:\agente-editais\agente.py --painel"
 nssm set AgenteEditais AppDirectory C:\agente-editais
 nssm set AgenteEditais AppExit Default Restart
+nssm set AgenteEditais AppStopMethodConsole 240000
 nssm start AgenteEditais
 ```
+
+O `AppStopMethodConsole` é o tempo, em milissegundos, que o NSSM espera depois
+do Ctrl+C antes de passar a métodos mais bruscos. Por omissão é 1500, e o
+agente, que acaba o documento em curso antes de sair, era morto a meio dele.
+Os 240000 são os mesmos quatro minutos que o agente se dá a si próprio.
 
 O registo técnico fica em `diario/agente.log` de qualquer forma, com rotação
 própria — não depende de o serviço redirecionar a consola.

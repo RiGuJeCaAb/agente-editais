@@ -2661,3 +2661,100 @@ televisão em `0600`. O do histórico finge que o agente é outro utilizador, pa
 apanhar uma versão que gravasse o utilizador do agente e não o dono do
 ficheiro. Dois passam dos dois lados de propósito: o ficheiro assente que é
 lido, para a espera não engolir documentos, e o registo que continua em `0600`.
+
+## 0.26.1 — Parar sem deixar um documento a meio
+
+Primeira parte da issue #29. O agente não tratava o `SIGTERM`, e um
+`systemctl stop` matava-o onde estivesse. Receber um documento são quatro
+passos — arquivar o original, criar o rascunho, gerar as pré-visualizações,
+tirar o ficheiro da entrada — e uma paragem entre eles deixava o estado
+partido. Entre o jornal de auditoria e o registo, o jornal ficava com um id que
+o registo não tinha, e o rascunho seguinte reutilizava-o. Entre o registo e a
+mudança de pasta, o ficheiro ficava na entrada para sempre, saltado em todas as
+voltas. Desde a 0.26.0 havia uma paragem destas por dia, a da cópia de
+segurança.
+
+### A paragem com ordem
+
+No `SIGTERM` e no `SIGINT` (o Ctrl+C, e o que o NSSM manda no Windows):
+
+1. Não começa mais trabalho. A vigia acaba o documento que tem em mãos e não
+   pega no seguinte; uma publicação pedida a seguir não começa, e a do arranque
+   seguinte refaz a página a partir do registo.
+2. O trabalho em curso acaba, até 240 segundos.
+3. O registo fecha-se para escrita. Uma ação do painel que esteja a gravar
+   acaba; as que cheguem depois ficam à espera e não gravam metade.
+4. O servidor do painel pára, e o processo sai.
+
+O porteiro é um módulo novo, `lib/paragem.py`. O sinal chega à thread que está
+dentro do `serve_forever`, e parar o servidor dali bloqueava para sempre: a
+paragem corre numa thread à parte.
+
+Uma paragem pedida nos primeiros instantes do arranque, antes de o servidor do
+painel existir, fica guardada: o servidor, quando abre, vê-a e volta sem servir.
+Sem isso, o agente ficava no ar até o systemd o matar, cinco minutos depois.
+
+### A unidade systemd
+
+- `TimeoutStopSec=300`. Com os 90 s de omissão, o systemd matava o agente a
+  meio de um documento grande com OCR, que é o caso que a paragem existe para
+  evitar. O agente desiste aos 240 s e diz no diário que ficou trabalho a meio,
+  antes de o systemd o matar sem dizer nada.
+- `KillMode=mixed`. O `SIGTERM` vai só para o agente; o LibreOffice e o
+  Tesseract que ele lançou acabam a conversão em curso.
+
+No Windows, o `servico/LEIAME.md` passa a mandar dar ao NSSM o mesmo tempo
+(`AppStopMethodConsole 240000`). Por omissão espera 1,5 s depois do Ctrl+C, e
+matava o agente a meio do documento.
+
+### Duas notas da revisão da 0.26.0
+
+- A cópia de segurança passa a parar também um agente que ainda está a
+  arrancar. O `is-active` diz `activating` nesse instante, e o teste simples
+  deixava a cópia correr ao lado dele.
+- O `HYPER-V.md` diz que a pasta `entrada/` não vai na cópia, e o que isso
+  quer dizer para um documento que lá esteja à hora da cópia.
+
+### O que fica na issue #29
+
+A recuperação depois de um corte que não pede licença — `SIGKILL`, falta de
+luz, a VM desligada à força — continua por fazer: o `seq` acima do maior id do
+jornal, e acabar um documento que ficou na entrada com o rascunho já criado.
+
+Os tratadores dos sinais instalam-se antes de qualquer thread de trabalho. Um
+sinal que chegasse entre a vigia arrancar e a instalação matava-a a meio de um
+documento; antes desse ponto ainda não há trabalho, e morrer logo não estraga
+nada.
+
+### Verificação
+
+Com o agente verdadeiro e PDFs de 25 páginas digitalizadas na entrada, duas
+vezes:
+
+- `kill -TERM` a meio do terceiro de três documentos: acabou-o e saiu quatro
+  segundos depois. Ficaram três rascunhos, três eventos no jornal, 75
+  pré-visualizações e a entrada vazia.
+- `kill -TERM` a meio do primeiro de dois, com o código final: acabou-o, não
+  pegou no segundo e saiu com código 0, sete segundos depois. Ficaram um
+  rascunho, um evento, 25 pré-visualizações, e o segundo PDF na entrada para o
+  arranque seguinte.
+
+### Testes
+
+Onze novos (791 no total), em `tests/test_paragem.py`. Contra o código anterior
+falham todos, porque o módulo não existia. O que interessa é o do documento a
+meio: a paragem tem de esperar por ele, ele tem de acabar inteiro (rascunho e
+ficheiro fora da entrada) e o seguinte não pode começar. Os do sinal chamam o
+tratador à mão, e verificam a ordem: trabalho acabado, registo fechado,
+servidor parado.
+
+Um teste antigo mudou: `test_um_erro_no_ciclo_de_vigia_fica_no_diario` acabava
+a volta da vigia com um `time.sleep` falso, e a vigia passou a dormir no
+`Event` da paragem. Com o sleep falso, a bateria inteira ficava encravada
+nesse teste; passa a acabar a volta pela paragem.
+
+Foi também a bateria encravada que mostrou um defeito do próprio PR: os testes
+que arrancam o painel com um servidor falso deixavam os tratadores de sinais
+do agente instalados no processo do pytest, e um `kill` a esse processo era
+ignorado. O painel passa a repor os tratadores anteriores quando volta, e há
+um teste para isso.

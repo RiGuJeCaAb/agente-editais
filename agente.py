@@ -41,6 +41,7 @@ Ficheiros de estado (na raiz do projeto):
 from __future__ import annotations
 
 import argparse
+import contextlib
 import glob
 import hashlib
 import json
@@ -51,7 +52,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.26.0"
+VERSAO = "0.26.1"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -65,6 +66,7 @@ import documentos as doc
 import migracao
 import originais as orig  # arquivo imutável dos documentos
 import painel as painel_mod  # servidor do painel de gestão
+import paragem as par  # parar sem deixar um documento a meio
 import prazos as pr  # tipos de documento e janelas legais
 import progresso  # o que o agente está a fazer agora, para o painel mostrar
 import registo as reg_mod  # registo de entrada (fluxo de estados)
@@ -289,7 +291,7 @@ def _rodar_zips(cfg):
 # momento da publicação (não na leitura), para não gastar trabalho com editais
 # que possam ser corrigidos ou rejeitados.
 # ===========================================================================
-def varrer_para_registo(cfg, reg, logo_im):
+def varrer_para_registo(cfg, reg, logo_im, paragem=None):
     """Lê os documentos novos e cria RASCUNHOS no registo de entrada.
 
     Difere de varrer(): não publica nada. Cada documento novo (por hash) vira um
@@ -300,13 +302,16 @@ def varrer_para_registo(cfg, reg, logo_im):
         reg (RegistoEntrada): registo de entrada (fluxo de estados).
         logo_im: não usado aqui (a composição só acontece na publicação), mantido
             por simetria de assinatura.
+        paragem (Paragem | None): quando dada, cada documento é recebido como
+            uma peça que não pode ficar a meio, e a volta acaba antes do
+            documento seguinte se tiverem pedido para parar.
 
     Returns:
         int: número de rascunhos criados.
     """
     novos = 0
     try:
-        novos = _varrer_para_registo(cfg, reg)
+        novos = _varrer_para_registo(cfg, reg, paragem)
     finally:
         # try/finally e não uma linha no fim: se um documento rebentar de uma
         # forma que o except de dentro não apanhe, a faixa do painel ficaria a
@@ -316,7 +321,7 @@ def varrer_para_registo(cfg, reg, logo_im):
     return novos
 
 
-def _varrer_para_registo(cfg, reg):
+def _varrer_para_registo(cfg, reg, paragem=None):
     """O corpo de varrer_para_registo, para o progresso poder ser limpo num finally."""
     novos = 0
     for nome in sorted(os.listdir(cfg["entrada"])):
@@ -335,6 +340,11 @@ def _varrer_para_registo(cfg, reg):
         h = file_hash(path)
         if reg.hash_existe(h):        # já registado antes → ignora
             continue
+        # Daqui até o ficheiro sair da entrada, uma paragem deixava o registo e
+        # a pasta em desacordo (issue #29). Pedida a paragem, o documento que já
+        # começou acaba, e o seguinte fica para o próximo arranque.
+        if paragem is not None and not paragem.entrar():
+            break
         try:
             progresso.a_ler(nome, 0, 0)
             # Texto e contagem de páginas SEM rasterizar o documento: num PDF com
@@ -384,6 +394,9 @@ def _varrer_para_registo(cfg, reg):
             novos += 1
         except Exception as ex:
             _agente.error(f"{nome}: {ex}")
+        finally:
+            if paragem is not None:
+                paragem.sair()
     return novos
 
 
@@ -1861,18 +1874,29 @@ def iniciar_painel(cfg):
                         "ultima_varredura": None, "ultima_publicacao": None,
                         "ecras_no_ar": 0}
 
+    paragem = par.Paragem()
+
     # Callback que o painel invoca após publicar/retirar: recompõe a TV.
+    #
+    # Pedida a paragem, não começa: a publicação do arranque seguinte refaz a
+    # página a partir do registo, que é a verdade. Começada, acaba antes de o
+    # agente sair, para o slides.json e o registo não ficarem em desacordo.
     def republicar():
-        n = publicar_registos(cfg, reg, logo_im)
-        estado_do_agente["ultima_publicacao"] = datetime.now().isoformat(timespec="seconds")
-        estado_do_agente["ecras_no_ar"] = n
-        _tv.info(f"atualizada: {n} ecr\u00e3(s) no ar")
+        if not paragem.entrar():
+            return
+        try:
+            n = publicar_registos(cfg, reg, logo_im)
+            estado_do_agente["ultima_publicacao"] = datetime.now().isoformat(timespec="seconds")
+            estado_do_agente["ecras_no_ar"] = n
+            _tv.info(f"atualizada: {n} ecr\u00e3(s) no ar")
+        finally:
+            paragem.sair()
 
     # Thread de fundo: lê documentos novos e cria rascunhos periodicamente.
     def vigiar():
-        while True:
+        while not paragem.pedida.is_set():
             try:
-                n = varrer_para_registo(cfg, reg, logo_im)
+                n = varrer_para_registo(cfg, reg, logo_im, paragem=paragem)
                 estado_do_agente["ultima_varredura"] = datetime.now().isoformat(timespec="seconds")
                 if n:
                     _agente.info(f"ENTRADA {n} novo(s) documento(s) em rascunho")
@@ -1888,7 +1912,9 @@ def iniciar_painel(cfg):
                 # que falhasse não deixava rasto no diário. Com o traceback, que
                 # sem ele não se sabe onde foi.
                 _agente.exception("erro no ciclo de vigia")
-            time.sleep(int(cfg["intervalo_watch"]))
+            # Num Event e não num sleep: um pedido de paragem acorda-a logo, em
+            # vez de esperar o resto dos trinta segundos.
+            paragem.pedida.wait(int(cfg["intervalo_watch"]))
 
     def aquecer_fundos():
         """Desenha as variantes de fundo em falta, antes de alguém precisar delas.
@@ -1912,22 +1938,129 @@ def iniciar_painel(cfg):
         _fundos.info(f"{trat.VARIANTES_DE_FUNDO} variantes prontas em {cfg['fundos']}")
 
     import threading
-    threading.Thread(target=aquecer_fundos, daemon=True).start()
-    threading.Thread(target=vigiar, daemon=True).start()
 
-    # Primeira publicação da TV em FUNDO: compor imagens 4K é pesado e não deve
-    # atrasar o arranque do painel. O servidor fica disponível de imediato; a TV
-    # atualiza-se assim que a composição terminar.
-    threading.Thread(target=republicar, daemon=True).start()
-
-    # Servidor do painel (bloqueante) — arranca já, sem esperar pela composição.
     html_path = os.path.join(BASE, "lib", "painel.html")
     servidor = painel_mod.PainelServer(
         reg, cfg, republicar_callback=republicar, painel_html_path=html_path,
         contas=contas,
         saude_callback=lambda: estado_de_saude(cfg, reg, estado_do_agente))
-    servidor.iniciar(host=cfg["painel_host"], porta=int(cfg["painel_porta"]),
-                     bloquear=True)
+
+    # Os tratadores dos sinais antes de qualquer thread de trabalho: um SIGTERM
+    # que chegasse entre a vigia arrancar e a instalação matava-a a meio de um
+    # documento, que é o que a paragem com ordem existe para evitar. Antes
+    # daqui não há trabalho nenhum, e morrer de imediato não estraga nada.
+    with _sinais_de_paragem(paragem, reg, servidor, ESPERA_NA_PARAGEM):
+        threading.Thread(target=aquecer_fundos, daemon=True).start()
+        threading.Thread(target=vigiar, daemon=True).start()
+
+        # Primeira publicação da TV em FUNDO: compor imagens 4K é pesado e não deve
+        # atrasar o arranque do painel. O servidor fica disponível de imediato; a TV
+        # atualiza-se assim que a composição terminar.
+        threading.Thread(target=republicar, daemon=True).start()
+
+        # Servidor do painel (bloqueante) — arranca já, sem esperar pela composição.
+        servidor.iniciar(host=cfg["painel_host"], porta=int(cfg["painel_porta"]),
+                         bloquear=True)
+    _agente.info("parado")
+
+
+# Segundos que o agente espera pelo trabalho em curso quando lhe pedem para
+# parar. Abaixo dos 300 do TimeoutStopSec da unidade systemd, de propósito:
+# passado esse, o systemd mata o processo sem aviso, e mais vale sair antes a
+# dizer no diário que ficou trabalho a meio. Um documento grande com OCR leva
+# dezenas de segundos; quatro minutos chegam para ele e para uma publicação.
+ESPERA_NA_PARAGEM = 240
+
+
+# Liga a paragem com ordem aos sinais enquanto o painel corre, e repõe-nos no fim.
+@contextlib.contextmanager
+def _sinais_de_paragem(paragem, reg, servidor, limite):
+    """Instala os tratadores de _instalar_paragem e repõe os anteriores à saída.
+
+    Repor importa para quem chama o painel sem ser um processo próprio. Os
+    testes arrancam-no com um servidor falso que volta logo: sem isto ficavam
+    os tratadores do agente instalados no processo do pytest, e um Ctrl+C ou um
+    kill a esse processo ficavam à espera de um servidor que já não existia.
+    """
+    import signal
+
+    anteriores = {s: signal.getsignal(s) for s in (signal.SIGTERM, signal.SIGINT)}
+    instalado = _instalar_paragem(paragem, reg, servidor, limite)
+    try:
+        yield
+    finally:
+        if instalado is not None:
+            for sinal, tratador in anteriores.items():
+                # None quer dizer um tratador posto fora do Python, que daqui
+                # não se consegue repor; fica o do agente, que é inofensivo.
+                if tratador is not None:
+                    signal.signal(sinal, tratador)
+
+
+# Liga o SIGTERM e o SIGINT a uma paragem que acaba o trabalho em curso.
+def _instalar_paragem(paragem, reg, servidor, limite):
+    """Faz o SIGTERM (systemctl stop) e o SIGINT (Ctrl+C, e o NSSM no Windows)
+    pararem o agente com ordem.
+
+    O sinal chega à thread principal, que está dentro do serve_forever do
+    painel. Parar o servidor dali bloqueava para sempre — o shutdown() espera
+    que o serve_forever acabe, e é a mesma thread —, por isso o trabalho segue
+    numa thread à parte e a principal fica livre para sair do ciclo.
+
+    Um segundo sinal durante a paragem é ignorado: quem tiver pressa a sério
+    tem o SIGKILL, e o systemd usa-o sozinho quando o TimeoutStopSec acaba.
+
+    Args:
+        paragem (Paragem): o porteiro do trabalho em curso.
+        reg (RegistoEntrada): fechado para escrita antes de sair.
+        servidor (PainelServer): parado no fim.
+        limite (float): segundos de espera pelo trabalho em curso.
+
+    Returns:
+        callable | None: o tratador instalado, ou None fora da thread principal,
+        onde o Python não deixa instalar tratadores de sinais.
+    """
+    import signal
+    import threading
+
+    if threading.current_thread() is not threading.main_thread():
+        return None
+    a_parar = threading.Lock()
+
+    def ao_sinal(numero, _quadro):
+        if not a_parar.acquire(blocking=False):
+            return
+        _agente.info(f"{signal.Signals(numero).name}: a acabar o trabalho em "
+                     "curso antes de sair")
+        threading.Thread(target=_parar_com_ordem,
+                         args=(paragem, reg, servidor, limite), daemon=True).start()
+
+    signal.signal(signal.SIGTERM, ao_sinal)
+    signal.signal(signal.SIGINT, ao_sinal)
+    return ao_sinal
+
+
+# Acaba o trabalho em curso, fecha o registo e pára o servidor, por esta ordem.
+def _parar_com_ordem(paragem, reg, servidor, limite):
+    """A paragem propriamente dita, numa thread que não é a do servidor.
+
+    A ordem é o que importa. Primeiro o trabalho em curso acaba, e nenhum novo
+    começa. Depois o registo fecha-se para escrita: uma ação do painel que
+    esteja a gravar acaba, e as que cheguem a seguir ficam à espera até o
+    processo sair, sem escrever metade. Por fim pára o servidor, e a thread
+    principal sai do serve_forever.
+
+    Args:
+        paragem (Paragem): o porteiro do trabalho em curso.
+        reg (RegistoEntrada): o registo a fechar.
+        servidor (PainelServer): o servidor a parar.
+        limite (float): segundos de espera pelo trabalho em curso.
+    """
+    if not paragem.pedir_e_esperar(limite):
+        _agente.warning(f"passaram {limite:.0f} s e ainda havia trabalho em curso: "
+                        "sai assim mesmo, e a issue #29 diz o que pode ter ficado")
+    reg.fechar()
+    servidor.parar()
 
 
 def estado_de_saude(cfg, reg, estado):

@@ -572,13 +572,22 @@ def test_um_erro_no_ciclo_de_vigia_fica_no_diario(posto, monkeypatch, tmp_path):
     def rebenta(*a, **k):
         raise RuntimeError("disco cheio a meio da varredura")
 
-    def acaba(_segundos):
-        raise FimDaVolta
+    # A vigia dorme no Event da paragem, e não num time.sleep, desde a 0.26.1:
+    # é por ele que se acaba a volta. Um sleep falso deixava o ciclo a correr
+    # para sempre, e o teste nunca voltava.
+    class EsperaQueAcaba(threading.Event):
+        def wait(self, timeout=None):
+            raise FimDaVolta
+
+    class ParagemQueAcaba(agente.par.Paragem):
+        def __init__(self):
+            super().__init__()
+            self.pedida = EsperaQueAcaba()
 
     monkeypatch.setattr(threading, "Thread", ThreadQueGuarda)
     monkeypatch.setattr(agente.painel_mod, "PainelServer", PainelFalso)
     monkeypatch.setattr(agente, "varrer_para_registo", rebenta)
-    monkeypatch.setattr(agente.time, "sleep", acaba)
+    monkeypatch.setattr(agente.par, "Paragem", ParagemQueAcaba)
 
     ficheiro = tmp_path / "agente.log"
     agente.iniciar_painel(posto["cfg"])

@@ -401,6 +401,11 @@ sudo -u editais .venv/bin/python agente.py --conferir
 A pasta `saida/` não está na cópia de propósito: as folhas da televisão
 refazem-se na publicação seguinte.
 
+A pasta `entrada/` também não. Tudo o que lá chegou a rascunho está em
+`originais/`, que vai na cópia. Um documento que ainda esteja na entrada à hora
+da cópia, por não ter sido aceite ou por ter chegado no minuto anterior, não
+tem cópia fora da VM; quem o carregou ainda tem o original.
+
 **Ensaia isto uma vez**, numa VM de teste, antes de precisares. Uma cópia que
 nunca se repôs é uma esperança, não uma cópia.
 

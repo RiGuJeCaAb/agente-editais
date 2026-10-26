@@ -146,6 +146,11 @@ class PainelServer:
         self.republicar = republicar_callback or (lambda: None)
         self.painel_html_path = painel_html_path
         self._httpd = None
+        # A paragem pode ser pedida antes de o servidor existir: o sinal chega a
+        # qualquer momento, e os tratadores instalam-se antes do iniciar(). O
+        # lock torna a pergunta «já há servidor?» e o pedido numa coisa só.
+        self._paragem_lock = threading.Lock()
+        self._parar_pedido = False
         # Contagem de falhas de senha por endereço: {ip: [falhas, bloqueado_ate]}.
         self._falhas: dict[str, tuple[int, float]] = {}
         self._falhas_lock = threading.Lock()
@@ -175,6 +180,24 @@ class PainelServer:
             self._falhas.pop(ip, None)
 
     # ---- arranque ---------------------------------------------------------
+    def parar(self):
+        """Pára o servidor: o serve_forever da thread principal acaba e volta.
+
+        Chama-se de outra thread. Da mesma que corre o serve_forever, o
+        shutdown() ficava à espera de si próprio.
+
+        Antes de o servidor existir, fica pedido, e o iniciar() volta sem
+        servir. Sem isto, um SIGTERM nos primeiros instantes do arranque não
+        parava nada, e o agente ficava no ar até o systemd o matar.
+        """
+        with self._paragem_lock:
+            self._parar_pedido = True
+            httpd = self._httpd
+        if httpd is not None:
+            # Pedido antes de o serve_forever começar também serve: ele vê o
+            # pedido à entrada do ciclo e volta logo.
+            httpd.shutdown()
+
     def iniciar(self, host="127.0.0.1", porta=8770, bloquear=True):
         """Arranca o servidor HTTP do painel.
 
@@ -458,7 +481,11 @@ class PainelServer:
 
                 return self._json({"ok": False, "erro": "Rota desconhecida"}, 404)
 
-        self._httpd = ThreadingHTTPServer((host, porta), Handler)
+        with self._paragem_lock:
+            self._httpd = ThreadingHTTPServer((host, porta), Handler)
+            if self._parar_pedido:
+                self._httpd.server_close()
+                return self._httpd.server_address[1]
         # A porta que o sistema operativo atribuiu de facto. Com porta=0 é ele
         # que escolhe uma livre, e é preciso perguntar qual saiu — passar 0 e
         # depois anunciar "a servir em :0" seria mentir a quem lê o registo.

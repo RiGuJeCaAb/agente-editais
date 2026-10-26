@@ -160,6 +160,18 @@ class RegistoEntrada:
         if mudou:
             self._guardar()
 
+    def fechar(self):
+        """Espera pela escrita em curso e não deixa começar outra.
+
+        Para a paragem do agente: o jornal de auditoria e o registo gravam-se em
+        dois passos, e um processo que saísse entre eles deixava o jornal com um
+        evento que o registo não tem. Toda a escrita passa por este lock, por
+        isso tomá-lo é esperar que a que está a decorrer acabe. Não se devolve:
+        o processo sai a seguir, e quem tentar escrever entretanto fica à
+        espera em vez de gravar metade.
+        """
+        self._lock.acquire()
+
     def _carregar(self):
         """Lê o JSON do disco, ou devolve uma estrutura vazia se ainda não existe.
 
