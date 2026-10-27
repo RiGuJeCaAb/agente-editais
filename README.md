@@ -295,6 +295,13 @@ meio: o agente acaba o documento ou a publicação em curso, até quatro minutos
 e só então sai. O diário diz «a acabar o trabalho em curso antes de sair» e,
 no fim, «parado».
 
+Um corte que não pede licença — a luz que falha, a VM desligada à força — é
+acabado no arranque seguinte. Um documento que ficou na entrada com o rascunho
+já criado sai de lá com as pré-visualizações, sem rascunho novo, e o diário diz
+«a receção tinha ficado a meio e foi acabada agora». Um número que o jornal de
+auditoria já usou e o registo não chegou a gravar não volta a ser dado, e o
+jornal regista a razão de ficar por usar.
+
 O endpoint `/saude` responde sem sessão e serve para o supervisor saber se o
 painel está de pé.
 
@@ -343,7 +350,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 796 testes (mais 66 de browser: pytest -m navegador)
+pytest          # 805 testes (mais 66 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```

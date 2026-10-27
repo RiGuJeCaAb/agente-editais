@@ -39,7 +39,10 @@ import threading
 from datetime import date, datetime
 
 import armazenamento as arm
+import diario
 import prazos as pr
+
+_log = diario.obter("REGISTO")
 
 # Os estados do ciclo de vida. Usar constantes (e não strings soltas pelo
 # código) evita gralhas silenciosas do tipo "Publicado" vs "publicado".
@@ -121,6 +124,7 @@ class RegistoEntrada:
         self.jornal = arm.JornalAuditoria(raiz + "_auditoria.jsonl")
         self._dados = self._carregar()
         self._migrar()
+        self._alinhar_contador()
 
     # ---- persistência -----------------------------------------------------
     def _migrar(self):
@@ -146,7 +150,13 @@ class RegistoEntrada:
                                  # preenche — não se inventa aqui um desenho a
                                  # partir de um PNG já composto, porque isso
                                  # seria adivinhar onde as folhas assentaram.
-                                 ("ecras", [])):
+                                 ("ecras", []),
+                                 # Desde a 0.27.1. Um registo antigo conta como
+                                 # recebido por inteiro: era o caso de quase
+                                 # todos, e um que tivesse ficado a meio não se
+                                 # distingue agora de um documento que alguém
+                                 # voltou a carregar.
+                                 ("rececao_concluida", True)):
                 if campo not in reg:
                     reg[campo] = valor
                     mudou = True
@@ -159,6 +169,43 @@ class RegistoEntrada:
                     mudou = True
         if mudou:
             self._guardar()
+
+    def _alinhar_contador(self):
+        """Põe o contador de ids acima de todos os que o jornal já conhece.
+
+        O jornal grava-se antes do registo. Um processo morto entre os dois — a
+        luz que falha, a VM desligada à força, uma paragem que esgota o tempo —
+        deixava no jornal um «Documento recebido e lido» com um id que o
+        registo não tem, e o rascunho seguinte reutilizava-o: dois documentos
+        diferentes sob o mesmo número no trilho que se entrega a quem audita
+        (issue #29). O mesmo acontece com um registo reposto de uma cópia mais
+        antiga do que o jornal.
+
+        O id perdido não se reaproveita, e fica no jornal a razão de faltar: o
+        documento continua na entrada, e a volta seguinte recebe-o com o número
+        a seguir. Só grava quando há alguma coisa a alinhar.
+        """
+        conhecidos = {e.get("id") for e in self._dados["editais"]}
+        no_jornal = [ev.get("id") for ev in self.jornal.ler_tudo()]
+        ids = [i for i in (*conhecidos, *no_jornal)
+               if isinstance(i, int) and not isinstance(i, bool)]
+        maior = max(ids, default=0)
+        seq = self._dados.get("seq", 0)
+        if maior <= seq:
+            return
+        perdidos = sorted({i for i in no_jornal
+                           if isinstance(i, int) and not isinstance(i, bool)
+                           and i > seq and i not in conhecidos})
+        for rid in perdidos:
+            self.jornal.registar({
+                **_evento("sistema", None, None,
+                          "O registo não chegou a gravar este id; fica por usar"),
+                "id": rid})
+        self._dados["seq"] = maior
+        self._guardar()
+        _log.warning(f"Contador de ids alinhado com o jornal de auditoria: {seq} → "
+                     f"{maior}. Ids que o registo não tem e não se reutilizam: "
+                     f"{', '.join(f'#{i}' for i in perdidos) or 'nenhum'}")
 
     def fechar(self, limite=None):
         """Espera pela escrita em curso e não deixa começar outra.
@@ -280,6 +327,12 @@ class RegistoEntrada:
                 # vazia — quem quiser ver o que está no ecrã olha para os ecrãs.
                 "ficheiros_png": [],            # preenchidos ao arquivar
                 "ficheiros_previa": [],         # pré-visualizações leves p/ o painel
+                # Fica True quando o documento sai da entrada. Até lá, a receção
+                # está a meio: um processo morto depois deste rascunho deixava o
+                # ficheiro na entrada para sempre, saltado por o resumo já estar
+                # no registo. É isto que distingue esse caso de alguém voltar a
+                # carregar o mesmo documento (issue #29).
+                "rececao_concluida": False,
                 # Auditoria:
                 "criado_em": _agora(),
                 "historico": [],
@@ -363,12 +416,36 @@ class RegistoEntrada:
         with self._lock:
             return any(e["hash"] == hash_ficheiro for e in self._dados["editais"])
 
+    def rececao_por_acabar(self, hash_ficheiro, ficheiro_origem):
+        """Procura o rascunho cuja receção deste ficheiro ficou a meio.
+
+        Só o encontra se for o mesmo ficheiro, pelo nome e pelo resumo, e se a
+        receção não tiver acabado. Um documento igual que alguém volte a
+        carregar depois de o primeiro ter saído da entrada não serve: esse
+        continua a ser um duplicado, e fica onde está.
+
+        Args:
+            hash_ficheiro (str): SHA-1 do ficheiro na entrada.
+            ficheiro_origem (str): nome do ficheiro na entrada.
+
+        Returns:
+            dict | None: cópia do registo, ou None.
+        """
+        with self._lock:
+            for e in self._dados["editais"]:
+                if (e["hash"] == hash_ficheiro
+                        and e.get("ficheiro_origem") == ficheiro_origem
+                        and e.get("rececao_concluida") is False):
+                    return copy.deepcopy(e)
+            return None
+
     # Campos que o AGENTE produz, por oposição aos que o utilizador edita. Não
     # passam por editar() (que tem a sua própria lista branca e gera evento de
     # auditoria) porque não são decisões de ninguém: são resultados do
     # processamento. Ter a lista explícita evita que uma chamada distraída a
     # definir() escreva no estado ou no histórico por esta porta.
-    CAMPOS_DE_SISTEMA = {"ficheiros_previa", "ficheiros_png", "ecras", "sha256"}
+    CAMPOS_DE_SISTEMA = {"ficheiros_previa", "ficheiros_png", "ecras", "sha256",
+                         "rececao_concluida"}
 
     def definir(self, rid, **campos):
         """Grava campos produzidos pelo agente num registo.

@@ -52,7 +52,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.26.1"
+VERSAO = "0.27.1"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -338,7 +338,10 @@ def _varrer_para_registo(cfg, reg, paragem=None):
             continue
         marca = _marca(path)
         h = file_hash(path)
-        if reg.hash_existe(h):        # já registado antes → ignora
+        # O mesmo ficheiro com o rascunho já criado e a receção a meio: o
+        # processo morreu entre o registo e a saída da entrada (issue #29).
+        pendente = reg.rececao_por_acabar(h, nome)
+        if pendente is None and reg.hash_existe(h):   # já registado antes → ignora
             continue
         # Daqui até o ficheiro sair da entrada, uma paragem deixava o registo e
         # a pasta em desacordo (issue #29). Pedida a paragem, o documento que já
@@ -346,6 +349,9 @@ def _varrer_para_registo(cfg, reg, paragem=None):
         if paragem is not None and not paragem.entrar():
             break
         try:
+            if pendente is not None:
+                _acabar_rececao(cfg, reg, pendente, path, nome)
+                continue
             progresso.a_ler(nome, 0, 0)
             # Texto e contagem de páginas SEM rasterizar o documento: num PDF com
             # texto pesquisável, que é a maioria dos editais, não se rasteriza
@@ -384,6 +390,7 @@ def _varrer_para_registo(cfg, reg, paragem=None):
             # Só agora, com o rascunho criado e o original arquivado, é que o
             # ficheiro sai da pasta de entrada.
             _tirar_da_entrada(cfg, path, nome)
+            reg.definir(r["id"], rececao_concluida=True)
             ocr_nota = " [via OCR]" if info["ocr"] else ""
             duv = ", ".join(r["campos_duvidosos"]) or "nenhum"
             # Pelo diário, e não por print: em serviço ninguém lê o stdout, e o
@@ -398,6 +405,32 @@ def _varrer_para_registo(cfg, reg, paragem=None):
             if paragem is not None:
                 paragem.sair()
     return novos
+
+
+# Acaba a receção de um documento que ficou a meio, sem criar outro rascunho.
+def _acabar_rececao(cfg, reg, r, path, nome):
+    """Faz o que faltou depois do rascunho: as pré-visualizações e a saída da entrada.
+
+    O original já está no arquivo, porque se arquiva antes de o rascunho
+    existir, e o rascunho é o mesmo: o número, quem colocou o documento e o
+    evento de auditoria não mudam. As pré-visualizações refazem-se todas, porque
+    as que houver podem ter ficado a meio.
+
+    Args:
+        cfg (dict): configuração.
+        reg (RegistoEntrada): registo de entrada.
+        r (dict): o rascunho cuja receção ficou a meio.
+        path (str): caminho do ficheiro, ainda na entrada.
+        nome (str): nome do ficheiro.
+    """
+    progresso.a_ler(nome, 0, 0)
+    previas = _gerar_previas(cfg, r["id"], path, total=r.get("num_paginas", 0))
+    if previas:
+        reg.definir_previas(r["id"], previas)
+    _tirar_da_entrada(cfg, path, nome)
+    reg.definir(r["id"], rececao_concluida=True)
+    _agente.warning(f"RASCUNHO #{r['id']} {nome}: a receção tinha ficado a meio "
+                    f"e foi acabada agora")
 
 
 # Diz se um ficheiro da pasta de entrada já acabou de chegar.
@@ -2083,7 +2116,8 @@ def _parar_com_ordem(paragem, reg, servidor, limite):
     try:
         if not paragem.pedir_e_esperar(limite):
             _agente.warning(f"passaram {limite:.0f} s e ainda havia trabalho em curso: "
-                            "sai assim mesmo, e a issue #29 diz o que pode ter ficado")
+                            "sai assim mesmo, e o próximo arranque acaba o documento que "
+                            "tiver ficado a meio")
         # Com limite: uma escrita encravada num disco que não responde segurava
         # o lock para sempre, e o servidor nunca chegava a parar.
         if not reg.fechar(ESPERA_PELO_REGISTO):
