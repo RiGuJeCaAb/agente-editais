@@ -307,8 +307,9 @@ Com essa janela aberta, o painel está em `http://127.0.0.1:8770/` no teu
 browser, cifrado de ponta a ponta pelo SSH.
 
 É suficiente enquanto quem valida és só tu. Quando houver mais pessoas, é a
-Fase 2: HTTPS com certificado da Câmara, e o painel aberto à rede interna por
-trás dele.
+Fase 2, no passo 11: o painel em HTTPS, com o certificado da autoridade de
+certificação da Câmara. O túnel continua a funcionar depois disso, e fica como
+porta das traseiras se o nginx falhar.
 
 ---
 
@@ -327,7 +328,7 @@ sudo ufw status numbered
 nesse caso a consola do Hyper-V é o caminho de volta.
 
 A porta 8770 do painel não aparece: escuta só em `127.0.0.1`, e o túnel chega
-lá por dentro.
+lá por dentro. Com a Fase 2 (passo 11), abre-se a 443 aos postos.
 
 ---
 
@@ -504,6 +505,140 @@ diferencial que ninguém vigia, e a VM fica mais lenta a cada escrita.
 
 ---
 
+## 11. Fase 2 — o painel em HTTPS
+
+O painel continua a escutar só em `127.0.0.1:8770`. Quem fala com a rede é o
+nginx, que cifra a ligação com um certificado emitido pela autoridade de
+certificação da Câmara e passa os pedidos ao painel por dentro da VM. Os postos
+do domínio já confiam nessa autoridade, e por isso o browser não mostra aviso
+nenhum.
+
+O endereço fica `https://agente-edital-digital.<dominio.dns>/`.
+
+### O que pedir à informática
+
+- **Um registo no DNS do domínio**: `agente-edital-digital`, do tipo A, para o
+  endereço da VM.
+- **O certificado**, emitido a partir do pedido que se gera abaixo, com o
+  modelo de servidor web da autoridade da Câmara.
+- **A cadeia da autoridade**, em Base64: o certificado da autoridade que emitiu
+  e, se a Câmara tiver uma raiz e uma emissora, os dois.
+
+### O pedido de certificado
+
+Gera-se na VM, e a chave privada nunca sai de lá:
+
+```bash
+sudo mkdir -p /etc/ssl/agente-edital-digital
+cd /etc/ssl/agente-edital-digital
+sudo openssl req -new -newkey rsa:3072 -nodes \
+    -keyout chave.pem -out pedido.csr \
+    -subj "/CN=agente-edital-digital.<dominio.dns>" \
+    -addext "subjectAltName=DNS:agente-edital-digital.<dominio.dns>"
+sudo chmod 600 chave.pem
+```
+
+O `subjectAltName` não é opcional: os browsers atuais ignoram o `CN` e recusam
+um certificado que não traga o nome nesse campo.
+
+O `pedido.csr` vai para a informática. Num posto do domínio com permissão de
+inscrição, o pedido submete-se com:
+
+```
+certreq -submit -attrib "CertificateTemplate:WebServer" pedido.csr servidor.cer
+```
+
+`WebServer` é o nome interno do modelo «Servidor Web» de origem. Se a Câmara
+usar um modelo próprio, o nome é o dele.
+
+### Instalar o certificado
+
+Com o `servidor.cer` e a cadeia da autoridade (`autoridade.cer`) na VM:
+
+```bash
+cd /etc/ssl/agente-edital-digital
+for f in servidor autoridade; do
+    sudo openssl x509 -in $f.cer -out $f.pem 2>/dev/null \
+      || sudo openssl x509 -inform der -in $f.cer -out $f.pem
+done
+openssl x509 -in servidor.pem -noout -subject -issuer -enddate -ext subjectAltName
+```
+
+O ciclo aceita os dois formatos em que o Windows entrega certificados, Base64 e
+binário (DER), e deixa os dois em `.pem`, que é o que o nginx lê.
+
+**O que tens de ver:** o nome `agente-edital-digital.<dominio.dns>` no
+`subjectAltName`, e a autoridade da Câmara no `issuer`. Sem o nome no
+`subjectAltName`, o certificado não serve, e volta para a informática.
+
+```bash
+cat servidor.pem autoridade.pem | sudo tee cadeia.pem > /dev/null
+openssl verify -CAfile autoridade.pem servidor.pem
+```
+
+**O que tens de ver:** `servidor.pem: OK`. A cadeia vai inteira para o nginx
+porque um posto que não tenha a autoridade emissora em cache recusa a ligação
+sem ela, e o erro não diz porquê.
+
+### O nginx e o agente
+
+```bash
+sudo cp servico/nginx-painel.conf /etc/nginx/sites-available/painel
+sudo sed -i 's/<DOMINIO.DNS>/<dominio.dns>/g' /etc/nginx/sites-available/painel
+sudo ln -s /etc/nginx/sites-available/painel /etc/nginx/sites-enabled/painel
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+No `config.json` do agente, `"painel_atras_de_proxy": true`, e depois
+`sudo systemctl restart agente-editais`. Duas coisas mudam no painel com ela:
+
+- **O cookie de sessão passa a levar `Secure`**, e nunca viaja por HTTP simples.
+- **O endereço de quem entra passa a vir do nginx.** Atrás dele, todos os
+  pedidos chegavam de `127.0.0.1`, e o bloqueio de tentativas falhadas, que
+  conta por endereço, trancava a Câmara inteira por causa de uma pessoa.
+
+O `painel_host` continua em `127.0.0.1`. Nunca se põe a `0.0.0.0` com o nginx à
+frente: o painel ficava acessível por HTTP ao lado do HTTPS.
+
+### A firewall
+
+```bash
+sudo ufw allow from <REDE-DOS-POSTOS> to any port 443 proto tcp
+sudo ufw allow from <REDE-DOS-POSTOS> to any port 80  proto tcp
+```
+
+A 80 é só para quem escrever o endereço sem `https` ser reencaminhado. Pelo
+endereço IP da VM, os postos passam a ver a página da televisão, que é pública
+de qualquer forma.
+
+### Verificar
+
+- [ ] Num posto do domínio, `https://agente-edital-digital.<dominio.dns>/` abre
+      o painel com o cadeado e sem aviso nenhum.
+- [ ] `http://agente-edital-digital.<dominio.dns>/` vai parar ao `https`.
+- [ ] Depois de entrar, as ferramentas do browser mostram o cookie
+      `editais_sessao` com `Secure` e `HttpOnly`.
+- [ ] Uma senha errada várias vezes num posto deixa esse posto de castigo, e um
+      colega noutro posto continua a entrar. O diário mostra os endereços dos
+      postos, e não `127.0.0.1`.
+- [ ] Publicar um edital grande acaba sem erro. O nginx espera até 300 s pela
+      resposta, porque publicar compõe as imagens antes de responder.
+
+### Quando o certificado expira
+
+O modelo de servidor web da autoridade dá normalmente uma validade de um a dois
+anos, e a data certa vê-se no `-enddate` acima. Um certificado expirado põe o
+painel atrás de um aviso vermelho que ninguém deve ensinar os colegas a
+ultrapassar.
+
+Se o supervisor da Câmara (Zabbix, uptime-kuma) vigiar o
+`https://agente-edital-digital.<dominio.dns>/saude`, a maior parte deles avisa
+sozinha antes de o certificado expirar. Senão, a data vai para o calendário de
+quem trata dos servidores, um mês antes. A renovação é repetir este passo: novo
+pedido, novo certificado, `systemctl reload nginx`.
+
+---
+
 ## Verificação final
 
 - [ ] Um posto do domínio copia um PDF para `\\editais\entrada`.
@@ -532,9 +667,6 @@ diferencial que ninguém vigia, e a VM fica mais lenta a cada escrita.
 
 ## O que fica para depois
 
-- **Fase 2 — HTTPS.** O painel aberto à rede interna, com certificado. Precisa
-  de duas respostas: que nome vai ter o painel na rede, e de onde vem o
-  certificado (a autoridade interna da Câmara, se houver, ou outra).
 - **Fase 3 — entrar no painel com a conta do Entra.** Os papéis passam a vir de
   grupos do Entra, e fica uma conta local de administrador para quando o Entra
   não responder. Nessa altura o nome de quem valida no painel passa a ser o

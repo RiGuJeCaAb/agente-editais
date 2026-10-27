@@ -2781,3 +2781,71 @@ que arrancam o painel com um servidor falso deixavam os tratadores de sinais
 do agente instalados no processo do pytest, e um `kill` a esse processo era
 ignorado. O painel passa a repor os tratadores anteriores quando volta, e há
 um teste para isso.
+
+## 0.27.0 — O painel em HTTPS
+
+Fase 2 da passagem para a VM. O painel abre-se à rede interna em HTTPS, com um
+certificado da autoridade de certificação da Câmara, servido pelo nginx. O
+painel continua a escutar só em `127.0.0.1`.
+
+### O painel atrás do nginx
+
+Uma chave nova, `painel_atras_de_proxy` (desligada por omissão):
+
+- **O cookie de sessão leva `Secure`**, à entrada e à saída.
+- **O endereço de quem pede vem do `X-Real-IP`.** O bloqueio de tentativas de
+  entrada falhadas conta por endereço, e atrás do nginx toda a gente chegava
+  como `127.0.0.1`: uma pessoa a errar a senha trancava a Câmara inteira. O
+  cabeçalho só conta com a chave ligada e com o pedido a vir da própria
+  máquina. De fora, é de quem o escreveu, e aceitá-lo deixava qualquer um
+  escolher o endereço com que tenta senhas.
+
+### `servico/nginx-painel.conf`
+
+- Só TLS 1.2 e 1.3, e `Strict-Transport-Security` de um ano.
+- O `Host` passa tal como veio (`$http_host`). O painel recusa escritas cuja
+  `Origin` não coincida com ele, e com `$host` uma porta que não fosse a 443
+  ficava de fora e todas as escritas eram recusadas. Apanhado no ensaio, numa
+  porta de teste.
+- `X-Real-IP` posto pelo nginx, por cima do que o cliente tenha mandado.
+- `proxy_read_timeout 300s`. Publicar compõe as imagens antes de responder, e
+  os 60 s de omissão cortavam uma publicação grande que tinha corrido bem.
+- O endereço sem `https` é reencaminhado. Sem HTTP/2: a forma de o ligar mudou
+  na versão 1.25 do nginx, e um painel de poucas pessoas não ganha nada com ele.
+
+### O guia
+
+`servico/HYPER-V.md` ganha o passo 11:
+
+- o pedido de certificado gerado na VM, com o `subjectAltName` que os browsers
+  exigem;
+- a submissão à autoridade da Câmara com `certreq`;
+- a conversão dos dois formatos em que o Windows entrega certificados;
+- a cadeia, o nginx, a firewall, a verificação e a renovação.
+
+### Verificação
+
+Ensaio com uma autoridade de certificação de teste, o nginx com esta
+configuração e o agente verdadeiro atrás dele:
+
+- o HTTPS responde, com o `Strict-Transport-Security`;
+- o HTTP reencaminha para HTTPS;
+- a entrada devolve o cookie com `Secure`;
+- uma escrita com `Origin` de outro domínio é recusada;
+- um `X-Real-IP` forjado pelo cliente é substituído pelo nginx;
+- um certificado de outra autoridade é recusado.
+
+O ciclo de conversão foi exercitado com um certificado em Base64 e outro em
+DER, e a cadeia verificou.
+
+Nada disto foi ensaiado contra a autoridade verdadeira da Câmara. O passo 11
+traz a verificação a fazer lá.
+
+### Testes
+
+Quatro novos (800 no total), em `tests/test_painel_atras_do_nginx.py`. Dois
+falham contra o código anterior: o de uma pessoa que erra a senha sem trancar
+a colega noutro posto, e o do cookie com `Secure`. Os outros dois passam dos
+dois lados de propósito: sem a chave, o `X-Real-IP` não serve para fugir ao
+bloqueio, e o cookie fica sem `Secure`.
+

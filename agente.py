@@ -52,7 +52,7 @@ from datetime import datetime
 
 # Versão do pacote, espelhada no pyproject.toml. Vai no /saude e nos registos,
 # para se saber qual a versão que está a correr num posto sem abrir ficheiros.
-VERSAO = "0.26.1"
+VERSAO = "0.27.0"
 
 # A pasta do próprio script é a raiz do projeto; 'lib/' é adicionada ao path
 # para importar os módulos internos sem depender de instalação.
@@ -125,6 +125,12 @@ CONFIG = {
     # --- Painel de gestão ---
     "painel_host": "127.0.0.1",     # "0.0.0.0" para expor à rede (dentro da VLAN)
     "painel_porta": 8770,
+    # true quando o painel é servido pelo nginx em HTTPS (servico/HYPER-V.md,
+    # Fase 2). O cookie de sessão passa a levar Secure, e o endereço de quem
+    # entra passa a vir do X-Real-IP que o nginx põe: atrás dele, todos os
+    # pedidos chegam de 127.0.0.1, e o bloqueio de tentativas falhadas trancava
+    # a Câmara inteira por causa de uma pessoa.
+    "painel_atras_de_proxy": False,
     # --- Identificação para a certidão de afixação ---
     # Aparecem no cabeçalho e no corpo do documento que a aplicação emite, por
     # isso convém estarem certos antes de a primeira certidão sair para um processo.

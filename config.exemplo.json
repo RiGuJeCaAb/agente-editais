@@ -12,6 +12,7 @@
 
   "painel_host": "127.0.0.1",
   "painel_porta": 8770,
+  "painel_atras_de_proxy": false,
   "segundos_por_ecra": 30,
   "manter_zips": 3
 }

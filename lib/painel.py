@@ -184,6 +184,45 @@ class PainelServer:
         with self._falhas_lock:
             self._falhas.pop(ip, None)
 
+    # ---- atrás do nginx ----------------------------------------------------
+    def _atras_de_proxy(self):
+        """Verdadeiro quando o config.json diz que o painel é servido pelo nginx."""
+        return bool(self.cfg.get("painel_atras_de_proxy"))
+
+    def _endereco(self, handler):
+        """O endereço de quem fez o pedido, mesmo com o nginx pelo meio.
+
+        Atrás do nginx, todos os pedidos chegam de 127.0.0.1, e o bloqueio de
+        tentativas de entrada falhadas, que conta por endereço, trancava toda a
+        gente por causa de uma pessoa. O nginx põe o endereço verdadeiro em
+        X-Real-IP, por cima do que o cliente tenha mandado.
+
+        Só se acredita nele com a opção ligada e com o pedido a vir da própria
+        máquina, que é onde o nginx está. De outro sítio, o cabeçalho é de quem o
+        escreveu, e aceitá-lo deixava qualquer um escolher o endereço com que
+        tenta senhas. Quem chega pelo túnel SSH também vem de 127.0.0.1 e podia
+        escrevê-lo, mas para isso já entrou na VM, que é mais do que o painel
+        guarda.
+        """
+        ip = handler.client_address[0]
+        if self._atras_de_proxy() and ip in ("127.0.0.1", "::1"):
+            real = (handler.headers.get("X-Real-IP") or "").strip()
+            if real:
+                return real
+        return ip
+
+    def _seguro(self):
+        """A marca Secure do cookie de sessão, quando o painel vive em HTTPS.
+
+        Com ela, o browser nunca manda o cookie por HTTP simples, e uma sessão
+        não atravessa a rede em claro por engano de quem escreveu o endereço sem
+        o https. Fica de fora sem o nginx: por HTTP, o cookie nunca chegava a
+        ser guardado e não se conseguia entrar. O túnel SSH para 127.0.0.1
+        continua a funcionar com ela, porque os browsers tratam o localhost como
+        seguro.
+        """
+        return "; Secure" if self._atras_de_proxy() else ""
+
     # ---- arranque ---------------------------------------------------------
     def parar(self):
         """Pára o servidor: o serve_forever da thread principal acaba e volta.
@@ -411,7 +450,7 @@ class PainelServer:
                     # browser faz o painel pedir entrada duas vezes.
                     self.send_header("Set-Cookie",
                                      f"{COOKIE_SESSAO}=; Path=/; Max-Age=0; "
-                                     f"HttpOnly; SameSite=Strict")
+                                     f"HttpOnly; SameSite=Strict{servidor._seguro()}")
                     self._cabecalhos_seguranca()
                     return self.end_headers()
 
@@ -456,7 +495,7 @@ class PainelServer:
                 # tentar adivinhar senhas através do browser de quem está lá.
                 recusa = self._verificar_escrita()
                 if recusa:
-                    _painel.info(f"escrita recusada de {self.client_address[0]}: {recusa}")
+                    _painel.info(f"escrita recusada de {servidor._endereco(self)}: {recusa}")
                     return self._json({"ok": False, "erro": recusa}, 403)
 
                 dados = self._ler_corpo_json()
@@ -531,7 +570,7 @@ class PainelServer:
         """
         nome = str(dados.get("utilizador", "")).strip()
         senha = str(dados.get("senha", ""))
-        ip = handler.client_address[0]
+        ip = self._endereco(handler)
         bloqueado, restam = self._bloqueado(ip)
         if bloqueado:
             return handler._json({"ok": False, "erro":
@@ -556,7 +595,8 @@ class PainelServer:
         # própria raiz, a par das verificações que já existiam.
         handler.send_header("Set-Cookie",
                             f"{COOKIE_SESSAO}={testemunho}; Path=/; HttpOnly; "
-                            f"SameSite=Strict; Max-Age={utl.MINUTOS_DE_SESSAO * 60}")
+                            f"SameSite=Strict; Max-Age={utl.MINUTOS_DE_SESSAO * 60}"
+                            f"{self._seguro()}")
         handler._cabecalhos_seguranca()
         handler.end_headers()
         return handler.wfile.write(corpo)
