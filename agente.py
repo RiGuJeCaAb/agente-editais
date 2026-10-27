@@ -47,6 +47,7 @@ import hashlib
 import json
 import os
 import sys
+import threading
 import time
 from datetime import datetime
 
@@ -192,11 +193,34 @@ def load_config():
         os.makedirs(cfg[k], exist_ok=True)
 
     _avisar_chaves_obsoletas(cfg)
+    _avisar_proxy_mal_escrito(cfg)
 
     # Carrega a tabela de tipos de documento (os de origem, mais os do município).
     pr.carregar_tipos(cfg)
     _agente.debug(f"agente de editais {VERSAO} | registo em {cfg['diario']}")
     return cfg
+
+# Avisa do painel_atras_de_proxy escrito como texto, que o painel não usa.
+def _avisar_proxy_mal_escrito(cfg):
+    """Avisa, no diário, de um painel_atras_de_proxy que não é true nem false.
+
+    Escrito entre aspas, «"false"» é um texto não vazio, e o Python tomava-o
+    por verdadeiro: o painel julgava-se atrás do nginx sem estar. O painel só
+    aceita o true do JSON, e tudo o resto conta como desligado. Desligado, o
+    painel funciona — só perde o Secure no cookie e partilha o castigo das
+    senhas erradas por todos os postos —, mas quem escreveu a chave julga que
+    está ligada, e isso diz-se.
+
+    Args:
+        cfg (dict): configuração já fundida com o config.json.
+    """
+    valor = cfg.get("painel_atras_de_proxy")
+    if not isinstance(valor, bool):
+        _config.warning(
+            f"A chave 'painel_atras_de_proxy' do config.json vale {valor!r}, e só "
+            "true ou false, sem aspas, contam. Fica desligada: o cookie de sessão "
+            "não leva Secure e as senhas erradas contam como de um só endereço.")
+
 
 # Avisa das chaves do config.json que já não fazem nada mas que quem as pôs
 # julga que fazem.
@@ -609,6 +633,14 @@ def _gerar_previas(cfg, rid, origem, total=0, larg=900):
     return nomes
 
 
+# Uma publicação de cada vez. Cada uma lê o registo ao começar e escreve a
+# página da TV ao acabar: com duas pessoas a publicar ao mesmo tempo no painel,
+# a mais lenta, que leu o registo primeiro, escrevia por último e apagava da
+# televisão o edital que a outra acabara de publicar — publicado no registo, com
+# certidão, e fora do ecrã. Em fila, a última a correr lê o registo mais recente.
+_UMA_PUBLICACAO = threading.Lock()
+
+
 def publicar_registos(cfg, reg, logo_im):
     """Compõe os PNG dos editais PUBLICADOS e (re)gera a página da TV + ZIP.
 
@@ -630,14 +662,15 @@ def publicar_registos(cfg, reg, logo_im):
     Returns:
         int: número de ecrãs ativos na TV.
     """
-    try:
-        return _publicar_registos(cfg, reg, logo_im)
-    finally:
-        # Como em varrer_para_registo: a faixa do painel é acesa aqui dentro e
-        # tem de se apagar mesmo que isto rebente a meio. Uma faixa acesa sem
-        # trabalho por trás não é só um cartaz errado — prende o painel a sondar
-        # de três em três segundos até alguém reiniciar o serviço.
-        progresso.parado()
+    with _UMA_PUBLICACAO:
+        try:
+            return _publicar_registos(cfg, reg, logo_im)
+        finally:
+            # Como em varrer_para_registo: a faixa do painel é acesa aqui dentro e
+            # tem de se apagar mesmo que isto rebente a meio. Uma faixa acesa sem
+            # trabalho por trás não é só um cartaz errado — prende o painel a sondar
+            # de três em três segundos até alguém reiniciar o serviço.
+            progresso.parado()
 
 
 def _publicar_registos(cfg, reg, logo_im):

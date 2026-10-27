@@ -2848,11 +2848,30 @@ Firefox. No Safari não, porque não guarda um cookie com `Secure` em
 Nada disto foi ensaiado contra a autoridade verdadeira da Câmara. O passo 11
 traz a verificação a fazer lá.
 
+### O que a revisão do #31 apanhou
+
+- **Duas publicações ao mesmo tempo apagavam um edital da televisão.** Cada
+  uma lê o registo ao começar e escreve a página ao acabar. Com várias pessoas
+  no painel, a mais lenta, que leu primeiro, escrevia por último, e o edital
+  que a outra acabara de publicar ficava publicado no registo, com certidão,
+  e fora do ecrã. As publicações passam a correr uma de cada vez.
+- **A cadeia da autoridade perdia certificados.** O `openssl x509` do guia só
+  lia o primeiro certificado de cada ficheiro. O guia passa a ter um `para_pem`
+  que copia inteiro o Base64 e aceita a cadeia `.p7b` do Windows; testado com
+  uma autoridade de teste em dois níveis, nos quatro formatos, e com o nginx a
+  servir a cadeia a um cliente que só confia na raiz.
+- **«"false"» entre aspas ligava a opção.** Só o `true` do JSON conta, e o
+  agente avisa no diário de um valor que não seja `true` nem `false`.
+- O guia voltava a `/opt/agente-editais` antes de copiar a configuração do
+  nginx; o `cp` corria na pasta dos certificados.
+
 ### Testes
 
-Quatro novos (800 no total), em `tests/test_painel_atras_do_nginx.py`. Dois
+Dez novos (806 no total), em `tests/test_painel_atras_do_nginx.py`. Oito
 falham contra o código anterior: o de uma pessoa que erra a senha sem trancar
-a colega noutro posto, e o do cookie com `Secure`. Os outros dois passam dos
-dois lados de propósito: sem a chave, o `X-Real-IP` não serve para fugir ao
-bloqueio, e o cookie fica sem `Secure`.
+a colega noutro posto, o do cookie com `Secure`, os quatro do valor mal escrito,
+o das publicações em fila, e o dos avisos que não disparam com `true` e `false`
+(este só porque a função não existia). Os outros dois passam dos dois lados de
+propósito: sem a chave, o `X-Real-IP` não serve para fugir ao bloqueio, e o
+cookie fica sem `Secure`.
 

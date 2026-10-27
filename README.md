@@ -343,7 +343,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 800 testes (mais 66 de browser: pytest -m navegador)
+pytest          # 806 testes (mais 66 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```

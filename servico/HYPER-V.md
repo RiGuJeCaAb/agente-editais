@@ -553,23 +553,48 @@ usar um modelo próprio, o nome é o dele.
 
 ### Instalar o certificado
 
-Com o `servidor.cer` e a cadeia da autoridade (`autoridade.cer`) na VM:
+Com o `servidor.cer` e a cadeia da autoridade na VM — `autoridade.cer`, ou
+`autoridade.p7b` se a informática a exportar como cadeia do Windows:
 
 ```bash
 cd /etc/ssl/agente-edital-digital
-for f in servidor autoridade; do
-    sudo openssl x509 -in $f.cer -out $f.pem 2>/dev/null \
-      || sudo openssl x509 -inform der -in $f.cer -out $f.pem
-done
+para_pem() {    # $1 = o que veio da informática, $2 = o .pem que o nginx lê
+    if grep -q 'BEGIN PKCS7' "$1"; then
+        sudo openssl pkcs7 -print_certs -in "$1" -out "$2"
+    elif grep -q 'BEGIN CERTIFICATE' "$1"; then
+        sudo cp "$1" "$2"
+    elif sudo openssl pkcs7 -inform der -print_certs -in "$1" -out "$2" 2>/dev/null; then
+        :
+    else
+        sudo openssl x509 -inform der -in "$1" -out "$2"
+    fi
+}
+para_pem servidor.cer servidor.pem
+para_pem autoridade.cer autoridade.pem      # ou: para_pem autoridade.p7b autoridade.pem
+grep -c 'BEGIN CERTIFICATE' autoridade.pem
 openssl x509 -in servidor.pem -noout -subject -issuer -enddate -ext subjectAltName
 ```
 
-O ciclo aceita os dois formatos em que o Windows entrega certificados, Base64 e
-binário (DER), e deixa os dois em `.pem`, que é o que o nginx lê.
+O `para_pem` aceita os formatos em que o Windows entrega certificados: Base64,
+binário (DER) e a cadeia `.p7b`, nas duas codificações. Um ficheiro em Base64
+copia-se inteiro, e não passa pelo `openssl x509`, que só lia o primeiro
+certificado e deixava cair o resto da cadeia.
 
-**O que tens de ver:** o nome `agente-edital-digital.<dominio.dns>` no
-`subjectAltName`, e a autoridade da Câmara no `issuer`. Sem o nome no
-`subjectAltName`, o certificado não serve, e volta para a informática.
+Um `.cer` em binário traz um certificado só. Se a autoridade vier assim, em dois
+ficheiros, a raiz e a emissora, converte-se cada um e juntam-se, a emissora
+primeiro:
+
+```bash
+para_pem emissora.cer emissora.pem
+para_pem raiz.cer raiz.pem
+cat emissora.pem raiz.pem | sudo tee autoridade.pem > /dev/null
+```
+
+**O que tens de ver:** no `grep -c`, o número de certificados da autoridade —
+dois, se a Câmara tiver uma raiz e uma emissora. Depois, o nome
+`agente-edital-digital.<dominio.dns>` no `subjectAltName`, e a autoridade da
+Câmara no `issuer`. Sem o nome no `subjectAltName`, o certificado não serve, e
+volta para a informática.
 
 ```bash
 cat servidor.pem autoridade.pem | sudo tee cadeia.pem > /dev/null
@@ -583,6 +608,7 @@ sem ela, e o erro não diz porquê.
 ### O nginx e o agente
 
 ```bash
+cd /opt/agente-editais
 sudo cp servico/nginx-painel.conf /etc/nginx/sites-available/painel
 sudo sed -i 's/<DOMINIO.DNS>/<dominio.dns>/g' /etc/nginx/sites-available/painel
 sudo ln -s /etc/nginx/sites-available/painel /etc/nginx/sites-enabled/painel

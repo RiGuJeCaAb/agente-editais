@@ -186,8 +186,13 @@ class PainelServer:
 
     # ---- atrás do nginx ----------------------------------------------------
     def _atras_de_proxy(self):
-        """Verdadeiro quando o config.json diz que o painel é servido pelo nginx."""
-        return bool(self.cfg.get("painel_atras_de_proxy"))
+        """Verdadeiro quando o config.json diz que o painel é servido pelo nginx.
+
+        Só o true do JSON conta. Um «"false"» escrito entre aspas é um texto não
+        vazio, e com bool() ligava a opção que dizia desligar; o agente avisa no
+        diário de um valor assim.
+        """
+        return self.cfg.get("painel_atras_de_proxy") is True
 
     def _endereco(self, handler):
         """O endereço de quem fez o pedido, mesmo com o nginx pelo meio.

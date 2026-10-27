@@ -115,3 +115,77 @@ def test_sem_nginx_o_cookie_fica_sem_secure(direto):
     entrava. Passa dos dois lados de propósito."""
     _, _, cab = direto.pede("/api/entrar", {"utilizador": "ana.abreu", "senha": SENHA})
     assert "Secure" not in cab["Set-Cookie"].split("; ")
+
+
+@pytest.mark.parametrize("valor", ["false", "true", 1, "sim"])
+def test_so_o_true_do_json_liga_a_opcao(tmp_path, valor):
+    """Um «"false"» entre aspas é um texto não vazio, e ligava a opção que
+    dizia desligar. Só o true do JSON conta; o resto fica desligado, e o diário
+    avisa de que a chave não vale o que parece."""
+    import agente
+    import diario
+
+    srv = painel_mod.PainelServer(
+        reg_mod.RegistoEntrada(str(tmp_path / "registo.json")),
+        {"painel_atras_de_proxy": valor})
+    assert srv._atras_de_proxy() is False
+    assert srv._seguro() == ""
+
+    ficheiro = tmp_path / "agente.log"
+    diario.configurar(str(ficheiro))
+    try:
+        agente._avisar_proxy_mal_escrito({"painel_atras_de_proxy": valor})
+        assert "painel_atras_de_proxy" in ficheiro.read_text(encoding="utf-8")
+    finally:
+        diario.repor()
+
+
+def test_true_e_false_nao_fazem_barulho(tmp_path):
+    """Fixa que os dois valores certos não enchem o diário de avisos a cada
+    arranque. Não prova uma correção; contra o código anterior só falha porque
+    a função não existia."""
+    import agente
+    import diario
+
+    ficheiro = tmp_path / "agente.log"
+    diario.configurar(str(ficheiro))
+    try:
+        agente._avisar_proxy_mal_escrito({"painel_atras_de_proxy": True})
+        agente._avisar_proxy_mal_escrito({"painel_atras_de_proxy": False})
+        assert "painel_atras_de_proxy" not in ficheiro.read_text(encoding="utf-8")
+    finally:
+        diario.repor()
+
+
+def test_duas_publicacoes_ao_mesmo_tempo_correm_uma_de_cada_vez(monkeypatch):
+    """Com várias pessoas no painel, duas publicações podem cruzar-se.
+
+    Cada uma lê o registo ao começar e escreve a página da TV ao acabar: a mais
+    lenta, que leu primeiro, escrevia por último, e apagava da televisão o
+    edital que a outra acabara de publicar. Em fila, a última a correr lê o
+    registo mais recente. Apanhado pelo Sourcery no #31.
+    """
+    import threading
+    import time
+
+    import agente
+
+    dentro = []
+    maximo = []
+
+    def publicar_devagar(cfg, reg, logo_im):
+        dentro.append(1)
+        maximo.append(len(dentro))
+        time.sleep(0.2)
+        dentro.pop()
+        return 0
+
+    monkeypatch.setattr(agente, "_publicar_registos", publicar_devagar)
+    fios = [threading.Thread(target=agente.publicar_registos, args=({}, None, None))
+            for _ in range(3)]
+    for f in fios:
+        f.start()
+    for f in fios:
+        f.join(5)
+    assert len(maximo) == 3
+    assert max(maximo) == 1, "duas publicações correram ao mesmo tempo"
