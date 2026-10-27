@@ -2862,8 +2862,14 @@ traz a verificação a fazer lá.
   servir a cadeia a um cliente que só confia na raiz.
 - **«"false"» entre aspas ligava a opção.** Só o `true` do JSON conta, e o
   agente avisa no diário de um valor que não seja `true` nem `false`.
-- O guia voltava a `/opt/agente-editais` antes de copiar a configuração do
+- O guia volta a `/opt/agente-editais` antes de copiar a configuração do
   nginx; o `cp` corria na pasta dos certificados.
+- **Um `.cer` sem quebra de linha no fim estragava a cadeia.** Juntar os
+  ficheiros colava o fim de um certificado ao início do seguinte, e o OpenSSL
+  não lia nenhum. O guia junta-os com uma linha pelo meio, e conta os
+  certificados que o OpenSSL lê mesmo: as linhas `BEGIN`, que o guia contava
+  antes, continuavam todas lá com a cadeia ilegível. Visto num ensaio com um
+  ficheiro sem a quebra final. Apanhado pela revisão da casa.
 
 ### Testes
 
