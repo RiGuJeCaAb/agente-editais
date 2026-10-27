@@ -569,9 +569,12 @@ para_pem() {    # $1 = o que veio da informática, $2 = o .pem que o nginx lê
         sudo openssl x509 -inform der -in "$1" -out "$2"
     fi
 }
+contar() {      # quantos certificados o OpenSSL consegue mesmo ler no ficheiro
+    openssl crl2pkcs7 -nocrl -certfile "$1" | openssl pkcs7 -print_certs -noout | grep -c '^subject='
+}
 para_pem servidor.cer servidor.pem
 para_pem autoridade.cer autoridade.pem      # ou: para_pem autoridade.p7b autoridade.pem
-grep -c 'BEGIN CERTIFICATE' autoridade.pem
+contar autoridade.pem
 openssl x509 -in servidor.pem -noout -subject -issuer -enddate -ext subjectAltName
 ```
 
@@ -587,19 +590,27 @@ primeiro:
 ```bash
 para_pem emissora.cer emissora.pem
 para_pem raiz.cer raiz.pem
-cat emissora.pem raiz.pem | sudo tee autoridade.pem > /dev/null
+{ cat emissora.pem; echo; cat raiz.pem; } | sudo tee autoridade.pem > /dev/null
 ```
 
-**O que tens de ver:** no `grep -c`, o número de certificados da autoridade —
+**O que tens de ver:** no `contar`, o número de certificados da autoridade —
 dois, se a Câmara tiver uma raiz e uma emissora. Depois, o nome
 `agente-edital-digital.<dominio.dns>` no `subjectAltName`, e a autoridade da
 Câmara no `issuer`. Sem o nome no `subjectAltName`, o certificado não serve, e
 volta para a informática.
 
 ```bash
-cat servidor.pem autoridade.pem | sudo tee cadeia.pem > /dev/null
+{ cat servidor.pem; echo; cat autoridade.pem; } | sudo tee cadeia.pem > /dev/null
+contar cadeia.pem
 openssl verify -CAfile autoridade.pem servidor.pem
 ```
+
+O `echo` pelo meio não está ali por enfeite. Um `.cer` em Base64 que não acabe
+em quebra de linha, copiado tal como veio, colava o fim do primeiro certificado
+ao início do seguinte na mesma linha, e o nginx deixava de ler a cadeia. O
+`contar` tem de dar o total: o do servidor mais os da autoridade. Conta o que o
+OpenSSL lê, e não as linhas `BEGIN`: com dois certificados colados, essas
+continuavam todas lá e não se lia nenhum.
 
 **O que tens de ver:** `servidor.pem: OK`. A cadeia vai inteira para o nginx
 porque um posto que não tenha a autoridade emissora em cache recusa a ligação
