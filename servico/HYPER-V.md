@@ -600,6 +600,10 @@ No `config.json` do agente, `"painel_atras_de_proxy": true`, e depois
 O `painel_host` continua em `127.0.0.1`. Nunca se põe a `0.0.0.0` com o nginx à
 frente: o painel ficava acessível por HTTP ao lado do HTTPS.
 
+O túnel SSH do passo 6 continua a servir de porta das traseiras no Chrome, no
+Edge e no Firefox. No Safari não: ele não guarda o cookie com `Secure` em
+`http://127.0.0.1`, e não se consegue entrar por ali.
+
 ### A firewall
 
 ```bash
@@ -608,8 +612,10 @@ sudo ufw allow from <REDE-DOS-POSTOS> to any port 80  proto tcp
 ```
 
 A 80 é só para quem escrever o endereço sem `https` ser reencaminhado. Pelo
-endereço IP da VM, os postos passam a ver a página da televisão, que é pública
-de qualquer forma.
+endereço IP da VM, na 80, os postos passam a ver a página da televisão, que é
+pública de qualquer forma. Na 443, pelo IP ou por qualquer nome que não seja o
+do painel, a ligação é recusada logo no início, em vez de chegar ao painel com
+um aviso de certificado.
 
 ### Verificar
 

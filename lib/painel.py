@@ -218,8 +218,9 @@ class PainelServer:
         não atravessa a rede em claro por engano de quem escreveu o endereço sem
         o https. Fica de fora sem o nginx: por HTTP, o cookie nunca chegava a
         ser guardado e não se conseguia entrar. O túnel SSH para 127.0.0.1
-        continua a funcionar com ela, porque os browsers tratam o localhost como
-        seguro.
+        continua a funcionar com ela no Chrome, no Edge e no Firefox, que tratam
+        o localhost como seguro. O Safari não guarda o cookie, e por ele o túnel
+        deixa de servir.
         """
         return "; Secure" if self._atras_de_proxy() else ""
 

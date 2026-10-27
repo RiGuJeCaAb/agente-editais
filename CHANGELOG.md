@@ -2812,6 +2812,9 @@ Uma chave nova, `painel_atras_de_proxy` (desligada por omissão):
   os 60 s de omissão cortavam uma publicação grande que tinha corrido bem.
 - O endereço sem `https` é reencaminhado. Sem HTTP/2: a forma de o ligar mudou
   na versão 1.25 do nginx, e um painel de poucas pessoas não ganha nada com ele.
+- Pelo endereço IP, ou por outro nome que não o do painel, o HTTPS recusa a
+  ligação logo no início (`ssl_reject_handshake`), em vez de chegar ao painel
+  com um aviso de certificado. Apanhado pela revisão da casa no #31.
 
 ### O guia
 
@@ -2837,6 +2840,10 @@ configuração e o agente verdadeiro atrás dele:
 
 O ciclo de conversão foi exercitado com um certificado em Base64 e outro em
 DER, e a cadeia verificou.
+
+O túnel SSH continua a servir de porta das traseiras no Chrome, no Edge e no
+Firefox. No Safari não, porque não guarda um cookie com `Secure` em
+`http://127.0.0.1`; o guia di-lo.
 
 Nada disto foi ensaiado contra a autoridade verdadeira da Câmara. O passo 11
 traz a verificação a fazer lá.
