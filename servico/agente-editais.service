@@ -39,6 +39,17 @@ Environment=HOME=/opt/agente-editais/trabalho
 Restart=always
 RestartSec=10s
 
+# A paragem: o agente acaba o documento ou a publicação em curso antes de sair
+# (issue #29), e espera por eles até 240 s. Os 90 s de omissão do systemd
+# matavam-no a meio de um documento grande com OCR, que é precisamente o que a
+# paragem com ordem existe para evitar.
+TimeoutStopSec=300
+# O SIGTERM vai só para o agente, e não para o LibreOffice e o Tesseract que ele
+# tenha lançado: com o «control-group» de omissão, a conversão em curso morria
+# no mesmo instante, e o documento que o agente estava a acabar falhava. Os
+# processos filhos só levam o SIGKILL se o tempo acabar.
+KillMode=mixed
+
 # A composição de imagens 4K é o que mais consome; este tecto é folgado para o
 # trabalho normal e evita que uma fuga de memória leve a máquina inteira.
 MemoryMax=2G

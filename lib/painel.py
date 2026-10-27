@@ -126,7 +126,8 @@ class PainelServer:
 
     def __init__(self, registo: reg_mod.RegistoEntrada, cfg: dict,
                  republicar_callback=None, painel_html_path=None,
-                 contas: utl.Utilizadores | None = None, saude_callback=None):
+                 contas: utl.Utilizadores | None = None, saude_callback=None,
+                 paragem=None):
         """
         Args:
             registo (RegistoEntrada): o gestor do registo de entrada.
@@ -138,14 +139,23 @@ class PainelServer:
                 arranca — não há forma de saber quem está a afixar o quê.
             saude_callback (callable|None): devolve o dicionário de estado do
                 agente para a rota /saude.
+            paragem (Paragem|None): o porteiro do trabalho que não pode ficar a
+                meio. Uma mudança de estado e a publicação que ela pede passam
+                por ele como uma peça só.
         """
         self.registo = registo
         self.cfg = cfg
         self.contas = contas
         self.saude: Callable[[], dict] = saude_callback or (lambda: {})
         self.republicar = republicar_callback or (lambda: None)
+        self.paragem = paragem
         self.painel_html_path = painel_html_path
         self._httpd = None
+        # A paragem pode ser pedida antes de o servidor existir: o sinal chega a
+        # qualquer momento, e os tratadores instalam-se antes do iniciar(). O
+        # lock torna a pergunta «já há servidor?» e o pedido numa coisa só.
+        self._paragem_lock = threading.Lock()
+        self._parar_pedido = False
         # Contagem de falhas de senha por endereço: {ip: [falhas, bloqueado_ate]}.
         self._falhas: dict[str, tuple[int, float]] = {}
         self._falhas_lock = threading.Lock()
@@ -175,6 +185,25 @@ class PainelServer:
             self._falhas.pop(ip, None)
 
     # ---- arranque ---------------------------------------------------------
+    def parar(self):
+        """Pára o servidor: o serve_forever da thread principal acaba e volta.
+
+        Chama-se de outra thread. Da mesma que corre o serve_forever, o
+        shutdown() ficava à espera de si próprio.
+
+        Antes de o servidor existir, fica pedido, e o iniciar() volta sem
+        servir. Sem isto, um SIGTERM nos primeiros instantes do arranque não
+        parava nada, e o agente ficava no ar até o systemd o matar.
+        """
+        with self._paragem_lock:
+            self._parar_pedido = True
+            httpd = self._httpd
+        if httpd is not None:
+            # Pedido antes de o serve_forever começar também serve: ele vê o
+            # pedido à entrada do ciclo e volta logo.
+            httpd.shutdown()
+            httpd.server_close()
+
     def iniciar(self, host="127.0.0.1", porta=8770, bloquear=True):
         """Arranca o servidor HTTP do painel.
 
@@ -458,7 +487,11 @@ class PainelServer:
 
                 return self._json({"ok": False, "erro": "Rota desconhecida"}, 404)
 
-        self._httpd = ThreadingHTTPServer((host, porta), Handler)
+        with self._paragem_lock:
+            self._httpd = ThreadingHTTPServer((host, porta), Handler)
+            if self._parar_pedido:
+                self._httpd.server_close()
+                return self._httpd.server_address[1]
         # A porta que o sistema operativo atribuiu de facto. Com porta=0 é ele
         # que escolhe uma livre, e é preciso perguntar qual saiu — passar 0 e
         # depois anunciar "a servir em :0" seria mentir a quem lê o registo.
@@ -571,16 +604,29 @@ class PainelServer:
 
     # ---- estado e certidão ------------------------------------------------
     def _mudar_estado(self, handler, dados, sessao):
-        """Move um edital de estado e, se isso mexe no ecrã, republica a TV."""
-        estado = dados.get("estado")
-        res = self.registo.mover_estado(dados.get("id"), estado,
-                                        utilizador=sessao["nome"],
-                                        nota=dados.get("nota", ""))
-        if res["ok"] and estado in (reg_mod.PUBLICADO, reg_mod.RETIRADO):
-            self.republicar()
-        if res["ok"]:
-            _painel.info(f"{sessao['nome']}: registo #{dados.get('id')} -> {estado}")
-        return handler._json(res)
+        """Move um edital de estado e, se isso mexe no ecrã, republica a TV.
+
+        As duas coisas são uma peça só para a paragem do agente. Com o agente a
+        parar, a mudança é recusada inteira e quem está ao teclado sabe-o; se
+        contasse e a publicação fosse recusada, o edital ficava publicado no
+        registo, com certidão, e fora da televisão.
+        """
+        if self.paragem is not None and not self.paragem.entrar():
+            return handler._json({"ok": False, "erro": "O agente está a parar. "
+                                  "Volta a tentar quando tiver arrancado."}, 503)
+        try:
+            estado = dados.get("estado")
+            res = self.registo.mover_estado(dados.get("id"), estado,
+                                            utilizador=sessao["nome"],
+                                            nota=dados.get("nota", ""))
+            if res["ok"] and estado in (reg_mod.PUBLICADO, reg_mod.RETIRADO):
+                self.republicar()
+            if res["ok"]:
+                _painel.info(f"{sessao['nome']}: registo #{dados.get('id')} -> {estado}")
+            return handler._json(res)
+        finally:
+            if self.paragem is not None:
+                self.paragem.sair()
 
     def _servir_certidao(self, handler, rota, sessao):
         """Gera e envia a certidão de afixação de um edital, em PDF.
