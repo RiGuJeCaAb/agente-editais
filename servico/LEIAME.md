@@ -16,6 +16,7 @@ VM. Inclui a migração do estado de um posto Windows.
 |---|---|
 | `agente-editais.service` | o agente como serviço systemd |
 | `nginx-editais.conf` | a televisão: a pasta `saida/` como site estático |
+| `nginx-painel.conf` | o painel em HTTPS, com o certificado da Câmara (Fase 2) |
 | `smb.conf.exemplo` | a partilha `entrada`, com a VM membro do AD |
 | `copia-de-seguranca.sh` | a cópia do estado para fora da máquina |
 | `copia-de-seguranca.service`, `.timer` | a mesma cópia, todas as noites |
