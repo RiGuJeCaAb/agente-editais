@@ -2898,13 +2898,16 @@ mesmo número no trilho que se entrega a quem audita.
 
 Ao abrir o registo, o contador sobe acima do maior id que o jornal ou o registo
 conhecem. Cada id que fica por usar leva um evento no jornal com a razão — «o
-registo não chegou a gravar este id; fica por usar» — para quem audita não
+jornal conhece este id e o registo não o tem; fica por usar» — para quem audita não
 encontrar um número recebido e nunca mais referido sem explicação. O documento
 continua na entrada e entra com o número seguinte. O diário avisa do
 alinhamento. Num arranque normal não se escreve nada.
 
 Apanha também o registo reposto de uma cópia mais antiga do que o jornal, que
-dava o mesmo defeito.
+dava o mesmo defeito. A razão diz só o que se sabe: a primeira versão dizia que
+«o registo não chegou a gravar este id», o que não é verdade num registo reposto,
+em que o documento existiu e foi o registo que voltou atrás. Apanhado na revisão
+do #32.
 
 ### O documento que ficou na entrada
 

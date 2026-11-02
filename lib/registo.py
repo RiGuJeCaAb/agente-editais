@@ -196,10 +196,15 @@ class RegistoEntrada:
         perdidos = sorted({i for i in no_jornal
                            if isinstance(i, int) and not isinstance(i, bool)
                            and i > seq and i not in conhecidos})
+        # A razão diz o que se sabe e não o que se supõe: num registo reposto
+        # de uma cópia, o documento existiu e foi o registo que voltou atrás.
+        # Os eventos vão antes do contador: um corte entre os dois repete-os
+        # no arranque seguinte, o que é uma linha a mais no jornal, e não um
+        # id reutilizado.
         for rid in perdidos:
             self.jornal.registar({
                 **_evento("sistema", None, None,
-                          "O registo não chegou a gravar este id; fica por usar"),
+                          "O jornal conhece este id e o registo não o tem; fica por usar"),
                 "id": rid})
         self._dados["seq"] = maior
         self._guardar()
