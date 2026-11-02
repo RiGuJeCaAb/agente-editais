@@ -2881,3 +2881,78 @@ o das publicações em fila, e o dos avisos que não disparam com `true` e `fals
 propósito: sem a chave, o `X-Real-IP` não serve para fugir ao bloqueio, e o
 cookie fica sem `Secure`.
 
+## 0.27.1 — O arranque acaba o que um corte deixou a meio
+
+Segunda parte da issue #29. A paragem com ordem da 0.26.1 trata do
+`systemctl stop`, mas não chega a correr quando a luz falha, quando a VM é
+desligada à força, quando a paragem passa dos 240 segundos ou quando a receção
+rebenta a meio sem paragem nenhuma. Ficavam dois estados partidos, e agora é o
+arranque, ou a volta seguinte da vigia, que os acaba.
+
+### O número que só o jornal conhece
+
+O jornal de auditoria grava-se antes do registo. Um processo morto entre os
+dois deixava no jornal um «Documento recebido e lido» com um id que o registo
+não tem, e o rascunho seguinte reutilizava-o: dois documentos diferentes sob o
+mesmo número no trilho que se entrega a quem audita.
+
+Ao abrir o registo, o contador sobe acima do maior id que o jornal ou o registo
+conhecem. Cada id que fica por usar leva um evento no jornal com a razão — «o
+jornal conhece este id e o registo não o tem; fica por usar» — para quem audita não
+encontrar um número recebido e nunca mais referido sem explicação. O documento
+continua na entrada e entra com o número seguinte. O diário avisa do
+alinhamento. Num arranque normal não se escreve nada.
+
+Apanha também o registo reposto de uma cópia mais antiga do que o jornal, que
+dava o mesmo defeito. A razão diz só o que se sabe: a primeira versão dizia que
+«o registo não chegou a gravar este id», o que não é verdade num registo reposto,
+em que o documento existiu e foi o registo que voltou atrás. Apanhado na revisão
+do #32.
+
+### O documento que ficou na entrada
+
+Morto depois de o rascunho existir e antes de o ficheiro sair da entrada, o
+documento ficava lá para sempre: o resumo já estava no registo, e a vigia
+saltava-o em todas as voltas, sem aviso. O rascunho ficava sem
+pré-visualizações, ou com metade.
+
+O rascunho passa a ter um campo `rececao_concluida`, falso quando nasce e
+verdadeiro quando o ficheiro sai da entrada. Um ficheiro na entrada com o mesmo
+nome e o mesmo resumo de um rascunho por concluir é a receção que ficou a meio:
+refazem-se as pré-visualizações, o ficheiro vai para `tratados/` e o rascunho é
+o mesmo — o número, quem o colocou e o evento de auditoria não mudam.
+
+Na conversa da issue propôs-se distinguir pelo estado (ainda em rascunho). O
+estado não serve: um documento igual que alguém volte a carregar enquanto o
+primeiro ainda espera validação também está em rascunho. O campo diz o que
+interessa, que é se a receção acabou. Um documento que alguém volte a carregar
+depois de o primeiro ter saído da entrada continua a ser um duplicado e fica
+onde está, como sempre.
+
+Os registos de versões anteriores contam como recebidos por inteiro. Um que
+tenha ficado a meio antes desta versão não se distingue agora de um duplicado,
+e fica como estava.
+
+O campo nasce verdadeiro, e só a receção pela entrada o pede falso. A primeira
+versão fazia-o nascer falso para toda a gente, e a migração do modelo antigo,
+que também cria rascunhos e nunca passa pelo fim da receção, deixava os editais
+migrados a contar como receções a meio para sempre: o original de um deles
+posto outra vez na entrada era arrumado em vez de ignorado. Apanhado na revisão
+do #32.
+
+### A linha cortada do jornal
+
+Uma última linha do jornal cortada a meio por um corte de energia ficava sem a
+mudança de linha, e o evento seguinte colava-se a ela: perdiam-se os dois. O
+jornal passa a começar uma linha nova por cima do pedaço, e o corte custa só o
+evento que apanhou.
+
+### Testes
+
+Dez novos (816 no total): nove em `tests/test_recuperar_arranque.py` e um em
+`tests/test_migracao.py`, para o edital migrado. Os cortes
+simulam-se com uma exceção que não é `Exception`, como um processo morto: o
+`except` da receção não a apanha, e nada do que vinha a seguir corre. Oito
+falham contra o código anterior. Dois passam dos dois lados de propósito: o
+arranque normal que não escreve nada, e o documento carregado outra vez que
+continua duplicado.

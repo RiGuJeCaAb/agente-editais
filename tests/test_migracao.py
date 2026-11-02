@@ -412,3 +412,19 @@ def test_a_certidao_de_um_migrado_nao_cita_a_chave_sintetica(instalacao):
     for r in instalacao["reg"].todos():
         assert r["hash"].startswith("migrado:")
         assert "migrado:" not in cert.factos(r)["hash_original"]
+
+
+def test_um_edital_migrado_nao_conta_como_rececao_a_meio(instalacao):
+    """A migração cria rascunhos e nunca passa pelo fim da receção pela entrada.
+
+    Com o campo a nascer falso, os editais migrados ficavam a contar como
+    receções a meio para sempre, publicados ou não. O original de um deles
+    posto outra vez na entrada era arrumado e tinha as pré-visualizações
+    refeitas, quando devia ser um duplicado ignorado. A pergunta é a mesma que
+    a vigia faz. Apanhado na revisão do #32; falha contra a primeira versão
+    dele.
+    """
+    migracao.migrar(instalacao["cfg"], instalacao["reg"])
+    for r in instalacao["reg"].todos():
+        assert r["rececao_concluida"] is True
+        assert instalacao["reg"].rececao_por_acabar(r["hash"], r["ficheiro_origem"]) is None

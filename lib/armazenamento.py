@@ -208,9 +208,22 @@ class JornalAuditoria:
         o custo é irrelevante.
         """
         linha = json.dumps(evento, ensure_ascii=False, sort_keys=True)
+        # Uma última linha cortada a meio fica sem a mudança de linha, e o
+        # evento seguinte colava-se a ela: perdiam-se os dois, e não só o que o
+        # corte apanhou. Começa-se uma linha nova por cima do pedaço.
         with open(self.caminho, "a", encoding="utf-8") as f:
-            f.write(linha + "\n")
+            f.write(self._quebra_em_falta() + linha + "\n")
             _forcar_ao_disco(f)
+
+    def _quebra_em_falta(self) -> str:
+        """Uma mudança de linha se o jornal acabar a meio de uma, ou nada."""
+        try:
+            with open(self.caminho, "rb") as f:
+                f.seek(-1, os.SEEK_END)
+                return "" if f.read(1) == b"\n" else "\n"
+        except OSError:
+            # Não existe, ou está vazio e não há para onde recuar.
+            return ""
 
     def ler_tudo(self) -> list[dict]:
         """Devolve todos os eventos legíveis do jornal, pela ordem em que ocorreram.
