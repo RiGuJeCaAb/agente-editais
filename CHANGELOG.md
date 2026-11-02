@@ -2933,6 +2933,13 @@ Os registos de versões anteriores contam como recebidos por inteiro. Um que
 tenha ficado a meio antes desta versão não se distingue agora de um duplicado,
 e fica como estava.
 
+O campo nasce verdadeiro, e só a receção pela entrada o pede falso. A primeira
+versão fazia-o nascer falso para toda a gente, e a migração do modelo antigo,
+que também cria rascunhos e nunca passa pelo fim da receção, deixava os editais
+migrados a contar como receções a meio para sempre: o original de um deles
+posto outra vez na entrada era arrumado em vez de ignorado. Apanhado na revisão
+do #32.
+
 ### A linha cortada do jornal
 
 Uma última linha do jornal cortada a meio por um corte de energia ficava sem a
@@ -2942,9 +2949,10 @@ evento que apanhou.
 
 ### Testes
 
-Nove novos (815 no total), em `tests/test_recuperar_arranque.py`. Os cortes
+Dez novos (816 no total): nove em `tests/test_recuperar_arranque.py` e um em
+`tests/test_migracao.py`, para o edital migrado. Os cortes
 simulam-se com uma exceção que não é `Exception`, como um processo morto: o
-`except` da receção não a apanha, e nada do que vinha a seguir corre. Sete
+`except` da receção não a apanha, e nada do que vinha a seguir corre. Oito
 falham contra o código anterior. Dois passam dos dois lados de propósito: o
 arranque normal que não escreve nada, e o documento carregado outra vez que
 continua duplicado.

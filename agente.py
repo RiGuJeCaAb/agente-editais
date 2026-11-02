@@ -410,7 +410,7 @@ def _varrer_para_registo(cfg, reg, paragem=None):
             quem = _quem_colocou(path)
             r = reg.criar_rascunho(ficheiro_origem=nome, hash_ficheiro=h,
                                    num_paginas=info["paginas"], meta=meta,
-                                   utilizador=quem)
+                                   utilizador=quem, rececao_concluida=False)
             # Gera pré-visualizações LEVES (a página crua, sem o tratamento verde/4K)
             # para o painel poder mostrar o documento já no rascunho — é quando o
             # funcionário mais precisa de o ver, para confirmar assunto/número/data.

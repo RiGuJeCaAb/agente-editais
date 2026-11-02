@@ -269,7 +269,7 @@ class RegistoEntrada:
 
     # ---- criação ----------------------------------------------------------
     def criar_rascunho(self, *, ficheiro_origem, hash_ficheiro, num_paginas,
-                       meta, utilizador="sistema"):
+                       meta, utilizador="sistema", rececao_concluida=True):
         """Cria um novo registo em estado RASCUNHO a partir da leitura do agente.
 
         É aqui que um documento entra no fluxo. Guarda os metadados propostos e a
@@ -281,6 +281,11 @@ class RegistoEntrada:
             num_paginas (int): nº de páginas do documento.
             meta (dict): saída de documentos.extract_metadata (com "confianca").
             utilizador (str): quem/o quê originou (por omissão "sistema").
+            rececao_concluida (bool): False só para quem recebe da pasta de
+                entrada e ainda tem passos por fazer depois deste; esse põe-no
+                a True no fim. Por omissão é True: a migração também cria
+                rascunhos, nunca passa por esse fim, e os editais migrados
+                ficavam a contar como receções a meio para sempre.
 
         Returns:
             dict: o registo criado.
@@ -337,7 +342,7 @@ class RegistoEntrada:
                 # ficheiro na entrada para sempre, saltado por o resumo já estar
                 # no registo. É isto que distingue esse caso de alguém voltar a
                 # carregar o mesmo documento (issue #29).
-                "rececao_concluida": False,
+                "rececao_concluida": rececao_concluida,
                 # Auditoria:
                 "criado_em": _agora(),
                 "historico": [],
