@@ -343,7 +343,7 @@ agente_editais/
 
 ```bash
 pip install -e ".[dev]"
-pytest          # 796 testes (mais 66 de browser: pytest -m navegador)
+pytest          # 806 testes (mais 66 de browser: pytest -m navegador)
 ruff check .    # análise estática
 mypy lib/ agente.py   # tipos: rigoroso nos módulos novos, tolerante nos antigos
 ```
@@ -1428,3 +1428,34 @@ no futuro, e o edital nunca saía da entrada.
 
 A Fase 2 abre o painel à rede, por HTTPS. Até lá chega-se a ele por um túnel
 SSH, e o guia diz porquê. A Fase 3 põe o painel a entrar com a conta do Entra.
+
+---
+
+## 27. O painel em HTTPS — NOVO
+
+O painel abre-se à rede interna em `https://agente-edital-digital.<domínio>/`,
+com um certificado emitido pela autoridade de certificação da Câmara. Os postos
+do domínio já confiam nela, e o browser não mostra aviso nenhum. Os passos estão
+em `servico/HYPER-V.md`, no passo 11, e a configuração do nginx em
+`servico/nginx-painel.conf`.
+
+O painel em si continua a escutar só dentro da VM. Quem fala com a rede é o
+nginx, que cifra a ligação e lhe passa os pedidos. O túnel SSH continua a
+funcionar, e fica como porta das traseiras se o nginx falhar.
+
+### O que muda no painel
+
+Uma chave nova no `config.json`, `painel_atras_de_proxy`, que se liga quando o
+nginx está à frente. Muda duas coisas:
+
+- **O cookie de sessão leva `Secure`.** O browser nunca o manda por HTTP
+  simples, e uma sessão não atravessa a rede em claro por alguém ter escrito o
+  endereço sem `https`.
+- **O endereço de quem entra vem do nginx.** O painel bloqueia um endereço ao
+  fim de várias senhas erradas. Atrás do nginx, todos os pedidos chegavam de
+  `127.0.0.1`, e uma pessoa a errar a senha trancava a Câmara inteira. O
+  endereço verdadeiro vem no `X-Real-IP` que o nginx põe, e o painel só
+  acredita nele com a chave ligada e com o pedido a vir da própria máquina.
+
+Sem a chave, nada muda: é o painel de sempre.
+
