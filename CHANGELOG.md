@@ -2956,3 +2956,36 @@ simulam-se com uma exceção que não é `Exception`, como um processo morto: o
 falham contra o código anterior. Dois passam dos dois lados de propósito: o
 arranque normal que não escreve nada, e o documento carregado outra vez que
 continua duplicado.
+
+## 0.27.2 — O agente num PC dedicado
+
+Os servidores da Câmara não têm espaço para a VM, e há um PC disponível. O
+agente não muda nada: a mesma unidade systemd, o mesmo script de cópia, a mesma
+televisão. Muda a máquina, e com ela o que o `HYPER-V.md` dava por garantido.
+
+`servico/PC-DEDICADO.md` segue esse guia e diz só o que muda:
+
+- **A BIOS.** O PC volta a ligar sozinho depois de uma falta de luz, com o ErP
+  desligado, que em muitas placas o impede. Na VM era o Hyper-V que a ligava.
+- **O relógio.** Vem dos controladores de domínio, e os servidores de hora da
+  Internet que o Debian traz ficam desligados: uma só fonte, a mesma que o
+  Kerberos confere, e é a hora que vai para a certidão.
+- **As cópias.** O destino é um segundo disco no próprio PC, montado com
+  `nofail` para um disco avariado não impedir o arranque. O ficheiro
+  `.destino-de-copias` cria-se só depois de o disco montar: criado antes, ficava
+  no SSD, e num dia em que o disco não montasse a cópia ia para lá e dava-se
+  por feita. Uma tabela diz o que o segundo disco protege e o que não protege
+  (roubo, incêndio, uma sobretensão que queima o PC), e por isso há uma cópia
+  mensal para um disco USB guardado noutro sítio.
+- **Atualizar.** Sem pontos de verificação, a rede de segurança é uma cópia
+  feita antes e o número da versão anotado. Recuar o código chega quase sempre;
+  repor o estado só se a versão nova o estragou, e o guia diz o que fazer aos
+  documentos que entraram entretanto.
+- **Os discos.** O `smartmontools` vigia-os e regista quando um começa a
+  falhar, e o guia diz o que ver uma vez por mês.
+
+A verificação final acrescenta a do guia: o PC desligado da tomada volta
+sozinho, e com o disco das cópias solto o PC arranca na mesma e a cópia falha
+sem escrever no SSD.
+
+Só documentação: os testes não mudam (816).
