@@ -2997,4 +2997,25 @@ Da revisão do #33:
   a verificação passa a exigir que o `chronyc sources` mostre só os
   controladores, com a origem provável de qualquer outro nome.
 
+Da revisão do Sourcery no #33:
+- **A reposição a partir do USB tem os seus comandos.** A do passo 8 lê de
+  `/mnt/copias`, e no dia em que o PC já não existe é do USB que se lê.
+- **A cópia mensal pára se o USB não montar.** Antes, um `mount` falhado
+  deixava o `rsync` copiar para a pasta vazia dentro do próprio PC.
+- **O relógio desliga também as fontes do DHCP**, e não só os servidores da
+  Internet.
+- **O `smartmontools` fica ligado e confirmado**, e a vigia mensal lê os
+  contadores (`-A`) e não só a nota geral (`-H`), que diz `PASSED` enquanto um
+  disco se vai estragando. Junta-se o `df` dos dois discos.
+- **O `parted` entra na lista de pacotes**, e a partição usa o nome que o
+  `lsblk` mostra, porque num NVMe leva um `p` antes do número.
+- **As medidas de memória e disco dizem que são estimativas**, a partir de que
+  limites, e como se medem depois.
+
+Ficaram como estavam:
+- O `rsync` mensal sem `--delete`, que apagaria a cópia do USB se o disco das
+  cópias aparecesse vazio.
+- A paragem do agente durante a cópia mensal: ela lê do disco das cópias, e não
+  da pasta do agente.
+
 Só documentação: os testes não mudam (816).
