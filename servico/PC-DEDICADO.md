@@ -105,18 +105,31 @@ de desvio em relação a eles. Uma só fonte de hora, a do domínio.
 
 ```bash
 printf 'server %s iburst\n' <DC1> <DC2> | sudo tee /etc/chrony/conf.d/dominio.conf
-sudo sed -i 's/^pool /#pool /' /etc/chrony/chrony.conf
+grep -rn '^[[:space:]]*pool' /etc/chrony/
+```
+
+O `grep` mostra onde estão os servidores de hora da Internet que o Debian
+traz: costuma ser uma linha `pool` no `/etc/chrony/chrony.conf`, mas isto não
+foi ensaiado num Debian 13, e é mais seguro ver do que supor. Desliga cada
+linha que ele mostrar, pondo-lhe um `#` à frente:
+
+```bash
+sudo sed -i 's/^\([[:space:]]*pool \)/#\1/' <ficheiro-que-o-grep-mostrou>
 sudo systemctl restart chrony
 chronyc sources
 ```
 
-O `sed` desliga os servidores de hora da Internet que o Debian traz: a
-firewall da Câmara pode nem os deixar passar, e dois relógios que discordam
-por meio segundo é uma pergunta que ninguém precisa de ter.
+A firewall da Câmara pode nem deixar passar os servidores da Internet, e dois
+relógios que discordam por meio segundo é uma pergunta que ninguém precisa de
+ter.
 
-**O que tens de ver:** `timedatectl` com `Time zone: Europe/Lisbon`, e uma
-linha `^*` em `chronyc sources` com o nome de um dos controladores. O
-asterisco quer dizer que é por ele que o relógio está a acertar.
+**O que tens de ver:** `timedatectl` com `Time zone: Europe/Lisbon`, e em
+`chronyc sources` **só** os controladores de domínio, um deles com `^*`. O
+asterisco quer dizer que é por ele que o relógio está a acertar. Se aparecer
+outro nome, veio de algum lado: de uma linha que o `grep` não apanhou, ou do
+DHCP, que pode anunciar servidores de hora (a linha `sourcedir
+/run/chrony-dhcp` do `chrony.conf`). Desliga essa linha da mesma forma, e volta
+a ver.
 
 Daqui segue-se o `HYPER-V.md` do passo 3 ao 7.
 
@@ -230,8 +243,16 @@ Depois, os comandos do passo 10 do `HYPER-V.md`, a partir do `systemctl stop`.
 
 ### Se correr mal
 
-Quase sempre chega recuar o código. As versões novas acrescentam campos ao
-registo, e as anteriores ignoram os que não conhecem:
+Quase sempre chega recuar o código, sem mexer no estado. Foi ensaiado da 0.27.2
+para a 0.26.1, que é a versão antes de o registo ganhar campos novos. A 0.26.1
+leu o registo da 0.27.2 e trabalhou normalmente:
+- recebeu um documento novo, validou-o e retirou o publicado;
+- o `--conferir` não encontrou problemas;
+- o campo que não conhece ficou no registo, intacto.
+
+De volta à 0.27.2, ficou tudo certo, incluindo o documento recebido pela 0.26.1.
+Entre outras versões não se ensaiou. Se a anterior não arrancar, ou o `--conferir`
+mostrar problemas, é caso para repor o estado (abaixo).
 
 ```bash
 sudo systemctl stop agente-editais
@@ -244,6 +265,15 @@ sudo systemctl start agente-editais
 
 Para voltar a receber atualizações mais tarde, `sudo -u editais git checkout
 main` antes do `git pull`.
+
+**Abaixo da 0.27.0, o painel perde as proteções da Fase 2.** A chave
+`painel_atras_de_proxy` não existe nessas versões e é ignorada:
+- o cookie de sessão deixa de levar `Secure`;
+- atrás do nginx, todos os pedidos voltam a chegar como `127.0.0.1`, e uma
+  pessoa a errar a senha bloqueia a entrada a toda a gente.
+
+Enquanto estiver recuado, entra-se pelo túnel SSH (passo 6 do `HYPER-V.md`),
+e não pelo endereço HTTPS.
 
 **Repor o estado só se a versão nova o estragou**, com a secção «Repor» do
 passo 8 do `HYPER-V.md` e o `estado-*.tar.gz` feito antes da atualização. A

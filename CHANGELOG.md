@@ -2988,4 +2988,13 @@ A verificação final acrescenta a do guia: o PC desligado da tomada volta
 sozinho, e com o disco das cópias solto o PC arranca na mesma e a cópia falha
 sem escrever no SSD.
 
+Da revisão do #33:
+- **O recuo foi medido e não suposto.** Da 0.27.2 para a 0.26.1, a anterior lê
+  o registo novo, recebe, valida e retira normalmente, e o `--conferir` não
+  encontra problemas. O guia diz com que versões se ensaiou, e que abaixo da
+  0.27.0 o painel atrás do nginx perde o `Secure` e o bloqueio por endereço.
+- **O relógio já não supõe onde está a linha `pool`.** Procura-se com `grep`, e
+  a verificação passa a exigir que o `chronyc sources` mostre só os
+  controladores, com a origem provável de qualquer outro nome.
+
 Só documentação: os testes não mudam (816).
