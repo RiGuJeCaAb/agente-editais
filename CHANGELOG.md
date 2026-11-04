@@ -3012,6 +3012,13 @@ Da revisão do Sourcery no #33:
 - **As medidas de memória e disco dizem que são estimativas**, a partir de que
   limites, e como se medem depois.
 
+- **O disco USB é cifrado**, com LUKS e duas frases-passe: a principal no cofre
+  de senhas da Câmara e a de reserva com outra pessoa, porque perder a
+  frase-passe é perder a cópia. A cópia mensal e a reposição abrem e fecham o
+  disco, e a verificação final confere que ele não se lê sem a frase-passe.
+  O disco interno das cópias não é cifrado, de propósito: está ao lado do SSD,
+  que tem os mesmos dados sem cifra. Decidido na conversa do #33.
+
 Ficaram como estavam:
 - O `rsync` mensal sem `--delete`, que apagaria a cópia do USB se o disco das
   cópias aparecesse vazio.

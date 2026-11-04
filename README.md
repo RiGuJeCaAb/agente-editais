@@ -1478,7 +1478,8 @@ muda:
 - **O relógio**, que vem dos controladores de domínio em vez do Hyper-V. É a
   hora que vai para a certidão, e a que o Kerberos confere.
 - **As cópias**, para um segundo disco no próprio PC, com o que isso protege e o
-  que não protege, e uma cópia mensal para um disco USB guardado noutro sítio.
+  que não protege, e uma cópia mensal para um disco USB cifrado, guardado
+  noutro sítio.
 - **Atualizar sem pontos de verificação**: uma cópia e o número da versão antes,
   e como recuar.
 - **Os discos**, vigiados pelo `smartmontools`, porque num PC não há mais ninguém

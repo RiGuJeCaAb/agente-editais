@@ -162,9 +162,15 @@ de uma partilha de rede.
 | Um ficheiro apagado ou estragado por engano | Sim, até 60 dias | Sim, até à última cópia |
 | Uma atualização que estraga o registo | Sim | Sim |
 | Roubo, incêndio, água, uma sobretensão que queima o PC | **Não** | Sim |
+| Quem leve o disco ler os documentos, o jornal e as contas | **Não** | Sim: está cifrado |
 
 O segundo disco resolve quase tudo o que acontece no dia a dia. Não resolve o
 que leva o PC inteiro, e é por isso que há a cópia do fim deste passo.
+
+O disco USB é cifrado e o segundo disco não, de propósito. O USB sai da sala e
+viaja, e pode perder-se pelo caminho. O segundo disco está dentro do PC, ao lado
+do SSD que tem os mesmos dados sem cifra: quem leva um leva os dois, e cifrar só
+o das cópias não fechava porta nenhuma.
 
 ### Preparar o disco
 
@@ -225,39 +231,98 @@ partilha de destino» salta-se.
 
 ### Uma vez por mês, para fora do PC
 
-Um disco USB, guardado noutro edifício ou pelo menos noutra sala. Ligado ao
-PC:
+Um disco USB, cifrado, guardado noutro edifício ou pelo menos noutra sala.
+
+#### Preparar o disco USB, uma vez
+
+A cifra é a LUKS, a do próprio Linux. Sem a frase-passe, o disco é ruído: quem
+o encontrar não lê nem os documentos, nem o jornal, nem as contas do painel.
+
+**A frase-passe é a cópia.** Perdida a frase-passe, perde-se a cópia, sem
+remédio nem recuperação. Por isso há duas, e nenhuma vive neste PC:
+- a **principal**, no cofre de senhas da Câmara;
+- a **de reserva**, guardada por outra pessoa, em envelope fechado ou noutro
+  cofre.
+
+Cada uma com pelo menos cinco palavras ao acaso, ou vinte caracteres.
+
+Ligado o USB ao PC:
 
 ```bash
+sudo apt install cryptsetup
 lsblk -o NAME,SIZE,MODEL,MOUNTPOINTS          # o USB é o que acabou de aparecer
+```
+
+Confirma pelo tamanho e pelo modelo. O que vem a seguir apaga tudo o que o
+disco tiver.
+
+```bash
+sudo parted /dev/<disco-USB> --script mklabel gpt mkpart copias-usb 0% 100%
+lsblk -o NAME,SIZE,MODEL /dev/<disco-USB>     # o nome da partição, como no disco das cópias
+sudo cryptsetup luksFormat /dev/<partição-do-USB>
+sudo cryptsetup luksAddKey /dev/<partição-do-USB>
+sudo cryptsetup open /dev/<partição-do-USB> usb-copias
+sudo mkfs.ext4 -L copias-usb /dev/mapper/usb-copias
+sudo cryptsetup close usb-copias
+```
+
+- O `luksFormat` pede para escrever `YES` em maiúsculas, e depois a frase-passe
+  principal duas vezes.
+- O `luksAddKey` pede uma frase-passe que já abra o disco (a principal), e
+  depois a de reserva duas vezes.
+
+Confirma que as duas abrem o disco, e que uma errada não:
+
+```bash
+sudo cryptsetup open --test-passphrase /dev/<partição-do-USB>   # com a principal
+sudo cryptsetup open --test-passphrase /dev/<partição-do-USB>   # com a de reserva
+```
+
+Cada uma tem de voltar sem mensagem nenhuma. Uma frase errada dá «No key
+available with this passphrase».
+
+#### A cópia de cada mês
+
+```bash
 sudo mkdir -p /mnt/usb
-sudo mount /dev/<partição-do-USB> /mnt/usb && findmnt /mnt/usb \
+sudo cryptsetup open /dev/<partição-do-USB> usb-copias \
+  && sudo mount /dev/mapper/usb-copias /mnt/usb && findmnt /mnt/usb \
   && sudo rsync -rt /mnt/copias/agente-editais/ /mnt/usb/agente-editais/
 df -h /mnt/usb
 sudo umount /mnt/usb
+sudo cryptsetup close usb-copias
 ```
 
-Os `&&` param a cópia se o disco não montar. Sem eles, um `mount` falhado
-deixava o `rsync` copiar para a pasta `/mnt/usb` vazia, dentro do próprio PC, e
-a cópia parecia feita.
+Os `&&` param a cópia se o disco não abrir ou não montar. Sem eles, um `mount`
+falhado deixava o `rsync` copiar para a pasta `/mnt/usb` vazia, dentro do próprio
+PC, e a cópia parecia feita.
 
-O `-rt` copia os ficheiros e as datas, e não tenta copiar donos nem
-permissões: um disco USB formatado no Windows não os guarda, e o `-a` falharia
-nele. Na reposição, o `chown -R` volta a pô-los.
+O `-rt` copia os ficheiros e as datas, e deixa os donos e as permissões para o
+`chown -R` da reposição, que os põe como o PC novo precisa.
 
 Não se usa o `--delete`. Sem ele, os `estado-*.tar.gz` que o PC já apagou ao
 fim de 60 dias continuam no USB. Pesam pouco, e o `df` mostra se começam a
 encher o disco. Com ele, um disco das cópias que aparecesse vazio por avaria
 apagava também a cópia do USB, que é a que tem de sobreviver ao pior dia.
 
+O `cryptsetup close` no fim não é cerimónia. Sem ele, o disco fica aberto até
+o PC desligar, e quem o tirar nesse intervalo leva-o legível.
+
+Põe no calendário. Uma cópia mensal que depende de alguém se lembrar
+transforma-se numa cópia anual sem ninguém dar por isso.
+
 ### Repor a partir do USB
 
 O «Repor» do passo 8 do `HYPER-V.md` lê de `/mnt/copias`. A partir do USB, que
-é o caso de o PC ou o segundo disco já não existirem, lê-se de `/mnt/usb`:
+é o caso de o PC ou o segundo disco já não existirem, lê-se de `/mnt/usb`. Num
+PC novo, o Debian e o agente ficam instalados primeiro (passos 2 e 3 do
+`HYPER-V.md`), e a frase-passe vem do cofre de senhas da Câmara:
 
 ```bash
+sudo apt install cryptsetup
 sudo mkdir -p /mnt/usb
-sudo mount /dev/<partição-do-USB> /mnt/usb && findmnt /mnt/usb
+sudo cryptsetup open /dev/<partição-do-USB> usb-copias \
+  && sudo mount /dev/mapper/usb-copias /mnt/usb && findmnt /mnt/usb
 ls /mnt/usb/agente-editais/estado-*.tar.gz     # o último é o mais recente
 sudo systemctl stop agente-editais
 cd /opt/agente-editais
@@ -266,10 +331,9 @@ sudo rsync -rt /mnt/usb/agente-editais/{originais,arquivo,previas} ./
 sudo chown -R editais:editais /opt/agente-editais
 sudo systemctl start agente-editais
 sudo -u editais .venv/bin/python agente.py --conferir
+sudo umount /mnt/usb
+sudo cryptsetup close usb-copias
 ```
-
-Põe no calendário. Uma cópia mensal que depende de alguém se lembrar
-transforma-se numa cópia anual sem ninguém dar por isso.
 
 ---
 
@@ -377,6 +441,12 @@ A do `HYPER-V.md`, e mais estas:
       o SSD. Volta a ligar o disco no fim.
 - [ ] A primeira cópia mensal está no disco USB, e o disco está guardado
       noutro sítio.
+- [ ] **O USB não se lê sem a frase-passe.** Com o disco ligado e fechado,
+      `sudo mount /dev/<partição-do-USB> /mnt/usb` falha, e o `blkid` da
+      partição diz `TYPE="crypto_LUKS"`.
+- [ ] As duas frases-passe abrem o disco (`--test-passphrase`), e estão as duas
+      guardadas fora deste PC: a principal no cofre de senhas, a de reserva com
+      outra pessoa.
 - [ ] **A reposição foi ensaiada uma vez**, como o passo 8 pede, a partir do
       disco USB e não do segundo disco («Repor a partir do USB», no passo 3):
       é a que vai ser precisa no pior dia.
