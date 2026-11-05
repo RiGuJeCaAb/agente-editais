@@ -2956,3 +2956,73 @@ simulam-se com uma exceção que não é `Exception`, como um processo morto: o
 falham contra o código anterior. Dois passam dos dois lados de propósito: o
 arranque normal que não escreve nada, e o documento carregado outra vez que
 continua duplicado.
+
+## 0.27.2 — O agente num PC dedicado
+
+Os servidores da Câmara não têm espaço para a VM, e há um PC disponível. O
+agente não muda nada: a mesma unidade systemd, o mesmo script de cópia, a mesma
+televisão. Muda a máquina, e com ela o que o `HYPER-V.md` dava por garantido.
+
+`servico/PC-DEDICADO.md` segue esse guia e diz só o que muda:
+
+- **A BIOS.** O PC volta a ligar sozinho depois de uma falta de luz, com o ErP
+  desligado, que em muitas placas o impede. Na VM era o Hyper-V que a ligava.
+- **O relógio.** Vem dos controladores de domínio, e os servidores de hora da
+  Internet que o Debian traz ficam desligados: uma só fonte, a mesma que o
+  Kerberos confere, e é a hora que vai para a certidão.
+- **As cópias.** O destino é um segundo disco no próprio PC, montado com
+  `nofail` para um disco avariado não impedir o arranque. O ficheiro
+  `.destino-de-copias` cria-se só depois de o disco montar: criado antes, ficava
+  no SSD, e num dia em que o disco não montasse a cópia ia para lá e dava-se
+  por feita. Uma tabela diz o que o segundo disco protege e o que não protege
+  (roubo, incêndio, uma sobretensão que queima o PC), e por isso há uma cópia
+  mensal para um disco USB guardado noutro sítio.
+- **Atualizar.** Sem pontos de verificação, a rede de segurança é uma cópia
+  feita antes e o número da versão anotado. Recuar o código chega quase sempre;
+  repor o estado só se a versão nova o estragou, e o guia diz o que fazer aos
+  documentos que entraram entretanto.
+- **Os discos.** O `smartmontools` vigia-os e regista quando um começa a
+  falhar, e o guia diz o que ver uma vez por mês.
+
+A verificação final acrescenta a do guia: o PC desligado da tomada volta
+sozinho, e com o disco das cópias solto o PC arranca na mesma e a cópia falha
+sem escrever no SSD.
+
+Da revisão do #33:
+- **O recuo foi medido e não suposto.** Da 0.27.2 para a 0.26.1, a anterior lê
+  o registo novo, recebe, valida e retira normalmente, e o `--conferir` não
+  encontra problemas. O guia diz com que versões se ensaiou, e que abaixo da
+  0.27.0 o painel atrás do nginx perde o `Secure` e o bloqueio por endereço.
+- **O relógio já não supõe onde está a linha `pool`.** Procura-se com `grep`, e
+  a verificação passa a exigir que o `chronyc sources` mostre só os
+  controladores, com a origem provável de qualquer outro nome.
+
+Da revisão do Sourcery no #33:
+- **A reposição a partir do USB tem os seus comandos.** A do passo 8 lê de
+  `/mnt/copias`, e no dia em que o PC já não existe é do USB que se lê.
+- **A cópia mensal pára se o USB não montar.** Antes, um `mount` falhado
+  deixava o `rsync` copiar para a pasta vazia dentro do próprio PC.
+- **O relógio desliga também as fontes do DHCP**, e não só os servidores da
+  Internet.
+- **O `smartmontools` fica ligado e confirmado**, e a vigia mensal lê os
+  contadores (`-A`) e não só a nota geral (`-H`), que diz `PASSED` enquanto um
+  disco se vai estragando. Junta-se o `df` dos dois discos.
+- **O `parted` entra na lista de pacotes**, e a partição usa o nome que o
+  `lsblk` mostra, porque num NVMe leva um `p` antes do número.
+- **As medidas de memória e disco dizem que são estimativas**, a partir de que
+  limites, e como se medem depois.
+
+- **O disco USB é cifrado**, com LUKS e duas frases-passe: a principal no cofre
+  de senhas da Câmara e a de reserva com outra pessoa, porque perder a
+  frase-passe é perder a cópia. A cópia mensal e a reposição abrem e fecham o
+  disco, e a verificação final confere que ele não se lê sem a frase-passe.
+  O disco interno das cópias não é cifrado, de propósito: está ao lado do SSD,
+  que tem os mesmos dados sem cifra. Decidido na conversa do #33.
+
+Ficaram como estavam:
+- O `rsync` mensal sem `--delete`, que apagaria a cópia do USB se o disco das
+  cópias aparecesse vazio.
+- A paragem do agente durante a cópia mensal: ela lê do disco das cópias, e não
+  da pasta do agente.
+
+Só documentação: os testes não mudam (816).

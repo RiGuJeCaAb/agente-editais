@@ -12,6 +12,11 @@ domínio: a pasta de entrada partilhada na rede, o registo de quem colocou cada
 documento, a televisão servida por nginx e as cópias de segurança para fora da
 VM. Inclui a migração do estado de um posto Windows.
 
+`PC-DEDICADO.md` é a variante para quando não há espaço para a VM: o mesmo
+guia num PC só para o agente, com a BIOS, o relógio pelos controladores de
+domínio, as cópias num segundo disco do próprio PC e a forma de atualizar sem
+pontos de verificação.
+
 | Ficheiro | Para quê |
 |---|---|
 | `agente-editais.service` | o agente como serviço systemd |

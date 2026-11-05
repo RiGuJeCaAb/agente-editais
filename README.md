@@ -289,6 +289,8 @@ publicação, quando uma pessoa a autoriza.
   `python agente.py --painel`.
 - **VM Debian no Hyper-V**, membro do domínio, com a entrada partilhada na
   rede: `servico/HYPER-V.md`, do servidor até à televisão (secção 26).
+- **PC dedicado**, quando não há espaço para a VM: o mesmo guia, com as
+  diferenças em `servico/PC-DEDICADO.md` (secção 28).
 
 Parar o serviço (`systemctl stop`, ou Ctrl+C na consola) já não corta nada a
 meio: o agente acaba o documento ou a publicação em curso, até quatro minutos,
@@ -1466,3 +1468,22 @@ nginx está à frente. Muda duas coisas:
 
 Sem a chave, nada muda: é o painel de sempre.
 
+## 28. Um PC dedicado em vez da VM — NOVO
+
+Quando os servidores não têm espaço para a VM, um PC só para o agente faz o
+mesmo serviço. `servico/PC-DEDICADO.md` segue o `HYPER-V.md` e diz só o que
+muda:
+
+- **A BIOS**, para o PC voltar a ligar sozinho depois de uma falta de luz.
+- **O relógio**, que vem dos controladores de domínio em vez do Hyper-V. É a
+  hora que vai para a certidão, e a que o Kerberos confere.
+- **As cópias**, para um segundo disco no próprio PC, com o que isso protege e o
+  que não protege, e uma cópia mensal para um disco USB cifrado, guardado
+  noutro sítio.
+- **Atualizar sem pontos de verificação**: uma cópia e o número da versão antes,
+  e como recuar.
+- **Os discos**, vigiados pelo `smartmontools`, porque num PC não há mais ninguém
+  a vigiá-los.
+
+Nada muda no agente: a mesma unidade, o mesmo script de cópia, a mesma
+televisão.
